@@ -96,7 +96,9 @@ def get_struct_from_np_dtype(np_dtype):
         else:
             raise ValueError(f"Invalid dtype {np_dtype.base.type}, {np_dtype.fields}")
 
-        fields.append((name, dtype, np_dtype.shape))
+        shape = None if len(np_dtype.shape) == 0 else np_dtype.shape
+
+        fields.append((name, dtype, shape))
 
     return StructType(fields)
 
