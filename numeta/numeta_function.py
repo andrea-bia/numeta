@@ -76,7 +76,6 @@ class NumetaFunction:
         self.runtime_vars_indices = [
             i for i in range(len(self.args_details)) if not self.args_details[i].is_comptime
         ]
-        self.fortran_function = None
 
     def code(self, *args):
         if len(self.comptime_vars_indices) == 0:
@@ -199,19 +198,24 @@ class NumetaFunction:
             tuple: (compiled function, subroutine)
         """
 
-        fortran_function = self.get_fortran_symb_code(*args)
-        fortran_obj = self.compile_fortran(self.name, fortran_function)
+        local_dir = self.directory / f"{len(self.__fortran_functions)}"
+        local_dir.mkdir(exist_ok=True)
 
+        fortran_function = self.get_fortran_symb_code(*args)
+        fortran_obj = self.compile_fortran(self.name, fortran_function, local_dir)
+
+        capi_name = f"{self.name}_capi_{len(self.__fortran_functions)}"
         capi_interface = CAPIInterface(
             self.name,
+            capi_name,
             self.args_details,
-            self.directory,
+            local_dir,
             self.compile_flags,
             self.do_checks,
         )
         capi_obj = capi_interface.generate()
 
-        compiled_library_file = Path(self.directory) / f"lib{self.name}_module.so"
+        compiled_library_file = local_dir / f"lib{self.name}_module.so"
 
         libraries = [
             "gfortran",
@@ -253,7 +257,7 @@ class NumetaFunction:
 
         sp_run = sp.run(
             command,
-            cwd=self.directory,
+            cwd=local_dir,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
         )
@@ -265,8 +269,7 @@ class NumetaFunction:
             error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
             raise Warning(error_message)
 
-        module_name = f"{self.name}_module"
-        spec = importlib.util.spec_from_file_location(module_name, compiled_library_file)
+        spec = importlib.util.spec_from_file_location(capi_name, compiled_library_file)
         compiled_sub = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(compiled_sub)
 
@@ -340,11 +343,7 @@ class NumetaFunction:
 
         return sub
 
-    def compile_fortran(
-        self,
-        name,
-        fortran_function,
-    ):
+    def compile_fortran(self, name, fortran_function, directory):
         """
         Compiles Fortran source files using gfortran.
 
@@ -355,10 +354,10 @@ class NumetaFunction:
             Path: Path to the compiled object file.
         """
 
-        fortran_src = self.directory / f"{self.name}_src.f90"
+        fortran_src = directory / f"{self.name}_src.f90"
         fortran_src.write_text(fortran_function.get_code())
 
-        output = self.directory / f"{name}_fortran.o"
+        output = directory / f"{name}_fortran.o"
 
         libraries = []
         libraries_dirs = []
@@ -396,7 +395,7 @@ class NumetaFunction:
 
         sp_run = sp.run(
             command,
-            cwd=self.directory,
+            cwd=directory,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
         )

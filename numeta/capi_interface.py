@@ -8,6 +8,7 @@ class CAPIInterface:
     def __init__(
         self,
         name,
+        module_name,
         args_details,
         directory,
         compile_flags,
@@ -15,6 +16,7 @@ class CAPIInterface:
         compiler="gcc",
     ):
         self.name = name
+        self.module_name = module_name
         self.args_details = args_details
         self.directory = directory
         self.compile_flags = compile_flags
@@ -23,7 +25,7 @@ class CAPIInterface:
 
     def generate(self):
         capi_interface = self.construct_module()
-        capi_interface_src = self.directory / f"{self.name}_module.c"
+        capi_interface_src = self.directory / f"{self.module_name}.c"
         capi_interface_src.write_text(capi_interface)
         capi_obj_path = self.compile(capi_interface_src)
         return capi_obj_path
@@ -60,7 +62,7 @@ PyMODINIT_FUNC PyInit_${module_name}(void) {
 """
 
         substitutions = {}
-        substitutions["module_name"] = f"{self.name}_module"
+        substitutions["module_name"] = f"{self.module_name}"
 
         struct_definitions = {}
         for arg in self.args_details:
