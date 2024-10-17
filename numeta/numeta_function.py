@@ -7,6 +7,8 @@ import importlib.util
 import numpy as np
 import sys
 import sysconfig
+import pickle
+import shutil
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
 from .datatype import DataType, size_t_dtype
@@ -62,8 +64,9 @@ class NumetaFunction:
         self.compile_flags = compile_flags.split()
 
         self.__func = func
-        self.__fortran_functions = {}
         self.__symbolic_functions = {}  # the symbolic representation of the function
+        self.__fortran_functions = {}
+        self.__libraries = {}
         self.args_details = self.get_args_details(func)
         self.comptime_vars_indices = [
             i for i in range(len(self.args_details)) if self.args_details[i].is_comptime
@@ -77,31 +80,70 @@ class NumetaFunction:
             i for i in range(len(self.args_details)) if not self.args_details[i].is_comptime
         ]
 
+    def dump(self, directory):
+        """
+        Dumps the compiled function to a file.
+        """
+        directory = Path(directory)
+        directory.mkdir(exist_ok=True)
+
+        # Copy the libraries to the new directory
+        new_libraries = {}
+        for comptime_args, (library_name, library_file) in self.__libraries.items():
+            new_library_file = directory / library_file.parent.name / library_file.name
+            new_library_file.parent.mkdir(exist_ok=True)
+            shutil.copy(library_file, new_library_file)
+            new_libraries[comptime_args] = (library_name, new_library_file)
+
+        with open(directory / f"{self.name}.pkl", "wb") as f:
+            pickle.dump(self.__symbolic_functions, f)
+            pickle.dump(new_libraries, f)
+
+    def load(self, directory):
+        """
+        Loads the compiled function from a file.
+        """
+        with open(Path(directory) / f"{self.name}.pkl", "rb") as f:
+            self.__symbolic_functions = pickle.load(f)
+            self.__libraries = pickle.load(f)
+
+        for comptime_args, (library_name, library_file) in self.__libraries.items():
+            self.__fortran_functions[comptime_args] = self.load_compiled_function(
+                library_name, library_file
+            )
+
     def code(self, *args):
         if len(self.comptime_vars_indices) == 0:
             if None not in self.__fortran_functions:
-                (
-                    self.__fortran_functions[None],
-                    self.__symbolic_functions[None],
-                ) = self.compile_function(*args)
+                library_name, library_file, symbolic_fun = self.compile_function(*args)
+                self.__symbolic_functions[None] = symbolic_fun
+                self.__libraries[None] = (library_name, library_file)
+                self.__fortran_functions[None] = self.load_compiled_function(
+                    library_name, library_file
+                )
             return self.__fortran_functions[None](*args).get_code()
         else:
             comptime_args = tuple(args[i] for i in self.comptime_vars_indices)
 
             symbolic_fun = self.__symbolic_functions.get(comptime_args, None)
             if symbolic_fun is None:
-                fun, symbolic_fun = self.compile_function(*args)
-                self.__fortran_functions[comptime_args] = fun
+                library_name, library_file, symbolic_fun = self.compile_function(*args)
                 self.__symbolic_functions[comptime_args] = symbolic_fun
+                self.__libraries[comptime_args] = (library_name, library_file)
+                self.__fortran_functions[comptime_args] = self.load_compiled_function(
+                    library_name, library_file
+                )
             return symbolic_fun.get_code()
 
     def __call__(self, *args):
         if len(self.comptime_vars_indices) == 0:
             if None not in self.__fortran_functions:
-                (
-                    self.__fortran_functions[None],
-                    self.__symbolic_functions[None],
-                ) = self.compile_function(*args)
+                library_name, library_file, symbolic_fun = self.compile_function(*args)
+                self.__symbolic_functions[None] = symbolic_fun
+                self.__libraries[None] = (library_name, library_file)
+                self.__fortran_functions[None] = self.load_compiled_function(
+                    library_name, library_file
+                )
             return self.__fortran_functions[None](*args)
         else:
             return self.call_with_comptime(*args)
@@ -112,9 +154,13 @@ class NumetaFunction:
 
         fun = self.__fortran_functions.get(comptime_args, None)
         if fun is None:
-            fun, symbolic_fun = self.compile_function(*args)
-            self.__fortran_functions[comptime_args] = fun
+            library_name, library_file, symbolic_fun = self.compile_function(*args)
             self.__symbolic_functions[comptime_args] = symbolic_fun
+            self.__libraries[comptime_args] = (library_name, library_file)
+            self.__fortran_functions[comptime_args] = self.load_compiled_function(
+                library_name, library_file
+            )
+            fun = self.__fortran_functions[comptime_args]
         return fun(*runtime_args)
 
     def get_args_details(self, func):
@@ -269,11 +315,14 @@ class NumetaFunction:
             error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
             raise Warning(error_message)
 
+        return capi_name, compiled_library_file, fortran_function
+
+    def load_compiled_function(self, capi_name, compiled_library_file):
         spec = importlib.util.spec_from_file_location(capi_name, compiled_library_file)
         compiled_sub = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(compiled_sub)
 
-        return getattr(compiled_sub, self.name), fortran_function
+        return getattr(compiled_sub, self.name)
 
     def get_fortran_symb_code(self, *args):
         sub = Subroutine(self.name)

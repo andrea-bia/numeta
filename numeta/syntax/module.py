@@ -3,6 +3,17 @@ from .subroutine import Subroutine
 
 
 class Module:
+    __slots__ = (
+        "name",
+        "description",
+        "hidden",
+        "dependencies",
+        "derived_types",
+        "interfaces",
+        "variables",
+        "subroutines",
+    )
+
     def __init__(self, name, description=None, hidden=False):
         super().__init__()
         self.name = name.lower()
@@ -16,7 +27,9 @@ class Module:
         self.subroutines = {}
 
     def __getattr__(self, name):
-        if name in self.variables:
+        if name in self.__slots__:  # pragma: no cover
+            return self.__getattribute__(name)
+        elif name in self.variables:
             return self.variables[name]
         elif name in self.subroutines:
             return self.subroutines[name]
