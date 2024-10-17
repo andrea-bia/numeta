@@ -39,7 +39,11 @@ class CondHelper:
             self.number_if += 1
             source_lines, starting_line_number = inspect.getsourcelines(frame.f_code)
             # HACK: add a try except block to take care of the indentation
-            source_lines = ["try:\n"] + source_lines + ["except:\n    raise Warning('impossible to parse the code')"]
+            source_lines = (
+                ["try:\n"]
+                + source_lines
+                + ["except:\n    raise Warning('impossible to parse the code')"]
+            )
             tree = ast.parse("".join(source_lines))
             self.source_cache[if_id] = (source_lines, tree, starting_line_number + 1)
             endif_line_number = frame.f_lineno - starting_line_number + 2
