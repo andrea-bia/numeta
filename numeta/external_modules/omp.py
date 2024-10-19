@@ -10,6 +10,15 @@ class OmpModule(ExternalModule):
 
     def do(self, *args, **kwargs):
         from numeta.syntax import Do, Comment
+        from numeta.syntax.statements.tools import print_block
+
+        class OmpComment(Comment):
+            """
+            Hack to handle OpenMP statements
+            """
+
+            def print_lines(self, indent=0):
+                return [print_block(self.comment, indent=indent, prefix="!$omp ")]
 
         class OmpDo(Do):
             def __init__(
@@ -21,30 +30,29 @@ class OmpModule(ExternalModule):
                 shared=None,
                 **kwargs,
             ):
-                omp_code = ["$omp parallel do", " "]
+                omp_code = ["parallel do", " "]
                 omp_code += [f"default({default})", " "]
                 omp_code += [f"schedule({schedule})", " "]
                 if private is not None:
-                    # TODO to add variable implicit declared (as bc of for loop inside)
+                    # TODO: Should we add automatically variables declared inside the loop?
                     omp_code += ["private("]
                     for var in private:
                         omp_code += var.get_code_blocks()
                         omp_code += [", "]
                     omp_code[-1] = ")"
                 if shared is not None:
-                    # TODO to add array dimension here?
-                    # Or to remove shared section directly
+                    # TODO: Should we automatically array shapes if explicitly declared as variables?
                     omp_code += ["shared("]
                     for var in shared:
                         omp_code += var.get_code_blocks()
                         omp_code += [", "]
                     omp_code[-1] = ")"
-                Comment("".join(omp_code), add_to_scope=True)
+                OmpComment(omp_code, add_to_scope=True)
                 super().__init__(*args, **kwargs)
 
             def __exit__(self, exc_type, exc_value, traceback):
                 super().__exit__(exc_type, exc_value, traceback)
-                Comment("$omp end parallel do", add_to_scope=True)
+                OmpComment("end parallel do", add_to_scope=True)
 
         return OmpDo(*args, **kwargs)
 

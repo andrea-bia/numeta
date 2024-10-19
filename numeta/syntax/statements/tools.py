@@ -1,21 +1,25 @@
-def print_block(blocks, indent=0):
-    lines_to_print = []
-    lines_to_print.append("")
-
+def print_block(blocks, indent=0, prefix=""):
     indentation = "    " * indent
+    prefix_indentation = prefix + indentation
+    prefix_indent_length = len(prefix_indentation)
+
+    lines_to_print = [""]
+    lines_lengths = [0]
 
     for string in blocks:
-        if len(indentation + lines_to_print[-1] + string + " &") < 130:
-            lines_to_print[-1] += string
+        current_line_length = lines_lengths[-1]
+        new_length = current_line_length + len(string)
+        total_length = prefix_indent_length + new_length + len(" &")
 
+        if total_length < 120:
+            lines_to_print[-1] += string
+            lines_lengths[-1] = new_length
         else:
             lines_to_print[-1] += " &"
             lines_to_print.append(string)
+            lines_lengths.append(len(string))
 
-    result = ""
-    for line in lines_to_print:
-        result += indentation + line + "\n"
-
+    result = "\n".join(prefix_indentation + line for line in lines_to_print) + "\n"
     return result
 
 

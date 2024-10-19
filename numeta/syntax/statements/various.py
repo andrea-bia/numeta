@@ -9,13 +9,16 @@ class Comment(Statement):
     def __init__(self, comment, add_to_scope=False):
         super().__init__(add_to_scope=add_to_scope)
         self.comment = comment
+        if isinstance(comment, str):
+            self.comment = [comment]
 
     @property
     def children(self):
         return []
 
-    def get_code_blocks(self):
-        return ["!", self.comment]
+    def print_lines(self, indent=0):
+        """Print the statement, formatted with the given indent level."""
+        return [print_block(self.comment, indent=indent, prefix="! ")]
 
 
 class Use(Statement):
