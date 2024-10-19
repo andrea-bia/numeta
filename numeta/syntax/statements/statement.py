@@ -121,7 +121,8 @@ class StatementWithScope(Statement):
 
     def extract_entities(self):
         """Extract all entities within this statement and its scoped statements."""
-        yield from [c for c in self.children if isinstance(c, NamedEntity)]
+        for child in self.children:
+            yield from child.extract_entities()
         for statement in self.get_statements():
             yield from statement.extract_entities()
 
