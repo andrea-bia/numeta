@@ -1,6 +1,7 @@
 from .statement import Statement
 from numeta.syntax.nodes import NamedEntity
 from numeta.syntax.syntax_settings import settings
+from .tools import get_shape_blocks
 
 
 class VariableDeclaration(Statement):
@@ -12,7 +13,7 @@ class VariableDeclaration(Statement):
         yield from self.variable.ftype.extract_entities()
 
         if settings.array_lower_bound != 1:
-            # Non stardard array lower bound so we have to shift it
+            # HACK: Non stardard array lower bound so we have to shift it
             # and well need the integer kind
             if isinstance(settings.DEFAULT_INTEGER_KIND, NamedEntity):
                 yield settings.DEFAULT_INTEGER_KIND
@@ -30,71 +31,17 @@ class VariableDeclaration(Statement):
 
         if self.variable.allocatable:
             result += [", ", "allocatable"]
-            result += [", ", "dimension", "("]
-            result += [":", ", "] * (len(self.variable.dimension) - 1)
-            result += [":", ")"]
+            result += [", ", "dimension"]
+            result += ["("] + [":", ","] * (len(self.variable.dimension) - 1) + [":", ")"]
+        elif self.variable.pointer:
+            result += [", ", "pointer"]
+            result += [", ", "dimension"]
+            result += ["("] + [":", ","] * (len(self.variable.dimension) - 1) + [":", ")"]
         elif self.variable.dimension is not None:
-            result += [", ", "dimension", "("]
-
-            def convert(element):
-                if element is None:
-                    if settings.array_lower_bound != 1:
-                        return ["0", ":", "*"]
-                    else:
-                        return ["*"]
-                elif isinstance(element, int):
-                    if (lbound := settings.array_lower_bound) != 1:
-                        return [str(lbound), ":", str(element + (lbound - 1))]
-                    else:
-                        return [str(element)]
-                elif isinstance(element, str):
-                    # TODO: maybe to remove this
-                    return [element]
-                elif isinstance(element, slice):
-                    if element.start is None:
-                        if (lbound := settings.array_lower_bound) != 1:
-                            start = [str(lbound)]
-                        else:
-                            start = ["1"]
-                    elif isinstance(element.start, int):
-                        start = [str(element.start)]
-                    else:
-                        start = element.start.get_code_blocks()
-
-                    if element.stop is None:
-                        stop = [""]
-                    elif isinstance(element.stop, int):
-                        stop = [str(element.stop)]
-                    else:
-                        stop = element.stop.get_code_blocks()
-
-                    if element.step is not None:
-                        raise NotImplementedError("Step in array dimensions is not implemented yet")
-                    return start + [":"] + stop
-                else:
-                    if (lbound := settings.array_lower_bound) != 1:
-                        return [
-                            str(lbound),
-                            ":",
-                            *(element + (lbound - 1)).get_code_blocks(),
-                        ]
-                    else:
-                        return element.get_code_blocks()
-
-            if isinstance(self.variable.dimension, tuple):
-                dims = [convert(d) for d in self.variable.dimension]
-
-                if not self.variable.fortran_order:
-                    dims = dims[::-1]
-
-                result += dims[0]
-                for dim in dims[1:]:
-                    result += [",", " "]
-                    result += dim
-            else:
-                result += convert(self.variable.dimension)
-
-            result += [")"]
+            result += [", ", "dimension"]
+            result += get_shape_blocks(
+                self.variable.dimension, fortran_order=self.variable.fortran_order
+            )
 
         if self.variable.intent is not None:
             result += [", ", "intent", "(", self.variable.intent, ")"]
@@ -105,6 +52,13 @@ class VariableDeclaration(Statement):
 
         if self.variable.parameter:
             result += [", ", "parameter"]
+
+        if self.variable.target:
+            # why fortran? why?
+            if self.variable.pointer:
+                result += [", ", "contiguous"]
+            else:
+                result += [", ", "target"]
 
         assign_str = None
 

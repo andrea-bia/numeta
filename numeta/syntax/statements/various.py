@@ -1,7 +1,7 @@
 from numeta.syntax.tools import check_node
 from numeta.syntax.scope import Scope
 from numeta.syntax.syntax_settings import settings
-from .tools import print_block
+from .tools import print_block, get_shape_blocks
 from .statement import Statement, StatementWithScope
 
 
@@ -368,3 +368,41 @@ class Interface(StatementWithScope):
 
     def get_end_code_blocks(self):
         return ["end", " ", "interface"]
+
+
+class PointerAssignment(Statement):
+    def __init__(self, pointer, pointer_shape, target, target_shape=None):
+        super().__init__()
+        self.pointer = check_node(pointer)
+        self.pointer_shape = []
+        # should specify bounds for the pointer
+        for dim in pointer_shape:
+            if not isinstance(dim, slice):
+                self.pointer_shape.append(slice(None, dim))
+            else:
+                self.pointer_shape.append(dim)
+        self.pointer_shape = tuple(self.pointer_shape)
+        self.target = check_node(target)
+        self.target_shape = target_shape
+
+        from numeta.syntax.variable import Variable
+
+        if not isinstance(self.target, Variable):
+            raise Exception("The target of a pointer must be a variable.")
+        self.target.target = True
+
+        if not isinstance(self.pointer, Variable):
+            raise Exception("The pointer must be a variable.")
+        self.pointer.pointer = True
+
+    @property
+    def children(self):
+        return [self.target, self.pointer]
+
+    def get_code_blocks(self):
+        return [
+            *self.pointer.get_code_blocks(),
+            *get_shape_blocks(self.pointer_shape),
+            "=>",
+            *self.target.get_code_blocks(),
+        ]

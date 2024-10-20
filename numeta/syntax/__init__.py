@@ -14,6 +14,10 @@ FALSE = false
 true = LiteralNode(True)
 TRUE = true
 
+from .statements import Assignment
+
+from .statements import PointerAssignment
+
 from .statements import Call
 
 CALL = Call
