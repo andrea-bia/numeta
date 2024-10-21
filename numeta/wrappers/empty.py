@@ -12,7 +12,11 @@ def empty(shape, dtype=float64):
 
     builder = BuilderHelper.get_current_builder()
     array = builder.generate_local_variables(
-        "fc_a", ftype=dtype.dtype.get_fortran(), dimension=dimension, allocatable=True
+        "fc_a",
+        ftype=dtype.dtype.get_fortran(),
+        dimension=dimension,
+        allocatable=True,
+        fortran_order=False,
     )
     with If(Not(Allocated(array))):
         Allocate(array, *shape)
