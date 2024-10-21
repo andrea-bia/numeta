@@ -121,7 +121,7 @@ class NumetaFunction:
                 self.__fortran_functions[None] = self.load_compiled_function(
                     library_name, library_file
                 )
-            return self.__fortran_functions[None](*args).get_code()
+            return self.__symbolic_functions[None].get_code()
         else:
             comptime_args = tuple(args[i] for i in self.comptime_vars_indices)
 
