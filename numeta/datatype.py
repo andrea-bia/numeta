@@ -103,7 +103,7 @@ bool8_dtype = DataType(
     FortranType("logical", 1),
     FortranType("logical", iso_c.c_bool),
     "npy_bool",
-    lambda x: NotImplementedError,
+    lambda x: f"PyObject_IsTrue({x})",
 )
 
 char_dtype = DataType(
