@@ -1,4 +1,4 @@
-from typing import Protocol, Union
+from typing import Protocol, TypeAlias, Union
 import numpy as np
 from .datatype import (
     StructType,
@@ -193,3 +193,23 @@ np_to_dtype = {
     np.bool_: bool8,
     np.str_: char,
 }
+
+def get_datatype(dtype):
+    if dtype is int:
+        return int64_dtype
+    elif dtype is float:
+        return float64_dtype
+    elif dtype is complex:
+        return complex128_dtype
+    elif dtype.base.type in np_to_dtype:
+        return np_to_dtype[dtype.base.type].dtype
+    elif hasattr(dtype, "fields"):
+        return get_struct_from_np_dtype(dtype)
+    else:
+        raise ValueError(f"Invalid dtype {dtype}")
+
+from typing import Any
+type CompTime = Any
+CT = CompTime
+ct = CompTime
+comptime = CompTime

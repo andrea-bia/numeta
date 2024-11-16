@@ -10,7 +10,7 @@ authors = [
     { name = "Andrea Bianchi", email = "andrea_bianchi@outlook.com" }
 ]
 license = { text = "MIT" }
-requires-python = ">=3.6"
+requires-python = ">=3.12"
 
 dependencies = [
     "numpy"

@@ -9,12 +9,15 @@ import sys
 import sysconfig
 import pickle
 import shutil
+
+from numpy.testing import rundocs
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
 from .datatype import DataType, size_t_dtype
 import textwrap
 from .settings import settings
 from .capi_interface import CAPIInterface
+from .types_hint import CompTime
 
 
 class ArgumentPlaceholder:
@@ -24,14 +27,15 @@ class ArgumentPlaceholder:
     """
 
     def __init__(
-        self, name, is_comptime=False, datatype=None, shape=None, value=False, order="C"
+        self, name, is_comptime=False, datatype=None, shape=None, value=False, fortran_order=False, comptime_value=None
     ) -> None:
         self.name = name
         self.is_comptime = is_comptime
+        self.comptime_value = comptime_value
         self.datatype = datatype
         self.shape = shape
         self.value = value
-        self.order = order
+        self.fortran_order = fortran_order
 
     @property
     def und_shape(self):
@@ -67,18 +71,11 @@ class NumetaFunction:
         self.__symbolic_functions = {}  # the symbolic representation of the function
         self.__fortran_functions = {}
         self.__libraries = {}
-        self.args_details = self.get_args_details(func)
-        self.comptime_vars_indices = [
-            i for i in range(len(self.args_details)) if self.args_details[i].is_comptime
-        ]
-        self.runtime_vars_indices_and_undeclared_shapes = [
-            (i, self.args_details[i].und_shape)
-            for i in range(len(self.args_details))
-            if not self.args_details[i].is_comptime
-        ]
-        self.runtime_vars_indices = [
-            i for i in range(len(self.args_details)) if not self.args_details[i].is_comptime
-        ]
+
+        self.comptime_args_indices = self.get_comptime_args_idx(func)
+
+    def get_comptime_args_idx(self, func):
+        return [i for i, arg in enumerate(func.__annotations__.values()) if arg is CompTime]
 
     def dump(self, directory):
         """
@@ -112,49 +109,66 @@ class NumetaFunction:
                 library_name, library_file
             )
 
-    def code(self, *args):
-        if len(self.comptime_vars_indices) == 0:
-            if None not in self.__fortran_functions:
-                library_name, library_file, symbolic_fun = self.compile_function(*args)
-                self.__symbolic_functions[None] = symbolic_fun
-                self.__libraries[None] = (library_name, library_file)
-                self.__fortran_functions[None] = self.load_compiled_function(
-                    library_name, library_file
-                )
-            return self.__symbolic_functions[None].get_code()
-        else:
-            comptime_args = tuple(args[i] for i in self.comptime_vars_indices)
+   #def code(self, *args):
+   #    if len(self.comptime_vars_indices) == 0:
+   #        if None not in self.__fortran_functions:
+   #            library_name, library_file, symbolic_fun = self.compile_function(*args, runtime_args_spec)
+   #            self.__symbolic_functions[None] = symbolic_fun
+   #            self.__libraries[None] = (library_name, library_file)
+   #            self.__fortran_functions[None] = self.load_compiled_function(
+   #                library_name, library_file
+   #            )
+   #        return self.__symbolic_functions[None].get_code()
+   #    else:
+   #        comptime_args = tuple(args[i] for i in self.comptime_vars_indices)
 
-            symbolic_fun = self.__symbolic_functions.get(comptime_args, None)
-            if symbolic_fun is None:
-                library_name, library_file, symbolic_fun = self.compile_function(*args)
-                self.__symbolic_functions[comptime_args] = symbolic_fun
-                self.__libraries[comptime_args] = (library_name, library_file)
-                self.__fortran_functions[comptime_args] = self.load_compiled_function(
-                    library_name, library_file
-                )
-            return symbolic_fun.get_code()
+   #        symbolic_fun = self.__symbolic_functions.get(comptime_args, None)
+   #        if symbolic_fun is None:
+   #            library_name, library_file, symbolic_fun = self.compile_function(*args)
+   #            self.__symbolic_functions[comptime_args] = symbolic_fun
+   #            self.__libraries[comptime_args] = (library_name, library_file)
+   #            self.__fortran_functions[comptime_args] = self.load_compiled_function(
+   #                library_name, library_file
+   #            )
+   #        return symbolic_fun.get_code()
+
+    def get_runtime_args_and_spec(self, args):
+        
+        runtime_args = []
+        runtime_args_spec = []
+        for i, arg in enumerate(args):
+            if i in self.comptime_args_indices:
+                continue 
+            elif isinstance(arg, np.ndarray):
+                runtime_args_spec.append((arg.dtype, len(arg.shape), np.isfortran(arg))) 
+            elif isinstance(arg, (int, float, complex)):
+                runtime_args_spec.append((type(arg),))
+            runtime_args.append(arg)
+
+        return runtime_args, tuple(runtime_args_spec)
 
     def __call__(self, *args):
-        if len(self.comptime_vars_indices) == 0:
-            if None not in self.__fortran_functions:
-                library_name, library_file, symbolic_fun = self.compile_function(*args)
-                self.__symbolic_functions[None] = symbolic_fun
-                self.__libraries[None] = (library_name, library_file)
-                self.__fortran_functions[None] = self.load_compiled_function(
-                    library_name, library_file
-                )
-            return self.__fortran_functions[None](*args)
-        else:
-            return self.call_with_comptime(*args)
 
-    def call_with_comptime(self, *args):
-        comptime_args = tuple(args[i] for i in self.comptime_vars_indices)
-        runtime_args = [args[i] for i in self.runtime_vars_indices]
+        # TODO: probably overhead, to do in C?
+        comptime_args = []
+        runtime_args = []
+        for i, arg in enumerate(args):
+            if i in self.comptime_args_indices:
+                comptime_args.append(arg)
+            else:
+                if isinstance(arg, np.ndarray):
+                    comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg))) 
+                elif isinstance(arg, (int, float, complex)):
+                    comptime_args.append((type(arg),))
+                else:
+                    raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
+                runtime_args.append(arg)
 
+        comptime_args = tuple(comptime_args)
+        
         fun = self.__fortran_functions.get(comptime_args, None)
         if fun is None:
-            library_name, library_file, symbolic_fun = self.compile_function(*args)
+            library_name, library_file, symbolic_fun = self.compile_function(comptime_args)
             self.__symbolic_functions[comptime_args] = symbolic_fun
             self.__libraries[comptime_args] = (library_name, library_file)
             self.__fortran_functions[comptime_args] = self.load_compiled_function(
@@ -163,75 +177,10 @@ class NumetaFunction:
             fun = self.__fortran_functions[comptime_args]
         return fun(*runtime_args)
 
-    def get_args_details(self, func):
-        args_details = []
-
-        runtime_args = {}
-        for name, hint in func.__annotations__.items():
-            if hasattr(hint, "dtype") and isinstance(hint.dtype, DataType):
-                datatype = hint.dtype
-                shape = hint.flags["shape"]
-                order = hint.flags.get("order", settings.order)
-                if datatype.can_be_value() and shape is None:
-                    runtime_args[name] = ArgumentPlaceholder(
-                        name,
-                        is_comptime=False,
-                        datatype=datatype,
-                        value=True,
-                        order=order,
-                    )
-                elif shape is None:
-                    runtime_args[name] = ArgumentPlaceholder(
-                        name, is_comptime=False, datatype=datatype, order=order
-                    )
-                elif isinstance(shape, int):
-                    runtime_args[name] = ArgumentPlaceholder(
-                        name,
-                        is_comptime=False,
-                        datatype=datatype,
-                        shape=shape,
-                        order=order,
-                    )
-                elif isinstance(shape, slice):
-                    if shape.start is None and shape.stop is None and shape.step is None:
-                        runtime_args[name] = ArgumentPlaceholder(
-                            name,
-                            is_comptime=False,
-                            datatype=datatype,
-                            shape=[None],
-                            order=order,
-                        )
-                    else:
-                        raise ValueError('Only ":" is allowed for slice')
-                elif isinstance(shape, tuple):
-                    parsed_shape = []
-                    for dim in shape:
-                        if isinstance(dim, slice):
-                            if dim.start is None and dim.stop is None and dim.step is None:
-                                parsed_shape.append(None)
-                            else:
-                                raise ValueError('Only ":" is allowed for slice')
-                        else:
-                            parsed_shape.append(dim)
-                    runtime_args[name] = ArgumentPlaceholder(
-                        name,
-                        is_comptime=False,
-                        datatype=datatype,
-                        shape=parsed_shape,
-                        order=order,
-                    )
-
-        params = inspect.signature(func).parameters
-
-        args_details = [
-            runtime_args.get(key, ArgumentPlaceholder(key, is_comptime=True)) for key in params
-        ]
-
-        return args_details
 
     def compile_function(
         self,
-        *args,
+        comptime_args_spec,
     ):
         """
         Compiles Fortran code and constructs a C API interface,
@@ -247,14 +196,31 @@ class NumetaFunction:
         local_dir = self.directory / f"{len(self.__fortran_functions)}"
         local_dir.mkdir(exist_ok=True)
 
-        fortran_function = self.get_fortran_symb_code(*args)
+        comptime_args = []
+        for i, arg in enumerate(comptime_args_spec):
+            if i in self.comptime_args_indices:
+                ap = ArgumentPlaceholder(f"in_{i}", is_comptime=True, comptime_value=arg)
+            else: 
+                from .types_hint import get_datatype
+                dtype = get_datatype(arg[0]) 
+                if len(arg) == 1:
+                    # it is a numberic type or a string
+                    ap = ArgumentPlaceholder(f"in_{i}", datatype=dtype, value=dtype.can_be_value())
+                else:
+                    fortran_order = arg[2]
+                    shape = tuple([None] * arg[1])
+                    ap = ArgumentPlaceholder(f"in_{i}", datatype=dtype, shape=shape, fortran_order=fortran_order)
+
+            comptime_args.append(ap)
+
+        fortran_function = self.get_fortran_symb_code(comptime_args)
         fortran_obj = self.compile_fortran(self.name, fortran_function, local_dir)
 
         capi_name = f"{self.name}_capi_{len(self.__fortran_functions)}"
         capi_interface = CAPIInterface(
             self.name,
             capi_name,
-            self.args_details,
+            comptime_args,
             local_dir,
             self.compile_flags,
             self.do_checks,
@@ -324,40 +290,24 @@ class NumetaFunction:
 
         return getattr(compiled_sub, self.name)
 
-    def get_fortran_symb_code(self, *args):
+    def get_fortran_symb_code(self, comptime_args):
         sub = Subroutine(self.name)
         builder = BuilderHelper(sub, self.__func)
 
         symbolic_args = []
-        for i, arg in enumerate(self.args_details):
+        print(comptime_args)
+        for arg in comptime_args:
+            print('->', arg)
             if arg.is_comptime:
-                symbolic_args.append(args[i])
+                symbolic_args.append(arg.comptime_value)
             else:
                 ftype = arg.datatype.get_fortran()
-                is_fortran = arg.order == "F"
-                if arg.value:
+                if arg.shape is None:
+
                     symbolic_args.append(
-                        Variable(arg.name, ftype=ftype, fortran_order=is_fortran, intent="in")
+                        Variable(arg.name, ftype=ftype, fortran_order=False, intent="in")
                     )
-                elif arg.shape is None:
-                    symbolic_args.append(
-                        Variable(
-                            arg.name,
-                            ftype=ftype,
-                            fortran_order=is_fortran,
-                            intent="inout",
-                        )
-                    )
-                elif isinstance(arg.shape, int):
-                    symbolic_args.append(
-                        Variable(
-                            arg.name,
-                            ftype=ftype,
-                            fortran_order=is_fortran,
-                            intent="inout",
-                            dimension=arg.shape,
-                        )
-                    )
+
                 else:
                     dim_var = builder.generate_local_variables(
                         f"fc_n",
@@ -365,29 +315,20 @@ class NumetaFunction:
                         intent="in",
                         dimension=len(arg.shape),
                     )
-                    to_add = False
-                    dimension = []
-                    for i_dim, dim in enumerate(arg.shape):
-                        if dim is None:
-                            dimension.append(dim_var[i_dim])
-                            to_add = True
-                        else:
-                            dimension.append(dim)
-
-                    if to_add:
-                        sub.add_variable(dim_var)
+                    sub.add_variable(dim_var)
 
                     symbolic_args.append(
                         Variable(
                             arg.name,
                             ftype=ftype,
-                            fortran_order=is_fortran,
-                            dimension=tuple(dimension),
+                            fortran_order=arg.fortran_order,
+                            dimension=tuple([dim_var[i] for i in range(len(arg.shape))]),
                             intent="inout",
                         )
                     )
                 sub.add_variable(symbolic_args[-1])
 
+        print(symbolic_args)
         builder.build(*symbolic_args)
 
         return sub

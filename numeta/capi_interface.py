@@ -209,7 +209,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
         PyErr_SetString(PyExc_TypeError, "Argument '{variable.name}' must be a NumPy array");
         return NULL;
     }}"""
-            if variable.order == "F":
+            if variable.fortran_order:
                 check_farray = f"""
     if (!PyArray_ISFARRAY({variable.name})) {{
         PyErr_SetString(PyExc_ValueError, "Input array '{variable.name}' is not Fortran contiguous or aligned.");

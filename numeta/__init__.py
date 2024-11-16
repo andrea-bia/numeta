@@ -8,6 +8,8 @@ from .types_hint import (
     complex128,
     bool8,
     char,
+    CompTime,
+    CT,
 )
 
 integer4 = int32
