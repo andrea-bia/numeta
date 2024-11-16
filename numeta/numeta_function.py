@@ -156,7 +156,10 @@ class NumetaFunction:
             if i in self.comptime_args_indices:
                 comptime_args.append(arg)
             else:
-                if isinstance(arg, np.ndarray):
+                if isinstance(arg, np.generic):
+                    # it is a numpy scalar 
+                    comptime_args.append((arg.dtype,))
+                elif isinstance(arg, np.ndarray):
                     comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg))) 
                 elif isinstance(arg, (int, float, complex)):
                     comptime_args.append((type(arg),))
@@ -295,17 +298,16 @@ class NumetaFunction:
         builder = BuilderHelper(sub, self.__func)
 
         symbolic_args = []
-        print(comptime_args)
         for arg in comptime_args:
-            print('->', arg)
             if arg.is_comptime:
                 symbolic_args.append(arg.comptime_value)
             else:
                 ftype = arg.datatype.get_fortran()
                 if arg.shape is None:
+                    intent = "in" if arg.datatype.can_be_value() else "inout"
 
                     symbolic_args.append(
-                        Variable(arg.name, ftype=ftype, fortran_order=False, intent="in")
+                        Variable(arg.name, ftype=ftype, fortran_order=False, intent=intent)
                     )
 
                 else:
@@ -328,7 +330,6 @@ class NumetaFunction:
                     )
                 sub.add_variable(symbolic_args[-1])
 
-        print(symbolic_args)
         builder.build(*symbolic_args)
 
         return sub
