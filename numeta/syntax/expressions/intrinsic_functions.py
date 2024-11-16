@@ -112,6 +112,22 @@ class Tanh(UnaryIntrinsicFunction):
     token = "tanh"
 
 
+class ASin(UnaryIntrinsicFunction):
+    token = "asin"
+
+
+class ACos(UnaryIntrinsicFunction):
+    token = "acos"
+
+
+class ATan(UnaryIntrinsicFunction):
+    token = "atan"
+
+
+class ATan2(BinaryIntrinsicFunction):
+    token = "atan2"
+
+
 class Dotproduct(BinaryIntrinsicFunction):
     token = "dot_product"
 

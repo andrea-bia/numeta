@@ -195,6 +195,26 @@ from .expressions import Tanh
 tanh = Tanh
 TANH = Tanh
 
+from .expressions import ASin
+
+asin = ASin
+ASIN = ASin
+
+from .expressions import ACos
+
+acos = ACos
+ACOS = ACos
+
+from .expressions import ATan
+
+atan = ATan
+ATAN = ATan
+
+from .expressions import ATan2
+
+atan2 = ATan2
+ATAN2 = ATan2
+
 from .expressions import Dotproduct
 
 dot_product = Dotproduct

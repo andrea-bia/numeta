@@ -29,12 +29,12 @@ class ExpressionNode(Node):
         return Assignment(self, other)
 
     def __neg__(self):
-        from .intrinsic_function import Neg
+        from .intrinsic_functions import Neg
 
         return Neg(self)
 
     def __abs__(self):
-        from .intrinsic_function import Abs
+        from .intrinsic_functions import Abs
 
         return Abs(self)
 
@@ -74,6 +74,16 @@ class ExpressionNode(Node):
         return BinaryOperationNode(self, "/", other)
 
     def __rtruediv__(self, other):
+        from .binary_operation_node import BinaryOperationNode
+
+        return BinaryOperationNode(other, "/", self)
+
+    def __floordiv__(self, other):
+        from .binary_operation_node import BinaryOperationNode
+
+        return BinaryOperationNode(self, "/", other)
+
+    def __rfloordiv__(self, other):
         from .binary_operation_node import BinaryOperationNode
 
         return BinaryOperationNode(other, "/", self)

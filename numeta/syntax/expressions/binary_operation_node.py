@@ -79,8 +79,10 @@ class EqBinaryNode(BinaryOperationNode):
 class NeBinaryNode(BinaryOperationNode):
     def __init__(self, left, right):
         self.op = ".ne."
-        self.left = left
-        self.right = right
+        # self.left = left
+        # self.right = right
+        self.left = check_node(left)
+        self.right = check_node(right)
 
     def __bool__(self):
         try:
