@@ -201,6 +201,8 @@ def get_datatype(dtype):
         return float64_dtype
     elif dtype is complex:
         return complex128_dtype
+    elif dtype is bool:
+        return bool8_dtype
     elif dtype.base.type in np_to_dtype:
         return np_to_dtype[dtype.base.type].dtype
     elif hasattr(dtype, "fields"):
