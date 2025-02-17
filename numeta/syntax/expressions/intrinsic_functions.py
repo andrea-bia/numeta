@@ -50,6 +50,10 @@ class Allocated(UnaryIntrinsicFunction):
     token = "allocated"
 
 
+class Shape(UnaryIntrinsicFunction):
+    token = "shape"
+
+
 class All(UnaryIntrinsicFunction):
     token = "all"
 

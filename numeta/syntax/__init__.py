@@ -120,6 +120,11 @@ from .expressions import Allocated
 allocated = Allocated
 ALLOCATED = Allocated
 
+from .expressions import Shape
+
+shape = Shape
+SHAPE = Shape
+
 from .expressions import All
 
 all = All
