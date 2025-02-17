@@ -105,7 +105,8 @@ class GetItem(ExpressionNode):
         return result
 
     def __setitem__(self, key, value):
-        raise NotImplementedError("Setting a value to a 'GetItem' is not implemented")
+        from numeta.syntax.statements import Assignment
+        Assignment(self[key], value)
 
     # def get_with_updated_variables(self, variables_couples):
     #    # if the variable is present in the first index of variables_couples return the corresponding second index
