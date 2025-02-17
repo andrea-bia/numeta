@@ -157,10 +157,14 @@ class NumetaFunction:
                 comptime_args.append(arg)
             else:
                 if isinstance(arg, np.generic):
-                    # it is a numpy scalar 
+                    # it is a numpy scalar like np.int32(1) or np.float64(1.0)
                     comptime_args.append((arg.dtype,))
                 elif isinstance(arg, np.ndarray):
-                    comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg))) 
+                    if arg.shape == ():
+                        # it is a numpy 0-dimensional array like np.array(1)
+                        comptime_args.append((arg.dtype,))
+                    else:
+                        comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg))) 
                 elif isinstance(arg, (int, float, complex)):
                     comptime_args.append((type(arg),))
                 else:
