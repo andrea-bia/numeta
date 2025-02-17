@@ -2,8 +2,8 @@ import numeta as nm
 import numpy as np
 import sys
 
-def test_lapack():
 
+def test_lapack():
     lapack = nm.ExternalLibraryWrapper("lapack")
     lapack.add_method(
         "dgemm",
@@ -14,12 +14,12 @@ def test_lapack():
             nm.i4,
             nm.i4,
             nm.f8,
-            nm.f8[:],
+            nm.f8[None],
             nm.i4,
-            nm.f8[:],
+            nm.f8[None],
             nm.i4,
             nm.f8,
-            nm.f8[:],
+            nm.f8[None],
             nm.i4,
         ],
         None,
@@ -30,11 +30,9 @@ def test_lapack():
 
     nm.settings.set_integer(32)
 
-
     @nm.jit
-    def matmul(a: nm.f8[:, :], b: nm.f8[:, :], c: nm.f8[:, :]):
+    def matmul(a, b, c):
         lapack.dgemm("N", "N", n, n, n, 1.0, b, n, a, n, 0.0, c, n)
-
 
     a = np.random.rand(n, n)
     b = np.random.rand(n, n)
@@ -43,3 +41,6 @@ def test_lapack():
     matmul(a, b, c)
 
     np.testing.assert_allclose(c, np.dot(a, b))
+
+
+test_lapack()

@@ -1,10 +1,10 @@
 import numpy as np
 import numeta as nm
 
-def test_cond():
 
+def test_cond():
     @nm.jit
-    def cond(a: nm.f8[:]) -> None:
+    def cond(a) -> None:
         a[:] = 0.0
         for i in nm.frange(n):
             if nm.cond(i < 9):
@@ -86,7 +86,7 @@ def test_cond():
                     nm.endif()
                 nm.endif()
             nm.endif()
-    
+
     n = 27
     a = np.empty(n, dtype=np.float64)
 

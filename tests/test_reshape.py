@@ -11,7 +11,7 @@ def test_reshape(dtype):
     m = 20
 
     @nm.jit
-    def set_zero_first_col(n: nm.i8, m: nm.i8, a: nm.dtype[dtype][:, :]):
+    def set_zero_first_col(n, m, a):
         a_p = nm.reshape(a, (n, m))
 
         a_p[:, 0] = 0

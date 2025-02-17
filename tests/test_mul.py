@@ -10,7 +10,7 @@ def test_mul(dtype):
     n = 100
 
     @nm.jit
-    def mul(a: nm.dtype[dtype][:, :], b: nm.dtype[dtype][:, :], c: nm.dtype[dtype][:, :]):
+    def mul(a, b, c):
         for i in nm.frange(a.shape[0]):
             for k in nm.frange(b.shape[0]):
                 c[i, :] += a[i, k] * b[k, :]

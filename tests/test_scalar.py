@@ -1,16 +1,14 @@
-
 import numeta as nm
 import numpy as np
 import pytest
+
 
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
 def test_scalar(dtype):
-
     @nm.jit
-    def fill(a: nm.dtype[dtype][2]):
-
+    def fill(a):
         tmp = nm.scalar(nm.dtype[dtype], 50)
         a[0] = tmp
 

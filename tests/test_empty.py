@@ -11,7 +11,7 @@ def test_empty(dtype):
     m = 20
 
     @nm.jit
-    def copy_and_set_zero_first_col_with_empty(a: nm.dtype[dtype][:, :], b: nm.dtype[dtype][:, :]):
+    def copy_and_set_zero_first_col_with_empty(a, b):
         tmp = nm.empty((n, m), nm.dtype[dtype])
         tmp[:] = 1.0
         tmp[:, 0] = 0
@@ -38,7 +38,7 @@ def test_empty_fortran(dtype):
     m = 20
 
     @nm.jit
-    def copy_and_set_zero_first_col_with_empty(a: nm.dtype[dtype][:, :], b: nm.dtype[dtype][:, :]):
+    def copy_and_set_zero_first_col_with_empty(a, b):
         tmp = nm.empty((n, m), nm.dtype[dtype], order="F")
         tmp[:] = 1.0
         tmp[:, 0] = 0

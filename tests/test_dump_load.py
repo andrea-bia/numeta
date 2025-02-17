@@ -13,7 +13,7 @@ def test_dump_load():
     tmpdir = tempfile.mkdtemp()
 
     @nm.jit(directory=tmpdir)
-    def fill(value, a: nm.f8[:, :]):
+    def fill(value: nm.CT, a):
         a[:] = value
 
     fill(1.0, a)
@@ -23,7 +23,7 @@ def test_dump_load():
     shutil.rmtree(tmpdir)
 
     @nm.jit
-    def fill(value, a: nm.f8[:, :]):
+    def fill(value: nm.CT, a):
         raise Warning("This should not be called")
 
     fill.load(dumpdir)

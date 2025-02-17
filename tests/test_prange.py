@@ -10,8 +10,13 @@ def test_pmul(dtype):
     n = 100
 
     @nm.jit
-    def pmul(a: nm.dtype[dtype][:, :], b: nm.dtype[dtype][:, :], c: nm.dtype[dtype][:, :]):
-        for i in nm.prange(a.shape[0], default='private', shared=[a, b, c, b.shape[0].variable, a.shape[0].variable], schedule='static'):
+    def pmul(a, b, c):
+        for i in nm.prange(
+            a.shape[0],
+            default="private",
+            shared=[a, b, c, b.shape[0].variable, a.shape[0].variable],
+            schedule="static",
+        ):
             for k in nm.frange(b.shape[0]):
                 c[i, :] += a[i, k] * b[k, :]
 
