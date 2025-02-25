@@ -1,6 +1,6 @@
 from numeta.builder_helper import BuilderHelper
 from numeta.types_hint import float64
-from numeta.syntax import Allocate, If, Allocated, Not
+from numeta.syntax import Allocate, If, Allocated, Not, FortranType
 
 
 def empty(shape, dtype=float64, order="C"):
@@ -11,11 +11,16 @@ def empty(shape, dtype=float64, order="C"):
 
     if not isinstance(shape, (tuple, list)):
         shape = (shape,)
+    
+    if isinstance(dtype, FortranType):
+        ftype = dtype
+    else:
+        ftype = dtype.dtype.get_fortran()
 
     builder = BuilderHelper.get_current_builder()
     array = builder.generate_local_variables(
         "fc_a",
-        ftype=dtype.dtype.get_fortran(),
+        ftype=ftype,
         dimension=tuple(None for _ in shape),
         allocatable=True,
         fortran_order=fortran_order,
