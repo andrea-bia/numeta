@@ -33,6 +33,10 @@ class Variable(NamedEntity, ExpressionNode):
         self.target = target
         self.fortran_order = fortran_order
 
+    @property
+    def dtype(self):
+        return self.ftype
+
     def get_with_updated_variables(self, variables_couples):
         for old_variable, new_variable in variables_couples:
             if old_variable.name == self.name:
