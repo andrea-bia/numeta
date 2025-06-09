@@ -1,11 +1,10 @@
 import numeta as nm
 import numpy as np
-import sys
 
 
-def test_lapack():
-    lapack = nm.ExternalLibraryWrapper("lapack")
-    lapack.add_method(
+def test_blas():
+    blas = nm.ExternalLibraryWrapper("blas")
+    blas.add_method(
         "dgemm",
         [
             nm.char,
@@ -30,9 +29,9 @@ def test_lapack():
 
     nm.settings.set_integer(32)
 
-    @nm.jit
+    @nm.jit(directory='.')
     def matmul(a, b, c):
-        lapack.dgemm("N", "N", n, n, n, 1.0, b, n, a, n, 0.0, c, n)
+        blas.dgemm("N", "N", n, n, n, 1.0, b, n, a, n, 0.0, c, n)
 
     a = np.random.rand(n, n)
     b = np.random.rand(n, n)
@@ -41,6 +40,3 @@ def test_lapack():
     matmul(a, b, c)
 
     np.testing.assert_allclose(c, np.dot(a, b))
-
-
-test_lapack()
