@@ -1,0 +1,15 @@
+image: python:3.11
+
+stages:
+  - test
+
+test:
+  stage: test
+  before_script:
+    - apt-get update
+    - apt-get install -y gfortran liblapack-dev libblas-dev build-essential
+    - pip install --upgrade pip
+    - pip install numpy pytest
+    - pip install .
+  script:
+    - pytest -v
