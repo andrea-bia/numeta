@@ -9,12 +9,14 @@ Currently, the code generates Fortran code that is compiled and executed. The ob
 ## Table of Contents
 
 - [Features](#features)
+- [Limitations](#limitations)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [Type Hints](#type-hints)
   - [Compile-Time Variables](#compile-time-variables)
   - [Parallelizing Loops](#parallelizing-loops)
+  - [comptime Example](#comptime-example)
 - [Examples](#examples)
   - [First For Loop](#first-for-loop)
   - [Conditional Statements](#conditional-statements)
@@ -29,6 +31,10 @@ Currently, the code generates Fortran code that is compiled and executed. The ob
 - **Metaprogramming Focus**: Leverages metaprogramming for flexible code generation.
 - **Simplified Approach**: Does not rely on parsing AST or bytecode, making it straightforward.
 - **Type Annotations**: Uses Python's type hints to differentiate between compiled and compile-time variables.
+
+## Limitations
+
+Numeta is still experimental. JIT-compiled functions currently cannot return values; they must modify arrays or objects passed as arguments.
 
 ## Installation
 
@@ -48,7 +54,7 @@ Here's a quick example demonstrating how numeta works:
 import numeta as nm
 
 @nm.jit
-def mixed_loops(n, array: nm.f8[:, :]) -> None:
+def mixed_loops(n: nm.comptime, array) -> None:
     for i in range(n):
         for j in nm.frange(n):
             array[j, i] = i + j
@@ -85,54 +91,8 @@ Note that the indices are reversed because Fortran arrays are column-major, mean
 ### Type Hints
 
 In numeta, to differentiate compile-time variables and runtime variables, you should use type hints. This allows for a clear separation between the two and enables metaprogramming capabilities.
-
-Currently, the following types are supported:
-
-- `int32`, `int64` (also aliased as `integer4`, `integer8`, `i4`, `i8`)
-- `float32`, `float64` (also aliased as `real4`, `real8`, `f4`, `f8`, `r4`, `r8`)
-- `complex64`, `complex128` (also aliased as `complex8`, `complex16`, `c8`, `c16`)
-- `bool8` (also aliased as `logical1`, `b1`)
-- `char`
-- `dtype` (for structured numpy arrays)
-
-#### How to Use Type Hints
-
-Examples of using type hints in numeta:
-
-- `nm.f8[:, :]` defines a rank-2 array of `float64` numbers.
-- `nm.f8[20, 20]` defines a fixed shape array of `float64` with dimensions 20x20.
-- To specify the memory layout, use `nm.f8[:, :]['F']` or `nm.f8[:, :]['C']` for Fortran or C order, respectively.
-- You can also convert from numpy types, e.g., `nm.dtype[np.float64][:]`.
-- To create structured arrays, convert from numpy `dtype` or define using a tuple, e.g., `nm.dtype[('name1', dtype1, dim1), ('name2', dtype2)]` or with a dictionary.
-
-### Compile-Time Variables
-
-Variables without type annotations are considered compile-time constants. They are evaluated during the compilation phase and can be used to control code generation. Compile-time variables should be hashable; therefore, you can't use a list or a dictionary directly. If needed, map them to a hashable variable and call it in the code.
-
-Incorrect usage:
-
-```python
-to_sum_1 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-to_sum_2 = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-
-@nm.jit
-def compile_time_variable(to_sum, array: nm.f8[10]) -> None:
-    for i in range(10):
-        array[i] += to_sum
-```
-
-Correct usage:
-
-```python
-to_sum = {}
-to_sum[1] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-to_sum[2] = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-
-@nm.jit
-def compile_time_variable(idx_sum, array: nm.f8[10]) -> None:
-    for i in range(10):
-        array[i] += to_sum[idx_sum][i]
-```
+Variable with the `nm.comptime` type hint are considered compile-time variables, while those with other type hints are treated as runtime variables.
+Runtime variables should be compatible with numeta, in particular, they should be numpy types (structured arrays are supported).
 
 ## Examples
 
@@ -144,7 +104,7 @@ Below is a simple example of a for loop using numeta:
 import numeta as nm
 
 @nm.jit
-def first_for_loop(n: nm.i8, array: nm.f8[:]) -> None:
+def first_for_loop(n, array) -> None:
     for i in nm.frange(n):
         array[i] = i * 2
 ```
@@ -152,14 +112,15 @@ def first_for_loop(n: nm.i8, array: nm.f8[:]) -> None:
 In this example:
 
 - `n` is the size of the array.
-- `array` is a rank-1 array of `float64` numbers.
+- `array` is a rank-1 numpy array.
 - The loop runs using `nm.frange(n)` to generate a compiled loop that performs the operation.
+- Fortran implicit casting is used to convert `i` to the appropriate type for the array.
 
 Alternatively, you can use:
 
 ```python
 @nm.jit
-def do_loop(n: nm.i8, array: nm.f8[:]) -> None:
+def do_loop(n, array) -> None:
     i = nm.scalar(nm.i8)
     with nm.do(i, 0, n - 1):
         array[i] = i * 2
@@ -175,7 +136,7 @@ Below is an example of how to use conditional statements with numeta:
 import numeta as nm
 
 @nm.jit
-def conditional_example(n: nm.i8, array: nm.f8[:]) -> None:
+def conditional_example(n, array) -> None:
     for i in nm.frange(n):
         if nm.cond(i < 1):
             array[i] = 0
@@ -205,54 +166,60 @@ This approach is safer, albeit less elegant, and will generate the same code as 
 
 ### How to Link an External Library
 
-Below is an example of how to link an external library, specifically linking LAPACK (very alpha):
+Below is an example of how to link an external library, specifically linking BLAS (very alpha):
 
 ```python
 import numeta as nm
 
-# Create an external library wrapper for LAPACK
-lapack = nm.ExternalLibraryWrapper("lapack")
+# Create an external library wrapper for BLAS
+blas = nm.ExternalLibraryWrapper("blas")
 
 # Add a method from LAPACK to the wrapper
-lapack.add_method(
+blas.add_method(
     "dgemm",
     [
         nm.char,      # transa
         nm.char,      # transb
-        nm.i4,        # m
-        nm.i4,        # n
-        nm.i4,        # k
+        nm.i8,        # m
+        nm.i8,        # n
+        nm.i8,        # k
         nm.f8,        # alpha
         nm.f8[:],     # a
-        nm.i4,        # lda
+        nm.i8,        # lda
         nm.f8[:],     # b
-        nm.i4,        # ldb
+        nm.i8,        # ldb
         nm.f8,        # beta
         nm.f8[:],     # c
-        nm.i4         # ldc
+        nm.i8         # ldc
     ],
     None,
     bind_c=False
 )
 
-# Set up a compile-time constant
-n = 100
-
-# Configure numeta settings
-nm.settings.set_integer(32)
-
 @nm.jit
-def matmul(a: nm.f8[:, :], b: nm.f8[:, :], c: nm.f8[:, :]):
+def matmul(a, b, c):
     # Call the linked LAPACK dgemm method
-    lapack.dgemm("N", "N", n, n, n, 1.0, b, n, a, n, 0.0, c, n)
+    blas.dgemm("N",
+               "N",
+               b.shape[0],
+               a.shape[1],
+               c.shape[1],
+               1.0,
+               b,
+               b.shape[0],
+               a,
+               a.shape[0],
+               0.0,
+               c,
+               c.shape[0])
 ```
 
 In this example:
 
-- `lapack = nm.ExternalLibraryWrapper("lapack")` creates a wrapper for the LAPACK library.
-- `lapack.add_method()` adds the `dgemm` method for matrix multiplication.
+- `blas = nm.ExternalLibraryWrapper("blas")` creates a wrapper for the LAPACK library.
+- `blas.add_method()` adds the `dgemm` method for matrix multiplication.
 - The method signature includes parameters such as matrix dimensions and scalars.
-- The `matmul` function then uses `lapack.dgemm` to perform matrix multiplication.
+- The `matmul` function then uses `blas.dgemm` to perform matrix multiplication.
 
 ### Parallel Loop Example
 
@@ -264,7 +231,7 @@ Below is an example of how to parallelize a loop using `nm.prange`:
 import numeta as nm
 
 @nm.jit
-def pmul(a: nm.dtype[dtype][:, :], b: nm.dtype[dtype][:, :], c: nm.dtype[dtype][:, :]):
+def pmul(a, b, c):
     for i in nm.prange(a.shape[0], default='private', shared=[a, b, c], schedule='static'):
         for k in nm.frange(b.shape[0]):
             c[i, :] += a[i, k] * b[k, :]
@@ -276,6 +243,29 @@ In this example:
 - `default='private'` specifies that loop variables are private by default.
 - The `shared` list includes variables that are shared across threads.
 - The `schedule='static'` controls the scheduling of loop iterations.
+
+### Compile-Time Example
+
+Compile-time variables are ordinary Python objects without type hints. They are
+evaluated during compilation and can be used to specialize generated code.
+
+```python
+import numeta as nm
+import numpy as np
+
+@nm.jit
+def sum_first_n(length: nm.comptime, a, result):
+    result[:] = 0.0
+    for i in range(length):
+        result[:] += a[i]
+
+array = np.random.random((10,))
+result = np.zeros((1,), dtype=array.dtype)
+
+sum_first_n(4, array, result)
+```
+
+When `sum_first_n` is compiled, the loop is unrolled because `length` is knownat compile time.
 
 ## Why Fortran Backend?
 
