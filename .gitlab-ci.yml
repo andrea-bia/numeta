@@ -2,14 +2,23 @@ image: python:3.12
 
 stages:
   - test
+  - deploy
 
 test:
   stage: test
   before_script:
     - apt-get update
     - apt-get install -y gfortran liblapack-dev libblas-dev build-essential
-    - pip install --upgrade pip
     - pip install numpy pytest
     - pip install .
   script:
     - pytest -v
+
+deploy_pypi:
+  stage: deploy
+  script:
+    - pip install build twine
+    - python -m build
+    - twine upload --non-interactive --username __token__ --password "$PYPI_API_TOKEN" dist/*
+  only:
+    - tags
