@@ -211,7 +211,4 @@ def get_datatype(dtype):
         raise ValueError(f"Invalid dtype {dtype}")
 
 from typing import Any
-type CompTime = Any
-CT = CompTime
-ct = CompTime
-comptime = CompTime
+type comptime = Any

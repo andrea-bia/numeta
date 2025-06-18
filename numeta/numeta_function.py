@@ -1,4 +1,3 @@
-import inspect
 import numpy as np
 import subprocess as sp
 from pathlib import Path
@@ -10,14 +9,12 @@ import sysconfig
 import pickle
 import shutil
 
-from numpy.testing import rundocs
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
 from .datatype import DataType, size_t_dtype
 import textwrap
-from .settings import settings
 from .capi_interface import CAPIInterface
-from .types_hint import CompTime
+from .types_hint import comptime
 
 
 class ArgumentPlaceholder:
@@ -75,7 +72,7 @@ class NumetaFunction:
         self.comptime_args_indices = self.get_comptime_args_idx(func)
 
     def get_comptime_args_idx(self, func):
-        return [i for i, arg in enumerate(func.__annotations__.values()) if arg is CompTime]
+        return [i for i, arg in enumerate(func.__annotations__.values()) if arg is comptime]
 
     def dump(self, directory):
         """
