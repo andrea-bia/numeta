@@ -9,17 +9,17 @@ def test_blas():
         [
             nm.char,
             nm.char,
-            nm.i4,
-            nm.i4,
-            nm.i4,
+            nm.i8,
+            nm.i8,
+            nm.i8,
             nm.f8,
             nm.f8[None],
-            nm.i4,
+            nm.i8,
             nm.f8[None],
-            nm.i4,
+            nm.i8,
             nm.f8,
             nm.f8[None],
-            nm.i4,
+            nm.i8,
         ],
         None,
         bind_c=False,
@@ -27,11 +27,23 @@ def test_blas():
 
     n = 100
 
-    nm.settings.set_integer(32)
-
-    @nm.jit(directory='.')
+    @nm.jit(directory=".")
     def matmul(a, b, c):
-        blas.dgemm("N", "N", n, n, n, 1.0, b, n, a, n, 0.0, c, n)
+        blas.dgemm(
+            "N",
+            "N",
+            b.shape[0],
+            a.shape[1],
+            c.shape[1],
+            1.0,
+            b,
+            b.shape[0],
+            a,
+            a.shape[0],
+            0.0,
+            c,
+            c.shape[0],
+        )
 
     a = np.random.rand(n, n)
     b = np.random.rand(n, n)
