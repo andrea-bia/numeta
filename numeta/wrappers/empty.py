@@ -1,9 +1,9 @@
 from numeta.builder_helper import BuilderHelper
-from numeta.types_hint import float64
+from numeta.datatype import DataType, float64
 from numeta.syntax import Allocate, If, Allocated, Not, FortranType
 
 
-def empty(shape, dtype=float64, order="C"):
+def empty(shape, dtype: DataType = float64, order="C"):
     if order not in ["C", "F"]:
         raise ValueError(f"Invalid order: {order}, must be 'C' or 'F'")
 
@@ -14,8 +14,10 @@ def empty(shape, dtype=float64, order="C"):
     
     if isinstance(dtype, FortranType):
         ftype = dtype
+    elif isinstance(dtype, DataType):
+        ftype = dtype.get_fortran()
     else:
-        ftype = dtype.dtype.get_fortran()
+        raise TypeError("dtype must be a DataType or FortranType")
 
     builder = BuilderHelper.get_current_builder()
     array = builder.generate_local_variables(

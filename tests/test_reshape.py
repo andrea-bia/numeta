@@ -36,7 +36,7 @@ def test_reshape_fortran(dtype):
     m = 20
 
     @nm.jit
-    def set_zero_first_col(n: nm.i8, m: nm.i8, a: nm.dtype[dtype]["F"][:, :]):
+    def set_zero_first_col(n: nm.i8, m: nm.i8, a):
         a_p = nm.reshape(a, (n, m), order="F")
 
         a_p[:, 0] = 0

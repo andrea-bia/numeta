@@ -1,5 +1,6 @@
-from .types_hint import (
-    dtype,
+from .datatype import (
+    DataType,
+    StructType,
     int32,
     int64,
     float32,
@@ -8,8 +9,10 @@ from .types_hint import (
     complex128,
     bool8,
     char,
-    comptime,
+    size_t,
+    get_datatype,
 )
+from .types_hint import comptime
 
 integer4 = int32
 integer8 = int64

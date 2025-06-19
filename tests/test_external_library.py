@@ -1,7 +1,10 @@
 import numeta as nm
 import numpy as np
+import ctypes.util
+import pytest
 
 
+@pytest.mark.skipif(ctypes.util.find_library("blas") is None, reason="BLAS library not available")
 def test_blas():
     blas = nm.ExternalLibraryWrapper("blas")
     blas.add_method(
@@ -13,12 +16,12 @@ def test_blas():
             nm.i8,
             nm.i8,
             nm.f8,
-            nm.f8[None],
+            (nm.f8, (None,)),
             nm.i8,
-            nm.f8[None],
+            (nm.f8, (None,)),
             nm.i8,
             nm.f8,
-            nm.f8[None],
+            (nm.f8, (None,)),
             nm.i8,
         ],
         None,

@@ -11,7 +11,7 @@ import shutil
 
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
-from .datatype import DataType, size_t_dtype
+from .datatype import DataType, size_t
 import textwrap
 from .capi_interface import CAPIInterface
 from .types_hint import comptime
@@ -205,8 +205,8 @@ class NumetaFunction:
             if i in self.comptime_args_indices:
                 ap = ArgumentPlaceholder(f"in_{i}", is_comptime=True, comptime_value=arg)
             else: 
-                from .types_hint import get_datatype
-                dtype = get_datatype(arg[0]) 
+                from .datatype import get_datatype
+                dtype = get_datatype(arg[0])
                 if len(arg) == 1:
                     # it is a numberic type or a string
                     ap = ArgumentPlaceholder(f"in_{i}", datatype=dtype, value=dtype.can_be_value())
@@ -314,7 +314,7 @@ class NumetaFunction:
                 else:
                     dim_var = builder.generate_local_variables(
                         f"fc_n",
-                        ftype=size_t_dtype.get_fortran(bind_c=True),
+                        ftype=size_t.get_fortran(bind_c=True),
                         intent="in",
                         dimension=len(arg.shape),
                     )

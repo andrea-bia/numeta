@@ -1,5 +1,6 @@
 from numeta.syntax.external_module import ExternalLibrary, ExternalModule
-from numeta.syntax import Variable
+from numeta.syntax import Variable, FortranType
+from numeta.datatype import DataType
 
 
 class ExternalLibraryWrapper(ExternalLibrary):
@@ -44,10 +45,15 @@ class ExternalModuleWrapper(ExternalModule):
 
 def convert_argument(name, hint, bind_c=True):
     dimension = None
-    if isinstance(hint.flags["shape"], int):
-        dimension = hint.flags["shape"]
-    elif isinstance(hint.flags["shape"], tuple):
-        dimension = tuple([None for _ in hint.flags["shape"]])
-    elif isinstance(hint.flags["shape"], slice):
-        dimension = (None,)
-    return Variable(name, ftype=hint.dtype.get_fortran(bind_c=bind_c), dimension=dimension)
+    dtype = hint
+    if isinstance(hint, tuple):
+        dtype, dimension = hint
+
+    if isinstance(dtype, FortranType):
+        ftype = dtype
+    elif isinstance(dtype, DataType):
+        ftype = dtype.get_fortran(bind_c=bind_c)
+    else:
+        raise TypeError("Argument type must be DataType or FortranType")
+
+    return Variable(name, ftype=ftype, dimension=dimension)

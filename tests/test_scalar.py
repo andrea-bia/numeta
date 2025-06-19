@@ -9,10 +9,10 @@ import pytest
 def test_scalar(dtype):
     @nm.jit
     def fill(a):
-        tmp = nm.scalar(nm.dtype[dtype], 50)
+        tmp = nm.scalar(nm.get_datatype(dtype), 50)
         a[0] = tmp
 
-        tmp2 = nm.scalar(nm.dtype[dtype], 100)
+        tmp2 = nm.scalar(nm.get_datatype(dtype), 100)
         a[1] = tmp2
 
     a = np.empty(2).astype(dtype)

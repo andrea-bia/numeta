@@ -44,7 +44,7 @@ def get_shape_blocks(shape, fortran_order=True):
     def convert(element):
         if element is None:
             # Assumed size array
-            return [str(lbound), ":", "*"]
+            return ["*"]
         elif isinstance(element, int):
             return [str(lbound), ":", str(element + (lbound - 1))]
         elif isinstance(element, slice):

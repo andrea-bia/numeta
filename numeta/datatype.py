@@ -42,7 +42,7 @@ class DataType:
         return self.__capi_cast(obj)
 
 
-int32_dtype = DataType(
+int32 = DataType(
     np.int32,
     FortranType("integer", 4),
     FortranType("integer", iso_c.c_int32),
@@ -50,7 +50,7 @@ int32_dtype = DataType(
     lambda x: f"PyLong_AsLongLong({x})",
 )
 
-int64_dtype = DataType(
+int64 = DataType(
     np.int64,
     FortranType("integer", 8),
     FortranType("integer", iso_c.c_int64),
@@ -58,7 +58,7 @@ int64_dtype = DataType(
     lambda x: f"PyLong_AsLongLong({x})",
 )
 
-size_t_dtype = DataType(
+size_t = DataType(
     None,
     None,
     FortranType("integer", iso_c.c_size_t),
@@ -66,7 +66,7 @@ size_t_dtype = DataType(
     lambda x: f"PyLong_AsLongLong({x})",
 )
 
-float32_dtype = DataType(
+float32 = DataType(
     np.float32,
     FortranType("real", 4),
     FortranType("real", iso_c.c_float),
@@ -74,7 +74,7 @@ float32_dtype = DataType(
     lambda x: f"PyFloat_AsDouble({x})",
 )
 
-float64_dtype = DataType(
+float64 = DataType(
     np.float64,
     FortranType("real", 8),
     FortranType("real", iso_c.c_double),
@@ -82,7 +82,7 @@ float64_dtype = DataType(
     lambda x: f"PyFloat_AsDouble({x})",
 )
 
-complex64_dtype = DataType(
+complex64 = DataType(
     np.complex64,
     FortranType("complex", 4),
     FortranType("complex", iso_c.c_float_complex),
@@ -90,7 +90,7 @@ complex64_dtype = DataType(
     lambda x: f"CMPLX(PyComplex_RealAsDouble({x}), PyComplex_ImagAsDouble({x}))",
 )
 
-complex128_dtype = DataType(
+complex128 = DataType(
     np.complex128,
     FortranType("complex", 8),
     FortranType("complex", iso_c.c_double_complex),
@@ -98,7 +98,7 @@ complex128_dtype = DataType(
     lambda x: f"CMPLX(PyComplex_RealAsDouble({x}), PyComplex_ImagAsDouble({x}))",
 )
 
-bool8_dtype = DataType(
+bool8 = DataType(
     np.bool_,
     FortranType("logical", 1),
     FortranType("logical", iso_c.c_bool),
@@ -106,7 +106,7 @@ bool8_dtype = DataType(
     lambda x: f"PyObject_IsTrue({x})",
 )
 
-char_dtype = DataType(
+char = DataType(
     np.str_,
     FortranType("character", 1),
     FortranType("character", iso_c.c_char),
@@ -170,3 +170,53 @@ class StructType(DataType):
 
     def get_cnumpy(self):
         return self.__cnp_type
+
+
+def get_struct_from_np_dtype(np_dtype):
+    fields = []
+    for name, (np_d, _) in np_dtype.base.fields.items():
+        if np_d.base.type in DataType._instances:
+            dtype = DataType._instances[np_d.base.type]
+        elif np_d.base.fields is not None:
+            dtype = get_struct_from_np_dtype(np_d)
+        else:
+            raise ValueError(f"Invalid dtype {np_d.base.type}, {np_d.fields}")
+
+        shape = None if len(np_d.shape) == 0 else np_d.shape
+        fields.append((name, dtype, shape))
+
+    return StructType(fields)
+
+
+np_to_dtype = {
+    np.int32: int32,
+    np.int64: int64,
+    np.float32: float32,
+    np.float64: float64,
+    np.complex64: complex64,
+    np.complex128: complex128,
+    np.bool_: bool8,
+    np.str_: char,
+}
+
+
+def get_datatype(dtype):
+    if dtype is int:
+        return int64
+    elif dtype is float:
+        return float64
+    elif dtype is complex:
+        return complex128
+    elif dtype is bool:
+        return bool8
+    if isinstance(dtype, np.dtype):
+        base = dtype.base.type
+    else:
+        base = getattr(dtype, "base", dtype).type if hasattr(dtype, "type") else dtype
+        if isinstance(base, np.dtype):
+            base = base.type
+    if base in np_to_dtype:
+        return np_to_dtype[base]
+    if hasattr(dtype, "fields"):
+        return get_struct_from_np_dtype(dtype)
+    raise ValueError(f"Invalid dtype {dtype}")
