@@ -11,7 +11,7 @@ import shutil
 
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
-from .datatype import DataType, size_t_dtype
+from .datatype import get_datatype, size_t
 import textwrap
 from .capi_interface import CAPIInterface
 from .types_hint import comptime
@@ -24,7 +24,14 @@ class ArgumentPlaceholder:
     """
 
     def __init__(
-        self, name, is_comptime=False, datatype=None, shape=None, value=False, fortran_order=False, comptime_value=None
+        self,
+        name,
+        is_comptime=False,
+        datatype=None,
+        shape=None,
+        value=False,
+        fortran_order=False,
+        comptime_value=None,
     ) -> None:
         self.name = name
         self.is_comptime = is_comptime
@@ -106,38 +113,38 @@ class NumetaFunction:
                 library_name, library_file
             )
 
-   #def code(self, *args):
-   #    if len(self.comptime_vars_indices) == 0:
-   #        if None not in self.__fortran_functions:
-   #            library_name, library_file, symbolic_fun = self.compile_function(*args, runtime_args_spec)
-   #            self.__symbolic_functions[None] = symbolic_fun
-   #            self.__libraries[None] = (library_name, library_file)
-   #            self.__fortran_functions[None] = self.load_compiled_function(
-   #                library_name, library_file
-   #            )
-   #        return self.__symbolic_functions[None].get_code()
-   #    else:
-   #        comptime_args = tuple(args[i] for i in self.comptime_vars_indices)
+    # def code(self, *args):
+    #    if len(self.comptime_vars_indices) == 0:
+    #        if None not in self.__fortran_functions:
+    #            library_name, library_file, symbolic_fun = self.compile_function(*args, runtime_args_spec)
+    #            self.__symbolic_functions[None] = symbolic_fun
+    #            self.__libraries[None] = (library_name, library_file)
+    #            self.__fortran_functions[None] = self.load_compiled_function(
+    #                library_name, library_file
+    #            )
+    #        return self.__symbolic_functions[None].get_code()
+    #    else:
+    #        comptime_args = tuple(args[i] for i in self.comptime_vars_indices)
 
-   #        symbolic_fun = self.__symbolic_functions.get(comptime_args, None)
-   #        if symbolic_fun is None:
-   #            library_name, library_file, symbolic_fun = self.compile_function(*args)
-   #            self.__symbolic_functions[comptime_args] = symbolic_fun
-   #            self.__libraries[comptime_args] = (library_name, library_file)
-   #            self.__fortran_functions[comptime_args] = self.load_compiled_function(
-   #                library_name, library_file
-   #            )
-   #        return symbolic_fun.get_code()
+    #        symbolic_fun = self.__symbolic_functions.get(comptime_args, None)
+    #        if symbolic_fun is None:
+    #            library_name, library_file, symbolic_fun = self.compile_function(*args)
+    #            self.__symbolic_functions[comptime_args] = symbolic_fun
+    #            self.__libraries[comptime_args] = (library_name, library_file)
+    #            self.__fortran_functions[comptime_args] = self.load_compiled_function(
+    #                library_name, library_file
+    #            )
+    #        return symbolic_fun.get_code()
 
     def get_runtime_args_and_spec(self, args):
-        
+
         runtime_args = []
         runtime_args_spec = []
         for i, arg in enumerate(args):
             if i in self.comptime_args_indices:
-                continue 
+                continue
             elif isinstance(arg, np.ndarray):
-                runtime_args_spec.append((arg.dtype, len(arg.shape), np.isfortran(arg))) 
+                runtime_args_spec.append((arg.dtype, len(arg.shape), np.isfortran(arg)))
             elif isinstance(arg, (int, float, complex)):
                 runtime_args_spec.append((type(arg),))
             runtime_args.append(arg)
@@ -161,7 +168,7 @@ class NumetaFunction:
                         # it is a numpy 0-dimensional array like np.array(1)
                         comptime_args.append((arg.dtype,))
                     else:
-                        comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg))) 
+                        comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg)))
                 elif isinstance(arg, (int, float, complex)):
                     comptime_args.append((type(arg),))
                 else:
@@ -169,7 +176,7 @@ class NumetaFunction:
                 runtime_args.append(arg)
 
         comptime_args = tuple(comptime_args)
-        
+
         fun = self.__fortran_functions.get(comptime_args, None)
         if fun is None:
             library_name, library_file, symbolic_fun = self.compile_function(comptime_args)
@@ -180,7 +187,6 @@ class NumetaFunction:
             )
             fun = self.__fortran_functions[comptime_args]
         return fun(*runtime_args)
-
 
     def compile_function(
         self,
@@ -204,16 +210,17 @@ class NumetaFunction:
         for i, arg in enumerate(comptime_args_spec):
             if i in self.comptime_args_indices:
                 ap = ArgumentPlaceholder(f"in_{i}", is_comptime=True, comptime_value=arg)
-            else: 
-                from .types_hint import get_datatype
-                dtype = get_datatype(arg[0]) 
+            else:
+                dtype = get_datatype(arg[0])
                 if len(arg) == 1:
                     # it is a numberic type or a string
                     ap = ArgumentPlaceholder(f"in_{i}", datatype=dtype, value=dtype.can_be_value())
                 else:
                     fortran_order = arg[2]
                     shape = tuple([None] * arg[1])
-                    ap = ArgumentPlaceholder(f"in_{i}", datatype=dtype, shape=shape, fortran_order=fortran_order)
+                    ap = ArgumentPlaceholder(
+                        f"in_{i}", datatype=dtype, shape=shape, fortran_order=fortran_order
+                    )
 
             comptime_args.append(ap)
 
@@ -314,7 +321,7 @@ class NumetaFunction:
                 else:
                     dim_var = builder.generate_local_variables(
                         f"fc_n",
-                        ftype=size_t_dtype.get_fortran(bind_c=True),
+                        ftype=size_t.get_fortran(bind_c=True),
                         intent="in",
                         dimension=len(arg.shape),
                     )

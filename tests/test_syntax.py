@@ -256,8 +256,18 @@ def test_module_print_code():
     nm.settings.set_integer(64)
     x = Variable("x", settings.DEFAULT_INTEGER, intent="in")
     sub.add_variable(x)
-    expected = "module mymod\n" "    implicit none\n" "    contains\n" "    subroutine mysub(x) bind(C)\n" "        use iso_c_binding, only: c_int64_t\n" "        implicit none\n" "        integer(c_int64_t), intent(in), value :: x\n" "    end subroutine mysub\n" "end module mymod\n"
-    assert mod.get_code() == expected
+    expected = [
+        "module mymod\n",
+        "    implicit none\n",
+        "    contains\n",
+        "    subroutine mysub(x) bind(C)\n",
+        "        use iso_c_binding, only: c_int64_t\n",
+        "        implicit none\n",
+        "        integer(c_int64_t), intent(in), value :: x\n",
+        "    end subroutine mysub\n",
+        "end module mymod\n",
+    ]
+    assert mod.print_lines() == expected
 
 
 def test_derived_type_declaration():

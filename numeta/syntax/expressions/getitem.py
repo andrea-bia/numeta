@@ -106,6 +106,7 @@ class GetItem(ExpressionNode):
 
     def __setitem__(self, key, value):
         from numeta.syntax.statements import Assignment
+
         Assignment(self[key], value)
 
     # def get_with_updated_variables(self, variables_couples):

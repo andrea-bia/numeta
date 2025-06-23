@@ -1,5 +1,6 @@
 from numeta.syntax.external_module import ExternalLibrary, ExternalModule
-from numeta.syntax import Variable
+from numeta.syntax import Variable, FortranType
+from numeta.datatype import DataType, ArrayType, get_datatype
 
 
 class ExternalLibraryWrapper(ExternalLibrary):
@@ -43,11 +44,41 @@ class ExternalModuleWrapper(ExternalModule):
 
 
 def convert_argument(name, hint, bind_c=True):
-    dimension = None
-    if isinstance(hint.flags["shape"], int):
-        dimension = hint.flags["shape"]
-    elif isinstance(hint.flags["shape"], tuple):
-        dimension = tuple([None for _ in hint.flags["shape"]])
-    elif isinstance(hint.flags["shape"], slice):
-        dimension = (None,)
-    return Variable(name, ftype=hint.dtype.get_fortran(bind_c=bind_c), dimension=dimension)
+    if isinstance(hint, ArrayType):
+        dtype = hint.dtype
+        ftype = dtype.get_fortran(bind_c=bind_c)
+        dimension = hint.shape
+
+        # C does not support slices
+        if bind_c:
+            if not isinstance(dimension, tuple):
+                dimension = (dimension,)
+            C_shape = []
+            for dim in dimension:
+                if isinstance(dim, slice):
+                    if dim.step is not None and dim.step != 1:
+                        raise ValueError("C does not support slices with step")
+
+                    if dim.start is not None and dim.start != 0:
+                        raise ValueError("C does not support slices with start")
+                    dim = dim.stop
+                if dim is None:
+                    C_shape = (None,)
+                    break
+                C_shape.append(dim)
+            dimension = tuple(C_shape)
+
+    elif isinstance(hint, FortranType):
+        ftype = hint
+        dimension = None
+    elif isinstance(hint, type) and issubclass(hint, DataType):
+        ftype = hint.get_fortran(bind_c=bind_c)
+        dimension = None
+    elif isinstance(hint, type) and DataType.is_np_dtype(hint):
+        dtype = DataType.from_np_dtype(hint)
+        ftype = dtype.get_fortran(bind_c=bind_c)
+        dimension = None
+    else:
+        raise TypeError(f"Expected a numpy or numeta dtype got {type(dtype).__name__}")
+
+    return Variable(name, ftype=ftype, dimension=dimension)
