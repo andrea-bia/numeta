@@ -8,6 +8,7 @@ class SyntaxSettings:
         self.__subroutine_bind_c = False
         self.__derived_type_bind_c = False
         self.__array_lower_bound = 1
+        self.__c_like_bounds = False
         self.__force_value = False  # force the value attribute when intent(in)
 
     def set_default_integer_kind(self, kind):
@@ -54,6 +55,16 @@ class SyntaxSettings:
             self.__array_lower_bound = int(value)
         except ValueError as e:
             raise ValueError(f"Array lower bound must be an integer, got {value}")
+
+    @property
+    def c_like_bounds(self):
+        return self.__c_like_bounds
+
+    def set_c_like_bounds(self):
+        self.__c_like_bounds = True
+
+    def unset_c_like_bounds(self):
+        self.__c_like_bounds = False
 
     @property
     def force_value(self):

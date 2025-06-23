@@ -19,6 +19,7 @@ class Settings:
             syntax_settings.set_subroutine_bind_c()
             syntax_settings.set_derived_type_bind_c()
             syntax_settings.set_force_value()
+            syntax_settings.set_c_like_bounds()
         self.use_c_types = self.c_like
         self.set_integer(int_precision)
         self.set_real(float_precision)

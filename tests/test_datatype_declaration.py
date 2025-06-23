@@ -37,10 +37,10 @@ def test_array_call_matrix(dtype):
     @nm.jit
     def fill(a):
         nm_dtype = nm.get_datatype(dtype)
-        a[0:1, 0:1] = nm_dtype[2, 3](50)[0:1, 0:1]
+        a[:2, :2] = nm_dtype[2, 3](50)[:2, :2]
 
         tmp2 = nm_dtype[2](100)
-        a[:, 2] = tmp2[:1]
+        a[:, 2] = tmp2[:2]
 
     out = np.empty((2, 3), dtype=dtype)
     fill(out)

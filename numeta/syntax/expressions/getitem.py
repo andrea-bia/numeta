@@ -58,11 +58,8 @@ class GetItem(ExpressionNode):
             result.append(":")
 
             if slice_.stop is not None:
-                result += get_block(slice_.stop)
-            # if (lbound := settings.array_lower_bound) != 1:
-            #    result += get_block(slice_.stop + (lbound -1))
-            # else:
-            #    result += get_block(slice_.stop)
+                stop = slice_.stop - 1 if settings.c_like_bounds else slice_.stop
+                result += get_block(stop)
 
             if slice_.step is not None:
                 result.append(":")
