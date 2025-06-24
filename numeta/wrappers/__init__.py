@@ -1,4 +1,4 @@
-from .frange import frange
+from .range import range
 from .prange import prange
 from .cond import cond, endif
 from .scalar import scalar

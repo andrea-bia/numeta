@@ -56,7 +56,7 @@ import numeta as nm
 @nm.jit
 def mixed_loops(n: nm.comptime, array) -> None:
     for i in range(n):
-        for j in nm.frange(n):
+        for j in nm.range(n):
             array[j, i] = i + j
 ```
 
@@ -105,7 +105,7 @@ import numeta as nm
 
 @nm.jit
 def first_for_loop(n, array) -> None:
-    for i in nm.frange(n):
+    for i in nm.range(n):
         array[i] = i * 2
 ```
 
@@ -113,7 +113,7 @@ In this example:
 
 - `n` is the size of the array.
 - `array` is a rank-1 numpy array.
-- The loop runs using `nm.frange(n)` to generate a compiled loop that performs the operation.
+- The loop runs using `nm.range(n)` to generate a compiled loop that performs the operation.
 - Fortran implicit casting is used to convert `i` to the appropriate type for the array.
 
 Alternatively, you can use:
@@ -137,7 +137,7 @@ import numeta as nm
 
 @nm.jit
 def conditional_example(n, array) -> None:
-    for i in nm.frange(n):
+    for i in nm.range(n):
         if nm.cond(i < 1):
             array[i] = 0
         elif nm.cond(i < 2):
@@ -233,7 +233,7 @@ import numeta as nm
 @nm.jit
 def pmul(a, b, c):
     for i in nm.prange(a.shape[0], default='private', shared=[a, b, c], schedule='static'):
-        for k in nm.frange(b.shape[0]):
+        for k in nm.range(b.shape[0]):
             c[i, :] += a[i, k] * b[k, :]
 ```
 

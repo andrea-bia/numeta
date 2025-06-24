@@ -17,7 +17,7 @@ def test_pmul(dtype):
             shared=[a, b, c, b.shape[0].variable, a.shape[0].variable],
             schedule="static",
         ):
-            for k in nm.frange(b.shape[0]):
+            for k in nm.range(b.shape[0]):
                 c[i, :] += a[i, k] * b[k, :]
 
     a = np.random.rand(n, n).astype(dtype)

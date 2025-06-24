@@ -3,7 +3,7 @@ from numeta.syntax import Do
 from numeta.settings import settings
 
 
-def frange(*args):
+def range(*args):
     if len(args) == 1:
         start = 0
         stop = args[0]

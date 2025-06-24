@@ -6,7 +6,7 @@ def test_cond():
     @nm.jit
     def cond(a) -> None:
         a[:] = 0.0
-        for i in nm.frange(n):
+        for i in nm.range(n):
             with nm.If(i < 9):
                 with nm.If(i < 3):
                     with nm.If(i < 1):

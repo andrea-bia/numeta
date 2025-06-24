@@ -6,7 +6,7 @@ def test_cases():
     @nm.jit
     def cases(a) -> None:
         a[:] = 0.0
-        for i in nm.frange(n):
+        for i in nm.range(n):
             for j in nm.cases(i, range(n)):
                 a[j] = j
 

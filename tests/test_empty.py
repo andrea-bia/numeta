@@ -16,8 +16,8 @@ def test_empty(dtype):
         tmp[:] = 1.0
         tmp[:, 0] = 0
 
-        for i in nm.frange(n):
-            for j in nm.frange(m):
+        for i in nm.range(n):
+            for j in nm.range(m):
                 b[i, j] = tmp[i, j]
 
     a = np.ones((n, m)).astype(dtype)
@@ -45,11 +45,11 @@ def test_empty_fortran(dtype):
 
         tmp_p = nm.reshape(tmp, n * m)
 
-        for i in nm.frange(n):
+        for i in nm.range(n):
             tmp_p[i] = 0
 
-        for i in nm.frange(n):
-            for j in nm.frange(m):
+        for i in nm.range(n):
+            for j in nm.range(m):
                 b[i, j] = tmp[i, j]
 
     a = np.ones((n, m)).astype(dtype)

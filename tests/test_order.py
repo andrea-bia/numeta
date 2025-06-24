@@ -11,8 +11,8 @@ def test_mul(dtype):
 
     @nm.jit
     def mul(a, b, c):
-        for i in nm.frange(a.shape[0]):
-            for k in nm.frange(b.shape[0]):
+        for i in nm.range(a.shape[0]):
+            for k in nm.range(b.shape[0]):
                 c[i, :] += a[i, k] * b[k, :]
 
     a = np.asfortranarray(np.random.rand(n, n).astype(dtype))

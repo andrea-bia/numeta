@@ -13,8 +13,8 @@ def test_omp():
             shared=[a, b, c, a.shape[0].variable, b.shape[0].variable],
             schedule="static",
         ):
-            for k in nm.frange(b.shape[0]):
-                for i in nm.frange(a.shape[0]):
+            for k in nm.range(b.shape[0]):
+                for i in nm.range(a.shape[0]):
                     i_thread[:] = nm.omp.omp_get_thread_num()
 
                     nm.omp.atomic_update_add(c[i, j].real, a[i, k].real * b[k, j].real)
