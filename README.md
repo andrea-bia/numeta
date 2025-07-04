@@ -272,8 +272,7 @@ When `sum_first_n` is compiled, the loop is unrolled because `length` is knownat
 
 The `@nm.jit` decorator accepts an optional `namer` parameter. It should be a
 callable receiving the specification of the compile-time arguments. The return
-value is used as a suffix for the generated directories and symbols. This allows
-you to generate different libraries for different compile-time values:
+value is used for the generated directories and symbols:
 
 ```python
 @nm.jit(directory=tmp_path, namer=lambda spec: f"spec_{spec[0]}")
@@ -287,6 +286,8 @@ fill(3, arr)
 
 The compiled library will be created under ``tmp_path/spec_3`` because the name
 depends on the compile-time value ``length``.
+
+**Note**: the type of the runtime variables is considered a compile-time variable.
 
 ## Why Fortran Backend?
 
