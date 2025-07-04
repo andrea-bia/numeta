@@ -7,6 +7,7 @@ def jit(
     directory=None,
     do_checks=True,
     compile_flags="-O3 -march=native",
+    symbolic_only=False,
     namer=None,
 ):
     if func is None:
@@ -16,6 +17,7 @@ def jit(
                 f,
                 directory=directory,
                 do_checks=do_checks,
+                symbolic_only=symbolic_only,
                 compile_flags=compile_flags,
                 namer=namer,
             )
@@ -24,5 +26,10 @@ def jit(
     else:
         # Decorator is called without arguments
         return NumetaFunction(
-            func, directory=directory, do_checks=do_checks, compile_flags=compile_flags, namer=namer
+            func,
+            directory=directory,
+            do_checks=do_checks,
+            symbolic_only=symbolic_only,
+            compile_flags=compile_flags,
+            namer=namer,
         )

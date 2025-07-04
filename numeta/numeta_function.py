@@ -11,7 +11,7 @@ import shutil
 
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
-from .datatype import get_datatype, size_t
+from .datatype import DataType, ArrayType, get_datatype, size_t
 import textwrap
 from .capi_interface import CAPIInterface
 from .types_hint import comptime
@@ -65,6 +65,7 @@ class NumetaFunction:
         func,
         directory=None,
         do_checks=True,
+        symbolic_only=False,
         compile_flags="-O3 -march=native",
         namer=None,
     ) -> None:
@@ -74,12 +75,13 @@ class NumetaFunction:
         self.directory = Path(directory).absolute()
         self.directory.mkdir(exist_ok=True)
         self.do_checks = do_checks
+        self.symbolic_only = symbolic_only
         self.compile_flags = compile_flags.split()
         self.namer = namer
 
         self.__func = func
         self.__symbolic_functions = {}
-        self.__fortran_functions = {}
+        self.__compiled_functions = {}
         self.__libraries = {}
 
         self.comptime_args_indices = self.get_comptime_args_idx(func)
@@ -118,32 +120,9 @@ class NumetaFunction:
             self.__libraries = pickle.load(f)
 
         for comptime_args, (name, library_name, library_file) in self.__libraries.items():
-            self.__fortran_functions[comptime_args] = self.load_compiled_function(
+            self.__compiled_functions[comptime_args] = self.load_compiled_function(
                 name, library_name, library_file
             )
-
-    # def code(self, *args):
-    #    if len(self.comptime_vars_indices) == 0:
-    #        if None not in self.__fortran_functions:
-    #            library_name, library_file, symbolic_fun = self.compile_function(*args, runtime_args_spec)
-    #            self.__symbolic_functions[None] = symbolic_fun
-    #            self.__libraries[None] = (library_name, library_file)
-    #            self.__fortran_functions[None] = self.load_compiled_function(
-    #                library_name, library_file
-    #            )
-    #        return self.__symbolic_functions[None].get_code()
-    #    else:
-    #        comptime_args = tuple(args[i] for i in self.comptime_vars_indices)
-
-    #        symbolic_fun = self.__symbolic_functions.get(comptime_args, None)
-    #        if symbolic_fun is None:
-    #            library_name, library_file, symbolic_fun = self.compile_function(*args)
-    #            self.__symbolic_functions[comptime_args] = symbolic_fun
-    #            self.__libraries[comptime_args] = (library_name, library_file)
-    #            self.__fortran_functions[comptime_args] = self.load_compiled_function(
-    #                library_name, library_file
-    #            )
-    #        return symbolic_fun.get_code()
 
     def get_runtime_args_and_spec(self, args):
 
@@ -169,6 +148,8 @@ class NumetaFunction:
             if i in self.comptime_args_indices:
                 comptime_args.append(arg)
             else:
+                # The other arguments are runtime arguments and we need to
+                # check their type and shape to create the Fortran interface.
                 if isinstance(arg, np.generic):
                     # it is a numpy scalar like np.int32(1) or np.float64(1.0)
                     comptime_args.append((arg.dtype,))
@@ -180,25 +161,75 @@ class NumetaFunction:
                         comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg)))
                 elif isinstance(arg, (int, float, complex)):
                     comptime_args.append((type(arg),))
+                elif isinstance(arg, ArrayType):
+                    comptime_args.append((arg.dtype.get_numpy(), len(arg.shape), False))
+                elif isinstance(arg, type) and issubclass(arg, DataType):
+                    comptime_args.append((arg.get_numpy(),))
                 else:
                     raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
                 runtime_args.append(arg)
 
         comptime_args = tuple(comptime_args)
 
-        fun = self.__fortran_functions.get(comptime_args, None)
-        if fun is None:
-            name, library_name, library_file, symbolic_fun = self.compile_function(comptime_args)
-            self.__symbolic_functions[comptime_args] = symbolic_fun
+        if self.symbolic_only:
+            # If symbolic_only is True, we only return the symbolic function
+            symbolic_fun = self.__symbolic_functions.get(comptime_args, None)
+            if symbolic_fun is None:
+                comptime_args_spec = self.get_comptime_args_spec(comptime_args)
+                symbolic_fun = self.construct_function(
+                    f"{self.name}_{len(self.__symbolic_functions)}", comptime_args_spec
+                )
+                self.__symbolic_functions[comptime_args] = symbolic_fun
+            return symbolic_fun
+
+        if comptime_args not in self.__compiled_functions:
+            if self.namer is None:
+                name = f"{self.name}_{len(self.__compiled_functions)}"
+            else:
+                name = self.namer(comptime_args)
+            comptime_args_spec = self.get_comptime_args_spec(comptime_args)
+
+            symbolic_fun = self.__symbolic_functions.get(comptime_args, None)
+            if symbolic_fun is None:
+                symbolic_fun = self.construct_function(name, comptime_args_spec)
+                self.__symbolic_functions[comptime_args] = symbolic_fun
+
+            library_name, library_file = self.compile_function(
+                name, symbolic_fun, comptime_args_spec
+            )
             self.__libraries[comptime_args] = (name, library_name, library_file)
-            self.__fortran_functions[comptime_args] = self.load_compiled_function(
+            self.__compiled_functions[comptime_args] = self.load_compiled_function(
                 name, library_name, library_file
             )
-            fun = self.__fortran_functions[comptime_args]
-        return fun(*runtime_args)
+        return self.execute_function(comptime_args, runtime_args)
+
+    def get_comptime_args_spec(self, comptime_args):
+        comptime_args_spec = []
+        for i, arg in enumerate(comptime_args):
+            if i in self.comptime_args_indices:
+                ap = ArgumentPlaceholder(f"in_{i}", is_comptime=True, comptime_value=arg)
+            else:
+                dtype = get_datatype(arg[0])
+                if len(arg) == 1:
+                    # it is a numeric type or a string
+                    ap = ArgumentPlaceholder(f"in_{i}", datatype=dtype, value=dtype.can_be_value())
+                else:
+                    fortran_order = arg[2]
+                    shape = tuple([None] * arg[1])
+                    ap = ArgumentPlaceholder(
+                        f"in_{i}", datatype=dtype, shape=shape, fortran_order=fortran_order
+                    )
+
+            comptime_args_spec.append(ap)
+        return comptime_args_spec
+
+    def construct_function(self, name, comptime_args_spec):
+        return self.get_fortran_symb_code(name, comptime_args_spec)
 
     def compile_function(
         self,
+        name,
+        symbolic_function,
         comptime_args_spec,
     ):
         """
@@ -211,40 +242,17 @@ class NumetaFunction:
         Returns:
             tuple: (compiled function, subroutine)
         """
-        if self.namer is None:
-            name = f"{self.name}_{len(self.__fortran_functions)}"
-        else:
-            name = self.namer(comptime_args_spec)
 
         local_dir = self.directory / name
         local_dir.mkdir(exist_ok=True)
 
-        comptime_args = []
-        for i, arg in enumerate(comptime_args_spec):
-            if i in self.comptime_args_indices:
-                ap = ArgumentPlaceholder(f"in_{i}", is_comptime=True, comptime_value=arg)
-            else:
-                dtype = get_datatype(arg[0])
-                if len(arg) == 1:
-                    # it is a numberic type or a string
-                    ap = ArgumentPlaceholder(f"in_{i}", datatype=dtype, value=dtype.can_be_value())
-                else:
-                    fortran_order = arg[2]
-                    shape = tuple([None] * arg[1])
-                    ap = ArgumentPlaceholder(
-                        f"in_{i}", datatype=dtype, shape=shape, fortran_order=fortran_order
-                    )
-
-            comptime_args.append(ap)
-
-        fortran_function = self.get_fortran_symb_code(name, comptime_args)
-        fortran_obj = self.compile_fortran(name, fortran_function, local_dir)
+        fortran_obj = self.compile_fortran(name, symbolic_function, local_dir)
 
         capi_name = f"{name}_capi"
         capi_interface = CAPIInterface(
             name,
             capi_name,
-            comptime_args,
+            comptime_args_spec,
             local_dir,
             self.compile_flags,
             self.do_checks,
@@ -261,7 +269,7 @@ class NumetaFunction:
         include_dirs = [sysconfig.get_paths()["include"], np.get_include()]
         additional_flags = []
 
-        for external_dep in fortran_function.get_external_dependencies().values():
+        for external_dep in symbolic_function.get_external_dependencies().values():
             lib = None
             if hasattr(external_dep, "library"):
                 if external_dep.library is not None:
@@ -305,7 +313,7 @@ class NumetaFunction:
             error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
             raise Warning(error_message)
 
-        return name, capi_name, compiled_library_file, fortran_function
+        return capi_name, compiled_library_file
 
     def load_compiled_function(self, name, capi_name, compiled_library_file):
         spec = importlib.util.spec_from_file_location(capi_name, compiled_library_file)
@@ -313,6 +321,10 @@ class NumetaFunction:
         spec.loader.exec_module(compiled_sub)
 
         return getattr(compiled_sub, name)
+
+    def execute_function(self, comptime_args, runtime_args):
+        f = self.__compiled_functions[comptime_args]
+        return f(*runtime_args)
 
     def get_fortran_symb_code(self, name, comptime_args):
         sub = Subroutine(name)
