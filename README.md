@@ -22,6 +22,7 @@ Currently, the code generates Fortran code that is compiled and executed. The ob
   - [Conditional Statements](#conditional-statements)
   - [How to Link an External Library](#how-to-link-an-external-library)
   - [Parallel Loop Example](#parallel-loop-example)
+  - [Custom Naming of Compiled Functions](#custom-naming-of-compiled-functions)
 - [Why Fortran Backend?](#why-fortran-backend)
 - [Contributing](#contributing)
 - [License](#license)
@@ -266,6 +267,26 @@ sum_first_n(4, array, result)
 ```
 
 When `sum_first_n` is compiled, the loop is unrolled because `length` is knownat compile time.
+
+### Custom Naming of Compiled Functions
+
+The `@nm.jit` decorator accepts an optional `namer` parameter. It should be a
+callable receiving the specification of the compile-time arguments. The return
+value is used as a suffix for the generated directories and symbols. This allows
+you to generate different libraries for different compile-time values:
+
+```python
+@nm.jit(directory=tmp_path, namer=lambda spec: f"spec_{spec[0]}")
+def fill(length: nm.comptime, a):
+    for i in range(length):
+        a[i] = i
+
+arr = np.zeros(5, dtype=np.int64)
+fill(3, arr)
+```
+
+The compiled library will be created under ``tmp_path/spec_3`` because the name
+depends on the compile-time value ``length``.
 
 ## Why Fortran Backend?
 

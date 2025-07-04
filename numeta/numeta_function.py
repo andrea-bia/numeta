@@ -61,7 +61,12 @@ class ArgumentPlaceholder:
 
 class NumetaFunction:
     def __init__(
-        self, func, directory=None, do_checks=True, compile_flags="-O3 -march=native"
+        self,
+        func,
+        directory=None,
+        do_checks=True,
+        compile_flags="-O3 -march=native",
+        namer=None,
     ) -> None:
         self.name = func.__name__
         if directory is None:
@@ -70,9 +75,10 @@ class NumetaFunction:
         self.directory.mkdir(exist_ok=True)
         self.do_checks = do_checks
         self.compile_flags = compile_flags.split()
+        self.namer = namer
 
         self.__func = func
-        self.__symbolic_functions = {}  # the symbolic representation of the function
+        self.__symbolic_functions = {}
         self.__fortran_functions = {}
         self.__libraries = {}
 
@@ -80,6 +86,9 @@ class NumetaFunction:
 
     def get_comptime_args_idx(self, func):
         return [i for i, arg in enumerate(func.__annotations__.values()) if arg is comptime]
+
+    def get_symbolic_functions(self):
+        return list(self.__symbolic_functions.values())
 
     def dump(self, directory):
         """
@@ -90,11 +99,11 @@ class NumetaFunction:
 
         # Copy the libraries to the new directory
         new_libraries = {}
-        for comptime_args, (library_name, library_file) in self.__libraries.items():
+        for comptime_args, (name, library_name, library_file) in self.__libraries.items():
             new_library_file = directory / library_file.parent.name / library_file.name
             new_library_file.parent.mkdir(exist_ok=True)
             shutil.copy(library_file, new_library_file)
-            new_libraries[comptime_args] = (library_name, new_library_file)
+            new_libraries[comptime_args] = (name, library_name, new_library_file)
 
         with open(directory / f"{self.name}.pkl", "wb") as f:
             pickle.dump(self.__symbolic_functions, f)
@@ -108,9 +117,9 @@ class NumetaFunction:
             self.__symbolic_functions = pickle.load(f)
             self.__libraries = pickle.load(f)
 
-        for comptime_args, (library_name, library_file) in self.__libraries.items():
+        for comptime_args, (name, library_name, library_file) in self.__libraries.items():
             self.__fortran_functions[comptime_args] = self.load_compiled_function(
-                library_name, library_file
+                name, library_name, library_file
             )
 
     # def code(self, *args):
@@ -179,11 +188,11 @@ class NumetaFunction:
 
         fun = self.__fortran_functions.get(comptime_args, None)
         if fun is None:
-            library_name, library_file, symbolic_fun = self.compile_function(comptime_args)
+            name, library_name, library_file, symbolic_fun = self.compile_function(comptime_args)
             self.__symbolic_functions[comptime_args] = symbolic_fun
-            self.__libraries[comptime_args] = (library_name, library_file)
+            self.__libraries[comptime_args] = (name, library_name, library_file)
             self.__fortran_functions[comptime_args] = self.load_compiled_function(
-                library_name, library_file
+                name, library_name, library_file
             )
             fun = self.__fortran_functions[comptime_args]
         return fun(*runtime_args)
@@ -202,8 +211,12 @@ class NumetaFunction:
         Returns:
             tuple: (compiled function, subroutine)
         """
+        if self.namer is None:
+            name = f"{self.name}_{len(self.__fortran_functions)}"
+        else:
+            name = self.namer(comptime_args_spec)
 
-        local_dir = self.directory / f"{len(self.__fortran_functions)}"
+        local_dir = self.directory / name
         local_dir.mkdir(exist_ok=True)
 
         comptime_args = []
@@ -224,12 +237,12 @@ class NumetaFunction:
 
             comptime_args.append(ap)
 
-        fortran_function = self.get_fortran_symb_code(comptime_args)
-        fortran_obj = self.compile_fortran(self.name, fortran_function, local_dir)
+        fortran_function = self.get_fortran_symb_code(name, comptime_args)
+        fortran_obj = self.compile_fortran(name, fortran_function, local_dir)
 
-        capi_name = f"{self.name}_capi_{len(self.__fortran_functions)}"
+        capi_name = f"{name}_capi"
         capi_interface = CAPIInterface(
-            self.name,
+            name,
             capi_name,
             comptime_args,
             local_dir,
@@ -238,7 +251,7 @@ class NumetaFunction:
         )
         capi_obj = capi_interface.generate()
 
-        compiled_library_file = local_dir / f"lib{self.name}_module.so"
+        compiled_library_file = local_dir / f"lib{name}_module.so"
 
         libraries = [
             "gfortran",
@@ -292,17 +305,17 @@ class NumetaFunction:
             error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
             raise Warning(error_message)
 
-        return capi_name, compiled_library_file, fortran_function
+        return name, capi_name, compiled_library_file, fortran_function
 
-    def load_compiled_function(self, capi_name, compiled_library_file):
+    def load_compiled_function(self, name, capi_name, compiled_library_file):
         spec = importlib.util.spec_from_file_location(capi_name, compiled_library_file)
         compiled_sub = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(compiled_sub)
 
-        return getattr(compiled_sub, self.name)
+        return getattr(compiled_sub, name)
 
-    def get_fortran_symb_code(self, comptime_args):
-        sub = Subroutine(self.name)
+    def get_fortran_symb_code(self, name, comptime_args):
+        sub = Subroutine(name)
         builder = BuilderHelper(sub, self.__func)
 
         symbolic_args = []
@@ -353,7 +366,7 @@ class NumetaFunction:
             Path: Path to the compiled object file.
         """
 
-        fortran_src = directory / f"{self.name}_src.f90"
+        fortran_src = directory / f"{name}_src.f90"
         fortran_src.write_text(fortran_function.get_code())
 
         output = directory / f"{name}_fortran.o"
