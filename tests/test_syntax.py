@@ -3,6 +3,7 @@ import pytest
 import numeta as nm
 from numeta.syntax import Variable, Assignment, LiteralNode, DerivedType
 from numeta.syntax.expressions import GetAttr, Function
+from numeta.syntax import Do, DoWhile, If, ElseIf, Else
 from numeta.syntax.statements.tools import print_block
 from numeta.syntax.expressions import (
     Abs,
@@ -46,7 +47,7 @@ from numeta.syntax.expressions import (
     Trailz,
     Sum,
     Matmul,
-    ArrayConstructor
+    ArrayConstructor,
 )
 from numeta.syntax.statements import VariableDeclaration
 from numeta.syntax import Subroutine, Module
@@ -118,8 +119,8 @@ def test_re_im_nodes():
 def test_array_constructor():
     i = Variable("i", nm.settings.DEFAULT_INTEGER)
     arr = Variable("arr", nm.settings.DEFAULT_INTEGER, dimension=(10, 10))
-    expr =  ArrayConstructor(arr[1, 1], 5, i).get_code_blocks()
-    expected = ['[', 'arr', '(', '1', ',', ' ', '1', ')', ', ', '5_c_int64_t', ', ', 'i', ')']
+    expr = ArrayConstructor(arr[1, 1], 5, i).get_code_blocks()
+    expected = ["[", "arr", "(", "1", ",", " ", "1", ")", ", ", "5_c_int64_t", ", ", "i", ")"]
     assert expr == expected
 
 
@@ -285,3 +286,63 @@ def test_derived_type_declaration():
         "end type point\n",
     ]
     assert dt.get_declaration().print_lines() == expected
+
+
+def test_do_statement():
+    nm.settings.set_integer(64)
+    i = Variable("i", settings.DEFAULT_INTEGER)
+    x = Variable("x", settings.DEFAULT_INTEGER)
+
+    do = Do(i, 0, 3, add_to_scope=False)
+    with do:
+        Assignment(x, i + 1)
+
+    expected = ["do i = 0_c_int64_t, 3_c_int64_t\n", "    x=(i+1_c_int64_t)\n", "end do\n"]
+
+    for l1, l2 in zip(do.print_lines(), expected):
+        assert l1 == l2
+
+
+def test_if_statement():
+    nm.settings.set_integer(64)
+    i = Variable("i", settings.DEFAULT_INTEGER)
+    x = Variable("x", settings.DEFAULT_INTEGER)
+
+    wrapper = Do(i, 0, 3, add_to_scope=False)
+    with wrapper:
+        with If(i < 5):
+            Assignment(x, i + 1)
+        with ElseIf(i < 10):
+            Assignment(x, i + 2)
+        with Else():
+            Assignment(x, 0)
+
+    expected = [
+        "do i = 0_c_int64_t, 3_c_int64_t\n",
+        "    if((i.lt.5_c_int64_t))then\n",
+        "        x=(i+1_c_int64_t)\n",
+        "    elseif((i.lt.10_c_int64_t))then\n",
+        "        x=(i+2_c_int64_t)\n",
+        "    else\n",
+        "        x=0_c_int64_t\n",
+        "    end if\n",
+        "end do\n",
+    ]
+
+    for l1, l2 in zip(wrapper.print_lines(), expected):
+        assert l1 == l2
+
+
+def test_do_while_statement():
+    nm.settings.set_integer(64)
+    i = Variable("i", settings.DEFAULT_INTEGER)
+    x = Variable("x", settings.DEFAULT_INTEGER)
+
+    do = DoWhile(i < 5, add_to_scope=False)
+    with do:
+        Assignment(x, i + 1)
+
+    expected = ["do while ((i.lt.5_c_int64_t))\n", "    x=(i+1_c_int64_t)\n", "end do\n"]
+
+    for l1, l2 in zip(do.print_lines(), expected):
+        assert l1 == l2
