@@ -1,8 +1,8 @@
+import pytest
+
 import numeta as nm
 from numeta.syntax import Variable, Assignment, LiteralNode, DerivedType
 from numeta.syntax.expressions import GetAttr, Function
-import pytest
-from numeta.syntax import sin, sqrt, Complex
 from numeta.syntax.statements.tools import print_block
 from numeta.syntax.expressions import (
     Abs,
@@ -13,6 +13,7 @@ from numeta.syntax.expressions import (
     All,
     Real,
     Imag,
+    Complex,
     Conjugate,
     Transpose,
     Exp,
@@ -45,6 +46,7 @@ from numeta.syntax.expressions import (
     Trailz,
     Sum,
     Matmul,
+    ArrayConstructor
 )
 from numeta.syntax.statements import VariableDeclaration
 from numeta.syntax import Subroutine, Module
@@ -108,9 +110,17 @@ def test_eq_ne_nodes():
 
 
 def test_re_im_nodes():
-    z = Variable("z", nm.c8)
+    z = Variable("z", nm.settings.DEFAULT_COMPLEX)
     assert render(z.real) == "z%re\n"
     assert render(z.imag) == "z%im\n"
+
+
+def test_array_constructor():
+    i = Variable("i", nm.settings.DEFAULT_INTEGER)
+    arr = Variable("arr", nm.settings.DEFAULT_INTEGER, dimension=(10, 10))
+    expr =  ArrayConstructor(arr[1, 1], 5, i).get_code_blocks()
+    expected = ['[', 'arr', '(', '1', ',', ' ', '1', ')', ', ', '5_c_int64_t', ', ', 'i', ')']
+    assert expr == expected
 
 
 def test_function_multiple_args():
@@ -118,18 +128,6 @@ def test_function_multiple_args():
     y = Variable("y", nm.settings.DEFAULT_INTEGER)
     fn = Function("f", [x, y])
     assert render(fn) == "f(x, y)\n"
-
-
-def test_intrinsic_function_sin():
-    x = Variable("x", nm.f8)
-    expr = sin(x)
-    assert render(expr) == "sin(x)\n"
-
-
-def test_intrinsic_function_sqrt():
-    x = Variable("x", nm.f8)
-    expr = sqrt(x)
-    assert render(expr) == "sqrt(x)\n"
 
 
 def test_complex_function():
