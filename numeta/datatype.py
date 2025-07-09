@@ -8,7 +8,9 @@ from .settings import settings
 class DataTypeMeta(type):
     """Metaclass used for all data type classes."""
 
-    _instances = {}
+    _np_dtype = {}
+    _ftype = {}
+    _ftype_bind_c = {}
 
     def __new__(mcls, name, bases, attrs):
         cls = super().__new__(mcls, name, bases, attrs)
@@ -16,9 +18,21 @@ class DataTypeMeta(type):
         # Register built-in numpy mapping when available
         np_type = attrs.get("_np_type")
         if np_type is not None:
-            if np_type in DataTypeMeta._instances:
+            if np_type in DataTypeMeta._np_dtype:
                 raise ValueError(f"DataType {np_type} already exists")
-            DataTypeMeta._instances[np_type] = cls
+            DataTypeMeta._np_dtype[np_type] = cls
+
+        ftype = attrs.get("_fortran_type")
+        if ftype is not None:
+            if ftype in DataTypeMeta._ftype:
+                raise ValueError(f"FortranType {ftype} already exists")
+            DataTypeMeta._ftype[ftype] = cls
+
+        fortran_bind_c_type = attrs.get("_fortran_bind_c_type")
+        if fortran_bind_c_type is not None:
+            if fortran_bind_c_type in DataTypeMeta._ftype_bind_c:
+                raise ValueError(f"FortranType {fortran_bind_c_type} already exists")
+            DataTypeMeta._ftype_bind_c[fortran_bind_c_type] = cls
 
         return cls
 
@@ -38,19 +52,24 @@ class ArrayType:
     """Helper object returned by DataType[x] to describe array types."""
 
     dtype: type
-    shape: tuple
+    shape: tuple | None # if None dimension is unknown, it is a pointer
 
     def __iter__(self):
         yield self.dtype
         yield self.shape
 
     def __repr__(self):
+        if self.shape is None:
+            return f"{self.dtype.__name__}[*]"
         dims = ",".join(
             ":" if isinstance(d, slice) and d == slice(None) else str(d) for d in self.shape
         )
         return f"{self.dtype.__name__}[{dims}]"
 
     def __call__(self, *args, **kwargs):
+        if self.shape is None:
+            raise ValueError("Cannot create an array with unknown shape [None] has be used")
+
         value = args[0] if args else kwargs.get("value", None)
 
         from .wrappers.empty import empty
@@ -79,17 +98,38 @@ class DataType(metaclass=DataTypeMeta):
 
     @classmethod
     def __class_getitem__(cls, key) -> ArrayType:
+        if key is None:
+            # It is a pointer
+            return ArrayType(dtype=cls, shape=None)
         if not isinstance(key, tuple):
             key = (key,)
+        new_key = []
+        for k in key:
+            if isinstance(k, slice):
+                if k.start is not None or k.stop is not None or k.step is not None:
+                    raise TypeError(f"Invalid type for array dimension: {type(k)}")
+            elif not isinstance(k, int):
+                raise TypeError(f"Invalid type for array dimension: {type(k)}")
+            if isinstance(k, int) and k < 0:
+                raise ValueError("Negative dimensions are not allowed")
+            new_key.append(k if isinstance(k, int) else None)
         return ArrayType(dtype=cls, shape=tuple(key))
 
     @classmethod
     def is_np_dtype(cls, dtype):
-        return dtype in DataTypeMeta._instances
+        return dtype in DataTypeMeta._np_dtype
 
     @classmethod
     def from_np_dtype(cls, dtype):
-        return DataTypeMeta._instances[dtype]
+        """Get the DataType class from a numpy dtype."""
+        return DataTypeMeta._np_dtype[dtype]
+
+    @classmethod
+    def from_ftype(cls, ftype):
+        """Get the DataType class from a FortranType."""
+        if ftype in DataTypeMeta._ftype_bind_c:
+            return DataTypeMeta._ftype_bind_c[ftype]
+        return DataTypeMeta._ftype[ftype]
 
     @classmethod
     def is_struct(cls):
@@ -237,6 +277,9 @@ class StructType(DataType, metaclass=DataTypeMeta):
 
     @classmethod
     def __class_getitem__(cls, key) -> ArrayType:
+        if key is None:
+            # It is a pointer
+            return ArrayType(dtype=cls, shape=None)
         if not isinstance(key, tuple):
             key = (key,)
         return ArrayType(dtype=cls, shape=tuple(key))
@@ -246,8 +289,8 @@ def make_struct_type(members, name=None):
     """Create (or retrieve) a struct datatype class for ``members``."""
 
     key = tuple(members)
-    if key in DataTypeMeta._instances:
-        return DataTypeMeta._instances[key]
+    if key in DataTypeMeta._np_dtype:
+        return DataTypeMeta._np_dtype[key]
 
     if name is None:
         name = f"struct{StructType._counter}"
@@ -276,22 +319,22 @@ def make_struct_type(members, name=None):
 
     new_cls = type(name, (StructType,), attrs)
 
-    DataTypeMeta._instances[key] = new_cls
+    DataTypeMeta._np_dtype[key] = new_cls
     # also register mapping from numpy dtype for conversion
-    DataTypeMeta._instances[new_cls.get_numpy()] = new_cls
+    DataTypeMeta._np_dtype[new_cls.get_numpy()] = new_cls
     return new_cls
 
 
 def get_struct_from_np_dtype(np_dtype):
-    if np_dtype in DataTypeMeta._instances:
-        return DataTypeMeta._instances[np_dtype]
+    if np_dtype in DataTypeMeta._np_dtype:
+        return DataTypeMeta._np_dtype[np_dtype]
 
     fields = []
     for name, (np_d, _) in np_dtype.base.fields.items():
-        if np_d in DataTypeMeta._instances:
-            dtype = DataTypeMeta._instances[np_d]
-        elif np_d.base.type in DataTypeMeta._instances:
-            dtype = DataTypeMeta._instances[np_d.base.type]
+        if np_d in DataTypeMeta._np_dtype:
+            dtype = DataTypeMeta._np_dtype[np_d]
+        elif np_d.base.type in DataTypeMeta._np_dtype:
+            dtype = DataTypeMeta._np_dtype[np_d.base.type]
         elif np_d.fields is not None or (np_d.base.fields is not None):
             dtype = get_struct_from_np_dtype(np_d)
         else:
@@ -301,7 +344,7 @@ def get_struct_from_np_dtype(np_dtype):
         fields.append((name, dtype, shape))
 
     struct_cls = make_struct_type(fields)
-    DataTypeMeta._instances[np_dtype] = struct_cls
+    DataTypeMeta._np_dtype[np_dtype] = struct_cls
     return struct_cls
 
 

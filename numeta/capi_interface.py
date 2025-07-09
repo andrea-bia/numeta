@@ -165,7 +165,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
         """
         if variable.value:
             return f"({variable.datatype.get_cnumpy()}){variable.name}"
-        elif variable.shape is None and variable.datatype.is_struct():
+        elif variable.rank == 0 and variable.datatype.is_struct():
             return f"({variable.datatype.get_cnumpy()}*){variable.name}"
         elif variable.has_und_dims():
             return f"PyArray_DIMS({variable.name}), ({variable.datatype.get_cnumpy()}*)PyArray_DATA({variable.name})"
@@ -196,14 +196,14 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
                 return result
             cast = variable.datatype.get_capi_cast(f"args[{i}]")
             return f"{variable.datatype.get_cnumpy()} {variable.name} = ({variable.datatype.get_cnumpy()}){cast};"
-        elif variable.shape is None and variable.datatype.is_struct():
+        elif variable.rank == 0 and variable.datatype.is_struct():
             result = f"{variable.datatype.get_cnumpy()}* {variable.name} = NULL;\n"
             result += f"     PyArray_ScalarAsCtype(args[{i}], &{variable.name});"
             return result
         return f"PyArrayObject *{variable.name} = (PyArrayObject*)args[{i}];"
 
     def get_check(self, variable):
-        if variable.shape is not None:
+        if variable.rank != 0:
             check_array = f"""
     if (!PyArray_Check({variable.name})) {{
         PyErr_SetString(PyExc_TypeError, "Argument '{variable.name}' must be a NumPy array");

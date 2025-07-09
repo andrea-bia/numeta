@@ -69,6 +69,10 @@ class Subroutine(NamedEntity):
             self.declaration = SubroutineDeclaration(self)
         return self.declaration
 
+    def count_statements(self):
+        """Return the number of statements in this subroutine."""
+        return sum(stmt.count_statements() for stmt in self.scope.get_statements())
+
     def print_lines(self, indent=0):
         return self.get_declaration().print_lines(indent=indent)
 

@@ -14,13 +14,13 @@ class BuilderHelper:
             raise Warning("The current builder is not initialized")
         return cls.current_builder
 
-    def __init__(self, subroutine, construct_function):
-        self.subroutine = subroutine
-        self.construct = construct_function
-        self.prefix_counter = {}
+    def __init__(self, numeta_function, symbolic_function, comptime_args):
+        self.numeta_function = numeta_function
+        self.symbolic_function = symbolic_function
+        # Comptime args is stored to be used as identifier
+        self.comptime_args = comptime_args
 
-        # Dictionary to store temporary variables during construction
-        # self.tmp = {}
+        self.prefix_counter = {}
 
     def generate_local_variables(self, prefix, **kwargs):
         if prefix not in self.prefix_counter:
@@ -33,11 +33,11 @@ class BuilderHelper:
         self.set_current_builder(self)
 
         old_scope = Scope.current_scope
-        self.subroutine.scope.enter()
+        self.symbolic_function.scope.enter()
 
-        self.construct(*args)
+        self.numeta_function.run_symbolic(*args)
 
-        self.subroutine.scope.exit()
+        self.symbolic_function.scope.exit()
         Scope.current_scope = old_scope
 
         self.set_current_builder(old_builder)

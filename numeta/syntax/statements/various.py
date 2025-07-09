@@ -182,8 +182,8 @@ class Deallocate(Statement):
 
 
 class Do(StatementWithScope):
-    def __init__(self, iterator, start, end, step=None):
-        super().__init__()
+    def __init__(self, iterator, start, end, /, step=None, *, add_to_scope=True, enter_scope=True):
+        super().__init__(add_to_scope=add_to_scope, enter_scope=enter_scope)
         self.iterator = check_node(iterator)
         self.start = check_node(start)
         self.end = check_node(end)
@@ -213,8 +213,8 @@ class Do(StatementWithScope):
 
 
 class DoWhile(StatementWithScope):
-    def __init__(self, condition):
-        super().__init__()
+    def __init__(self, condition, /, *, add_to_scope=True, enter_scope=True):
+        super().__init__(add_to_scope=add_to_scope, enter_scope=enter_scope)
         self.condition = check_node(condition)
 
     @property
@@ -229,8 +229,8 @@ class DoWhile(StatementWithScope):
 
 
 class If(StatementWithScope):
-    def __init__(self, condition):
-        super().__init__()
+    def __init__(self, condition, /, *, add_to_scope=True, enter_scope=True):
+        super().__init__(add_to_scope=add_to_scope, enter_scope=enter_scope)
         self.condition = check_node(condition)
         self.orelse = []
 
@@ -257,16 +257,27 @@ class If(StatementWithScope):
     def get_end_code_blocks(self):
         return ["end", " ", "if"]
 
+    def get_with_updated_variables(self, variables_couples):
+        new_children = [
+            child.get_with_updated_variables(variables_couples) for child in self.children
+        ]
+        result = type(self)(*new_children, add_to_scope=False, enter_scope=False)
+        result.scope = self.scope.get_with_updated_variables(variables_couples)
+        result.orelse = [stmt.get_with_updated_variables(variables_couples) for stmt in self.orelse]
+        return result
+
 
 class ElseIf(StatementWithScope):
-    def __init__(self, condition):
-        if not isinstance(Scope.current_scope.body[-1], If):
-            raise Exception(
-                "Something went wrong with this else if. The last statement is not an if statement."
-            )
-        Scope.current_scope.body[-1].orelse.append(self)
+    def __init__(self, condition, /, *, add_to_scope=True, enter_scope=True):
+        if add_to_scope:
+            if not isinstance(Scope.current_scope.body[-1], If):
+                raise Exception(
+                    "Something went wrong with this else if. The last statement is not an if statement."
+                )
+            Scope.current_scope.body[-1].orelse.append(self)
         self.scope = Scope()
-        self.scope.enter()
+        if enter_scope:
+            self.scope.enter()
         self.condition = check_node(condition)
 
     @property
@@ -281,14 +292,16 @@ class ElseIf(StatementWithScope):
 
 
 class Else(StatementWithScope):
-    def __init__(self):
-        if not isinstance(Scope.current_scope.body[-1], If):
-            raise Exception(
-                "Something went wrong with this else if. The last statement is not an if statement."
-            )
-        Scope.current_scope.body[-1].orelse.append(self)
+    def __init__(self, /, *, add_to_scope=True, enter_scope=True):
+        if add_to_scope:
+            if not isinstance(Scope.current_scope.body[-1], If):
+                raise Exception(
+                    "Something went wrong with this else if. The last statement is not an if statement."
+                )
+            Scope.current_scope.body[-1].orelse.append(self)
         self.scope = Scope()
-        self.scope.enter()
+        if enter_scope:
+            self.scope.enter()
 
     @property
     def children(self):

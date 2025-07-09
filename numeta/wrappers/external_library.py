@@ -49,6 +49,10 @@ def convert_argument(name, hint, bind_c=True):
         ftype = dtype.get_fortran(bind_c=bind_c)
         dimension = hint.shape
 
+        if dimension is None:
+            # it is a pointer
+            dimension = (None,)
+
         # C does not support slices
         if bind_c:
             if not isinstance(dimension, tuple):

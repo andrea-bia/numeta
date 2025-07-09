@@ -11,7 +11,7 @@ class ExpressionNode(Node):
         raise NotImplementedError
 
     def get_with_updated_variables(self, variables_couples):
-        raise NotImplementedError
+        return self
 
     def get_code_blocks(self):
         raise NotImplementedError

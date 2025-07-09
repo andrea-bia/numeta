@@ -36,6 +36,13 @@ class Scope:
     def get_statements(self):
         return self.body
 
+    def get_with_updated_variables(self, variables_couples):
+        result = Scope()
+        result.body = [
+            stmt.get_with_updated_variables(variables_couples) for stmt in self.get_statements()
+        ]
+        return result
+
     def __enter__(self):
         self.enter()
 

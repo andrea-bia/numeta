@@ -18,19 +18,9 @@ class FortranType(Node):
             yield self.kind
 
     def get_with_updated_variables(self, variables_couples):
-        raise NotImplementedError
+        return self
 
     def get_kind_spec(self):
         if isinstance(self.kind, NamedEntity):
             return self.kind.name
         return str(self.kind)
-
-
-FInt32 = FortranType("integer", 4)
-FInt64 = FortranType("integer", 8)
-FReal32 = FortranType("real", 4)
-FReal64 = FortranType("real", 8)
-FComplex32 = FortranType("complex", 4)
-FComplex64 = FortranType("complex", 8)
-FLogical8 = FortranType("logical", 1)
-FCharacter = FortranType("character", 1)

@@ -19,7 +19,7 @@ class ModuleDeclaration(StatementWithScope):
         dependencies, declarations = get_nested_dependencies_or_declarations(
             entities, self.module, for_module=True
         )
-        variables_dec, derived_types_dec = divide_variables_and_derived_types(declarations)
+        variables_dec, derived_types_dec, _ = divide_variables_and_derived_types(declarations)
 
         for dependency, variable in dependencies:
             yield Use(dependency, only=variable, add_to_scope=False)

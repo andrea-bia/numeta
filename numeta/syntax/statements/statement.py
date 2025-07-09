@@ -1,4 +1,4 @@
-from numeta.syntax.nodes import Node, NamedEntity
+from numeta.syntax.nodes import Node
 from numeta.syntax.scope import Scope
 from .tools import print_block
 
@@ -45,18 +45,15 @@ class Statement(Node):
         """Print the statement, formatted with the given indent level."""
         return [print_block(self.get_code_blocks(), indent=indent)]
 
+    def count_statements(self):
+        """Return 1 for simple statements."""
+        return 1
+
     def get_with_updated_variables(self, variables_couples):
-        """Return a new statement with updated variables from the given variable mappings."""
-        raise NotImplementedError(
-            f"Subclass '{self.__class__.__name__}' must implement 'get_with_updated_variables'."
-        )
-        new_children = []
-        for child in self.children:
-            if hasattr(child, "get_with_updated_variables"):
-                new_children.append(child.get_with_updated_variables(variables_couples))
-            else:
-                new_children.append(child)
-        return type(self)(*new_children)
+        new_children = [
+            child.get_with_updated_variables(variables_couples) for child in self.children
+        ]
+        return type(self)(*new_children, add_to_scope=False)
 
 
 class StatementWithScope(Statement):
@@ -125,6 +122,22 @@ class StatementWithScope(Statement):
             yield from child.extract_entities()
         for statement in self.get_statements():
             yield from statement.extract_entities()
+
+    def get_with_updated_variables(self, variables_couples):
+        new_children = [
+            child.get_with_updated_variables(variables_couples) for child in self.children
+        ]
+        result = type(self)(*new_children, add_to_scope=False, enter_scope=False)
+        result.scope = self.scope.get_with_updated_variables(variables_couples)
+
+        return result
+
+    def count_statements(self):
+        """Count this statement and all nested statements."""
+        count = 1
+        for statement in self.get_statements():
+            count += statement.count_statements()
+        return count
 
     def __enter__(self):
         """Enter the scope of the statement."""

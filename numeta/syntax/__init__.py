@@ -6,6 +6,7 @@ from .module import Module, ModuleCollection
 from .external_module import ExternalModule
 from .scope import Scope
 from .syntax_settings import settings
+from .inline import inline
 
 from .expressions import LiteralNode
 

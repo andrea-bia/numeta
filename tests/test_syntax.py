@@ -49,8 +49,8 @@ from numeta.syntax.expressions import (
     Matmul,
     ArrayConstructor,
 )
-from numeta.syntax.statements import VariableDeclaration
-from numeta.syntax import Subroutine, Module
+from numeta.syntax.statements import VariableDeclaration, Call
+from numeta.syntax import Subroutine, Module, Scope
 from numeta import settings
 
 
@@ -120,7 +120,7 @@ def test_array_constructor():
     i = Variable("i", nm.settings.DEFAULT_INTEGER)
     arr = Variable("arr", nm.settings.DEFAULT_INTEGER, dimension=(10, 10))
     expr = ArrayConstructor(arr[1, 1], 5, i).get_code_blocks()
-    expected = ["[", "arr", "(", "1", ",", " ", "1", ")", ", ", "5_c_int64_t", ", ", "i", ")"]
+    expected = ["[", "arr", "(", "1", ",", " ", "1", ")", ", ", "5_c_int64_t", ", ", "i", "]"]
     assert expr == expected
 
 
@@ -346,3 +346,323 @@ def test_do_while_statement():
 
     for l1, l2 in zip(do.print_lines(), expected):
         assert l1 == l2
+
+
+def test_update_variables_simple_assignment():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    stmt = Assignment(x, y, add_to_scope=False)
+
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", nm.settings.DEFAULT_INTEGER)
+    stmt = stmt.get_with_updated_variables([(x, new_x), (y, new_y)])
+    assert stmt.print_lines() == ["new_x=new_y\n"]
+
+
+def test_update_variables_binary_operation_node():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    expr = x + y
+
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", nm.settings.DEFAULT_INTEGER)
+    expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
+    assert render(expr) == "(new_x+new_y)\n"
+
+
+def test_update_variables_simple_add():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    expr = x + 5
+
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    expr = expr.get_with_updated_variables([(x, new_x)])
+    assert render(expr) == "(new_x+5_c_int64_t)\n"
+
+
+def test_update_variables_getattr_node():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    expr = GetAttr(x, "tag")
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    expr = expr.get_with_updated_variables([(x, new_x)])
+    assert render(expr) == "new_x%tag\n"
+
+
+def test_update_variables_getitem_node():
+    arr = Variable("a", nm.settings.DEFAULT_REAL, dimension=(10, 10))
+    expr = arr[1, 2]
+    new_arr = Variable("new_a", nm.settings.DEFAULT_REAL, dimension=(40, 30))
+    expr = expr.get_with_updated_variables([(arr, new_arr)])
+    assert render(expr) == "new_a(1, 2)\n"
+
+
+def test_update_variables_withgetitem_node():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    expr = Assignment(x, 5, add_to_scope=False)
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER, dimension=(10,))
+    expr = expr.get_with_updated_variables([(x, new_x[3])])
+    assert render(expr) == "new_x(3)=5_c_int64_t\n"
+
+
+def test_update_variables_function_node():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    fn = Function("f", [x])
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    fn = fn.get_with_updated_variables([(x, new_x)])
+    assert render(fn) == "f(new_x)\n"
+
+
+def test_update_variables_unary_neg_node():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    expr = -x
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    expr = expr.get_with_updated_variables([(x, new_x)])
+    assert render(expr) == "-(new_x)\n"
+
+
+def test_update_variables_eq_ne_nodes():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", nm.settings.DEFAULT_INTEGER)
+
+    expr = x == y
+    expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
+    assert render(expr) == "(new_x.eq.new_y)\n"
+
+    expr = x != y
+    expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
+    assert render(expr) == "(new_x.ne.new_y)\n"
+
+
+def test_update_variables_re_im_nodes():
+    z = Variable("z", nm.c8)
+    new_z = Variable("new_z", nm.c8)
+
+    z_real = z.real
+    z_real = z_real.get_with_updated_variables([(z, new_z)])
+
+    z_imag = z.imag
+    z_imag = z_imag.get_with_updated_variables([(z, new_z)])
+
+    assert render(z_real) == "new_z%re\n"
+    assert render(z_imag) == "new_z%im\n"
+
+
+def test_update_variables_function_multiple_args():
+    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    fn = Function("f", [x, y])
+    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", nm.settings.DEFAULT_INTEGER)
+    fn = fn.get_with_updated_variables([(x, new_x), (y, new_y)])
+    assert render(fn) == "f(new_x, new_y)\n"
+
+
+def test_update_variables_do_statement():
+    nm.settings.set_integer(64)
+    i = Variable("i", settings.DEFAULT_INTEGER)
+    x = Variable("x", settings.DEFAULT_INTEGER)
+
+    new_i = Variable("new_i", settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", settings.DEFAULT_INTEGER)
+
+    with Scope():
+        do = Do(i, 0, 3, add_to_scope=False)
+        with do:
+            Assignment(x, i + 1)
+
+        do = do.get_with_updated_variables([(i, new_i), (x, new_x)])
+
+    expected = [
+        "do new_i = 0_c_int64_t, 3_c_int64_t\n",
+        "    new_x=(new_i+1_c_int64_t)\n",
+        "end do\n",
+    ]
+
+    for l1, l2 in zip(do.print_lines(), expected):
+        assert l1 == l2
+
+
+def test_update_variables_if_statement():
+    nm.settings.set_integer(64)
+    i = Variable("i", settings.DEFAULT_INTEGER)
+    x = Variable("x", settings.DEFAULT_INTEGER)
+
+    new_i = Variable("new_i", settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", settings.DEFAULT_INTEGER)
+
+    with Scope():
+
+        wrapper = Do(i, 0, 3, add_to_scope=False)
+        with wrapper:
+            with If(i < 5):
+                Assignment(x, i + 1)
+            with ElseIf(i < 10):
+                Assignment(x, i + 2)
+            with Else():
+                Assignment(x, 0)
+
+        wrapper = wrapper.get_with_updated_variables([(i, new_i), (x, new_x)])
+
+    expected = [
+        "do new_i = 0_c_int64_t, 3_c_int64_t\n",
+        "    if((new_i.lt.5_c_int64_t))then\n",
+        "        new_x=(new_i+1_c_int64_t)\n",
+        "    elseif((new_i.lt.10_c_int64_t))then\n",
+        "        new_x=(new_i+2_c_int64_t)\n",
+        "    else\n",
+        "        new_x=0_c_int64_t\n",
+        "    end if\n",
+        "end do\n",
+    ]
+
+    for line1, line2 in zip(wrapper.print_lines(), expected):
+        assert line1 == line2, f"Expected: {line2}, but got: {line1}"
+
+
+def test_update_variables_do_while_statement():
+    nm.settings.set_integer(64)
+    i = Variable("i", settings.DEFAULT_INTEGER)
+    x = Variable("x", settings.DEFAULT_INTEGER)
+
+    new_i = Variable("new_i", settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", settings.DEFAULT_INTEGER)
+
+    with Scope():
+        do = DoWhile(i < 5, add_to_scope=False)
+        with do:
+            Assignment(x, i + 1)
+
+        do = do.get_with_updated_variables([(i, new_i), (x, new_x)])
+
+    expected = [
+        "do while ((new_i.lt.5_c_int64_t))\n",
+        "    new_x=(new_i+1_c_int64_t)\n",
+        "end do\n",
+    ]
+
+    for l1, l2 in zip(do.print_lines(), expected):
+        assert l1 == l2
+
+
+def test_call():
+    callee = Subroutine("callee")
+    nm.settings.set_integer(64)
+    x = Variable("x", settings.DEFAULT_INTEGER, intent="in")
+    y = Variable("y", settings.DEFAULT_INTEGER, intent="out")
+    callee.add_variable(x, y)
+    with callee.scope:
+        Assignment(y, x)
+    caller = Subroutine("caller")
+    with caller.scope:
+        Call(callee, x, y)
+
+    expected = [
+        "subroutine caller() bind(C)\n",
+        "    use iso_c_binding, only: c_int64_t\n",
+        "    implicit none\n",
+        "    interface\n",
+        "        subroutine callee(x, y) bind(C)\n",
+        "            use iso_c_binding, only: c_int64_t\n",
+        "            implicit none\n",
+        "            integer(c_int64_t), intent(in), value :: x\n",
+        "            integer(c_int64_t), intent(out) :: y\n",
+        "        end subroutine callee\n",
+        "    end interface\n",
+        "    integer(c_int64_t), intent(in), value :: x\n",
+        "    integer(c_int64_t), intent(out) :: y\n",
+        "    call callee(x, y)\n",
+        "end subroutine caller\n",
+    ]
+    for l1, l2 in zip(caller.print_lines(), expected):
+        assert l1 == l2
+
+
+def test_call_external_library():
+    nm.settings.set_integer(64)
+    lib = nm.syntax.external_module.ExternalLibrary("lib")
+    lib.add_method("foo", [Variable("a", settings.DEFAULT_INTEGER)], None)
+    foo = lib.foo
+    sub = Subroutine("mysub")
+    x = Variable("x", settings.DEFAULT_INTEGER)
+    sub.add_variable(x)
+    with sub.scope:
+        foo(x)
+
+    expected = [
+        "subroutine mysub() bind(C)\n",
+        "    use iso_c_binding, only: c_int64_t\n",
+        "    implicit none\n",
+        "    interface\n",
+        "        subroutine foo(a)\n",
+        "            use iso_c_binding, only: c_int64_t\n",
+        "            implicit none\n",
+        "            integer(c_int64_t) :: a\n",
+        "        end subroutine foo\n",
+        "    end interface\n",
+        "    integer(c_int64_t) :: x\n",
+        "    call foo(x)\n",
+        "end subroutine mysub\n",
+    ]
+    for l1, l2 in zip(sub.print_lines(), expected):
+        assert l1 == l2
+
+
+import numpy as np
+
+
+def test_inline_slice_composition():
+    sub = nm.Subroutine("set_one")
+    arr = nm.Variable("arr", nm.settings.DEFAULT_REAL, intent="inout")
+    sub.add_variable(arr)
+    with sub.scope:
+        nm.Assignment(arr[:4], 1.0)
+        nm.Assignment(arr[4:6], 2.0)
+        nm.Assignment(arr[6:], 3.0)
+        nm.Assignment(arr[2], 4.0)
+
+    @nm.jit
+    def main(a, b, c, d):
+        nm.inline(sub, a[3:10])
+        nm.inline(sub, b)
+        nm.inline(sub, c[5:])
+        nm.inline(sub, d[:10])
+
+    a = np.zeros(12)
+    b = np.zeros(12)
+    c = np.zeros(12)
+    d = np.zeros(12)
+    main(a, b, c, d)
+    expected_a = np.zeros(12)
+    expected_a[3:7] = 1.0
+    expected_a[7:9] = 2.0
+    expected_a[9:10] = 3.0
+    expected_a[5] = 4.0
+    np.testing.assert_allclose(a, expected_a)
+
+    expected_b = np.zeros(12)
+    expected_b[:7] = 1.0
+    expected_b[4:6] = 2.0
+    expected_b[6:] = 3.0
+    expected_b[2] = 4.0
+    np.testing.assert_allclose(b, expected_b)
+
+    expected_c = np.zeros(12)
+    expected_c[5:12] = 1.0
+    expected_c[9:11] = 2.0
+    expected_c[11:] = 3.0
+    expected_c[7] = 4.0
+    np.testing.assert_allclose(c, expected_c)
+    expected_c = np.zeros(12)
+    expected_c[5:12] = 1.0
+    expected_c[9:11] = 2.0
+    expected_c[11:] = 3.0
+    expected_c[7] = 4.0
+    np.testing.assert_allclose(c, expected_c)
+
+    expected_d = np.zeros(12)
+    expected_d[:7] = 1.0
+    expected_d[4:6] = 2.0
+    expected_d[6:10] = 3.0
+    expected_d[2] = 4.0
+    np.testing.assert_allclose(d, expected_d)

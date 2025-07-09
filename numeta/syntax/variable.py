@@ -20,11 +20,8 @@ class Variable(NamedEntity, ExpressionNode):
         super().__init__(name, module=module)
         self.ftype = ftype
         self.dimension = dimension
-        if isinstance(dimension, tuple):
-            if len(dimension) == 1 and isinstance(dimension[0], (Variable, int)):
-                self.dimension = dimension[0]
-            else:
-                self.dimension = dimension
+        if not isinstance(self.dimension, tuple) and self.dimension is not None:
+            self.dimension = (self.dimension,)
         self.allocatable = allocatable
         self.parameter = parameter
         self.assign = assign
@@ -85,6 +82,13 @@ class Variable(NamedEntity, ExpressionNode):
         if self.dimension is None:
             raise ValueError("The variable is a scalar")
         return self.dimension
+
+    def get_shape_array(self):
+        if self.dimension is None:
+            raise ValueError("The variable is a scalar")
+        from .expressions import ArrayConstructor
+
+        return ArrayConstructor(*self.dimension)
 
     def __setitem__(self, key, value):
         """Does nothing, but allows to use variable[key] = value"""

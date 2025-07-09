@@ -28,15 +28,6 @@ class Function(NamedEntity, ExpressionNode):
     def get_declaration(self):
         raise NotImplementedError("Function declaration is not supported")
 
-
-# def get_with_updated_variables(self, variables_couples):
-#    #new_arguments = [arg.get_with_updated_variables(variables_couples) for arg in self.arguments]
-#    new_arguments = []
-
-#    for arg in self.arguments:
-#        if hasattr(arg, "get_with_updated_variables"):
-#            new_arguments.append(arg.get_with_updated_variables(variables_couples))
-#        else:
-#            new_arguments.append(arg)
-
-#    return Function(self.name, new_arguments)
+    def get_with_updated_variables(self, variables_couples):
+        new_args = [arg.get_with_updated_variables(variables_couples) for arg in self.arguments]
+        return Function(self.name, new_args, module=self.module)

@@ -12,7 +12,6 @@ def test_slice_exclusive_bounds():
     arr = np.zeros(6, dtype=np.int64)
     fill(arr)
 
-
     expected = np.zeros(6, dtype=np.int64)
     expected[1:5] = 1
     np.testing.assert_array_equal(arr, expected)

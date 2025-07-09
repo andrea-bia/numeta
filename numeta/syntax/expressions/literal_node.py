@@ -36,8 +36,8 @@ class LiteralNode(ExpressionNode):
         if isinstance(self.kind, NamedEntity):
             yield self.kind
 
-    # def get_with_updated_variables(self, variables_couples):
-    #    return self.datatype.get_with_updated_variables(variables_couples)
+    def get_with_updated_variables(self, variables_couples):
+        return self
 
     def get_code_blocks(self):
         if isinstance(self.kind, NamedEntity):

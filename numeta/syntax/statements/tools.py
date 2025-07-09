@@ -197,16 +197,20 @@ def get_nested_dependencies_or_declarations(entities, curr_module, for_module=Fa
 def divide_variables_and_derived_types(declarations):
     from .variable_declaration import VariableDeclaration
     from .derived_type_declaration import DerivedTypeDeclaration
+    from .subroutine_declaration import SubroutineDeclaration
 
     variable_declarations = {}
     derived_type_declarations = {}
+    subroutine_declaration = {}
 
     for name, declaration in declarations.items():
         if isinstance(declaration, VariableDeclaration):
             variable_declarations[name] = declaration
         elif isinstance(declaration, DerivedTypeDeclaration):
             derived_type_declarations[name] = declaration
+        elif isinstance(declaration, SubroutineDeclaration):
+            subroutine_declaration[name] = declaration
         else:
             raise NotImplementedError(f"Unknown declaration type: {declaration}")
 
-    return variable_declarations, derived_type_declarations
+    return variable_declarations, derived_type_declarations, subroutine_declaration

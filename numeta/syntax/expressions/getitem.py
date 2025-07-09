@@ -1,5 +1,6 @@
 from .expression_node import ExpressionNode
 from numeta.syntax.syntax_settings import settings
+from numeta.syntax.nodes import Node
 
 
 class GetItem(ExpressionNode):
@@ -33,6 +34,35 @@ class GetItem(ExpressionNode):
         from numeta.syntax.statements import Assignment
 
         return Assignment(Im(self), value)
+
+    def get_shape_array(self):
+        from .various import ArrayConstructor
+
+        def get_dim_slice(slice_, max_dim):
+            start = slice_.start
+            if start is None:
+                start = settings.array_lower_bound
+            stop = slice_.stop
+            if stop is None:
+                stop = max_dim
+            if slice_.step is not None:
+                raise NotImplementedError("Step slicing not implemented for shape extraction")
+            return stop - start
+
+        shapes = []
+        if isinstance(self.sliced, tuple):
+            for i, element in enumerate(self.sliced):
+                if isinstance(element, slice):
+                    shapes.append(get_dim_slice(element, self.variable.shape[i]))
+                else:
+                    shapes.append(1)
+        else:
+            if isinstance(self.sliced, slice):
+                shapes.append(get_dim_slice(self.sliced, self.variable.shape[0]))
+            else:
+                shapes.append(1)
+
+        return ArrayConstructor(*shapes)
 
     def extract_entities(self):
         yield from self.variable.extract_entities()
@@ -106,24 +136,32 @@ class GetItem(ExpressionNode):
 
         Assignment(self[key], value)
 
-    # def get_with_updated_variables(self, variables_couples):
-    #    # if the variable is present in the first index of variables_couples return the corresponding second index
-    #    # and do the same work for all the variables in self.sliced
+    def get_with_updated_variables(self, variables_couples):
 
-    #    for old_variable, new_variable in variables_couples:
-    #        if self.id == old_variable.id:
-    #            if isinstance(new_variable, Variable):
-    #                return new_variable[
-    #                    update_variables(self.sliced, variables_couples)
-    #                ]  # if new_variable is SliceDecorator index are summed (double __getitem__)
-    #            else:
-    #                raise Warning(
-    #                    "can't modify index of an non-Variable derived object"
-    #                )
-    #    # Means that it is a new variable, no need to do double getitem
-    #    return self.variable[
-    #        update_variables(self.sliced, variables_couples)
-    #    ]  # if new_variable is SliceDecorator index are summed (double __getitem__)
+        def update_variables(element, variables_couples):
+            """Recursively replace variables in ``element`` according to ``variables_couples``."""
+            if isinstance(element, tuple):
+                return tuple(update_variables(e, variables_couples) for e in element)
+            if isinstance(element, slice):
+                return slice(
+                    update_variables(element.start, variables_couples),
+                    update_variables(element.stop, variables_couples),
+                    update_variables(element.step, variables_couples),
+                )
+            if isinstance(element, Node):
+                return element.get_with_updated_variables(variables_couples)
+            return element
+
+        new_var = self.variable.get_with_updated_variables(variables_couples)
+        new_slice = update_variables(self.sliced, variables_couples)
+
+        # If the variable was replaced by another GetItem (e.g. during inlining),
+        # compose the indexing using the standard __getitem__ logic so that
+        # slices are merged correctly.
+        if isinstance(new_var, GetItem):
+            return new_var[new_slice]
+
+        return GetItem(new_var, new_slice)
 
     def __getitem__(self, key):
         if isinstance(key, str):
@@ -146,36 +184,47 @@ class GetItem(ExpressionNode):
                 new_key = self.sliced
 
             elif isinstance(key, slice):
-                if self.sliced.start is None and self.sliced.stop is None:
-                    new_start = None
-                    new_stop = None
-                else:
-                    new_start = self.sliced.start if self.sliced.start is not None else 0
-                    new_start += key.start if key.start is not None else 0
-                    new_start -= settings.array_lower_bound
-
-                    new_stop = self.sliced.stop if self.sliced.stop is not None else 0
-                    new_stop += key.stop if key.stop is not None else 0
-                    new_stop -= settings.array_lower_bound
-
-                if self.sliced.step is not None:
+                if self.sliced.step is not None or key.step is not None:
                     raise Warning("Step slicing not implemented for slice merging")
 
-                new_key = slice(new_start, new_stop, key.step)
+                lb = settings.array_lower_bound
+
+                if self.sliced.start is None and self.sliced.stop is None:
+                    new_start = key.start
+                    new_stop = key.stop
+                else:
+                    base_start = self.sliced.start if self.sliced.start is not None else lb
+
+                    if key.start is None:
+                        new_start = self.sliced.start
+                    elif self.sliced.start is None:
+                        new_start = key.start
+                    else:
+                        new_start = base_start + key.start - lb
+
+                    if key.stop is None:
+                        new_stop = self.sliced.stop
+                    elif self.sliced.start is None:
+                        new_stop = key.stop
+                    else:
+                        new_stop = base_start + key.stop - lb
+
+                new_key = slice(new_start, new_stop, None)
 
             else:
-                new_key = self.sliced.start if self.sliced.start is not None else 0
-                new_key += key
-                new_key -= settings.array_lower_bound
+                lb = settings.array_lower_bound
+                base_start = self.sliced.start if self.sliced.start is not None else lb
+                new_key = base_start + key - lb
 
         elif key is None:
             new_key = self.sliced
 
         else:
-            error_str = "Variable[key] not implemented for sliced different from slice or None"
-            error_str += f"\nName of the variable: {self.name}"
-            error_str += f"\nVariable sliced attribute: {self.sliced}"
-            error_str += f"\nkey: {key}"
+            error_str = "Error in array slicing. Cannot merge old slice with new one.\n"
+            error_str += f"\nName of the variable: {self.variable.name}"
+            error_str += f"\nOld slice: {self.sliced}"
+            error_str += f"\nNew slice: {key}"
+            error_str += f"\nImpossible to merge {self.variable.name}[{self.sliced}][{key}]"
             raise Warning(error_str)
 
         return new_key

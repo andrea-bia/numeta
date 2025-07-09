@@ -15,9 +15,12 @@ class SubroutineDeclaration(StatementWithScope):
         dependencies, declarations = get_nested_dependencies_or_declarations(
             entities, self.subroutine.module
         )
-        self.variables_dec, self.derived_types_dec = divide_variables_and_derived_types(
-            declarations
-        )
+        (
+            self.variables_dec,
+            self.derived_types_dec,
+            subroutine_decs,
+        ) = divide_variables_and_derived_types(declarations)
+        self.interfaces = [dec.subroutine for dec in subroutine_decs.values()]
 
         # Then check the dependencies in the body
         entities = []
@@ -30,14 +33,16 @@ class SubroutineDeclaration(StatementWithScope):
         )
         dependencies.update(body_dependencies)
 
-        body_variables_dec, body_derived_types_dec = divide_variables_and_derived_types(
-            body_declarations
-        )
+        (
+            body_variables_dec,
+            body_derived_types_dec,
+            body_subroutine_decs,
+        ) = divide_variables_and_derived_types(body_declarations)
         self.variables_dec.update(body_variables_dec)
         self.derived_types_dec.update(body_derived_types_dec)
+        self.interfaces.extend(dec.subroutine for dec in body_subroutine_decs.values())
 
         self.external_dependencies = {}
-        self.interfaces = []
         self.dependencies = []
         for dependency, var in dependencies:
             if dependency.hidden:
@@ -121,7 +126,7 @@ class InterfaceDeclaration(StatementWithScope):
         dependencies, declarations = get_nested_dependencies_or_declarations(
             entities, self.subroutine.module
         )
-        variables_dec, derived_types_dec = divide_variables_and_derived_types(declarations)
+        variables_dec, derived_types_dec, _ = divide_variables_and_derived_types(declarations)
 
         # Now we can construct the subroutine
         for dependency, var in dependencies:

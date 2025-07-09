@@ -29,6 +29,7 @@ class Im(ExpressionNode):
     def get_with_updated_variables(self, variables_couples):
         return Im(self.variable.get_with_updated_variables(variables_couples))
 
+
 class ArrayConstructor(ExpressionNode):
     def __init__(self, *elements):
         self.elements = [check_node(e) for e in elements]
@@ -40,7 +41,7 @@ class ArrayConstructor(ExpressionNode):
             result.append(", ")
         if result[-1] == ", ":
             result.pop()
-        result.append(")")
+        result.append("]")
         return result
 
     def extract_entities(self):
@@ -48,10 +49,5 @@ class ArrayConstructor(ExpressionNode):
             yield from e.extract_entities()
 
     def get_with_updated_variables(self, variables_couples):
-        new_elements = [
-            e.get_with_updated_variables(variables_couples)
-            for e in self.elements
-        ]
-        return ArrayConstructor(
-                new_elements
-        )
+        new_elements = [e.get_with_updated_variables(variables_couples) for e in self.elements]
+        return ArrayConstructor(new_elements)
