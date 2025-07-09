@@ -1,6 +1,6 @@
 from numeta.builder_helper import BuilderHelper
 from numeta.syntax import Do
-from numeta.settings import settings
+from numeta.settings import syntax_settings
 
 
 def range(*args):
@@ -20,7 +20,7 @@ def range(*args):
         raise ValueError("Invalid number of arguments")
 
     builder = BuilderHelper.get_current_builder()
-    I = builder.generate_local_variables("fc_i", ftype=settings.DEFAULT_INTEGER)
+    I = builder.generate_local_variables("fc_i", ftype=syntax_settings.DEFAULT_INTEGER)
 
     with Do(I, start, stop - 1, step=step):
         yield I

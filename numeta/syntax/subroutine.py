@@ -1,7 +1,7 @@
 from .nodes import NamedEntity
 from .scope import Scope
 from .statements import SubroutineDeclaration, InterfaceDeclaration, Call
-from .syntax_settings import settings
+from .settings import settings
 
 
 class Subroutine(NamedEntity):

@@ -1,5 +1,5 @@
 from numeta.builder_helper import BuilderHelper
-from numeta.settings import settings
+from numeta.settings import syntax_settings
 from numeta.external_modules.omp import omp
 
 
@@ -20,7 +20,7 @@ def prange(*args, **kwargs):
         raise ValueError("Invalid number of arguments")
 
     builder = BuilderHelper.get_current_builder()
-    I = builder.generate_local_variables("fc_i", ftype=settings.DEFAULT_INTEGER)
+    I = builder.generate_local_variables("fc_i", ftype=syntax_settings.DEFAULT_INTEGER)
 
     with omp.do(I, start, stop - 1, step=step, **kwargs):
         yield I

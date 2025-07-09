@@ -1,7 +1,7 @@
 from .statement import StatementWithScope
 from .variable_declaration import VariableDeclaration
 from numeta.syntax.variable import Variable
-from numeta.syntax.syntax_settings import settings
+from numeta.syntax.settings import settings
 
 
 class DerivedTypeDeclaration(StatementWithScope):

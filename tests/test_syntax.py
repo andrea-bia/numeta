@@ -51,7 +51,8 @@ from numeta.syntax.expressions import (
 )
 from numeta.syntax.statements import VariableDeclaration, Call
 from numeta.syntax import Subroutine, Module, Scope
-from numeta import settings
+from numeta.syntax.settings import settings as syntax_settings
+from numeta.settings import settings
 
 
 def render(expr):
@@ -60,82 +61,96 @@ def render(expr):
 
 
 def test_simple_assignment_syntax():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     stmt = Assignment(x, y, add_to_scope=False)
     assert stmt.print_lines() == ["x=y\n"]
 
 
 def test_literal_node():
-    nm.settings.set_integer(64)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
     lit = LiteralNode(5)
     assert render(lit) == "5_c_int64_t\n"
 
 
 def test_binary_operation_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     expr = x + y
     assert render(expr) == "(x+y)\n"
 
 
 def test_getattr_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = GetAttr(x, "tag")
     assert render(expr) == "x%tag\n"
 
 
 def test_getitem_node():
-    arr = Variable("a", nm.settings.DEFAULT_REAL, dimension=(10, 10))
+    arr = Variable("a", syntax_settings.DEFAULT_REAL, dimension=(10, 10))
     expr = arr[1, 2]
     assert render(expr) == "a(1, 2)\n"
 
 
 def test_function_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     fn = Function("f", [x])
     assert render(fn) == "f(x)\n"
 
 
 def test_unary_neg_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = -x
     assert render(expr) == "-(x)\n"
 
 
 def test_eq_ne_nodes():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     assert render(x == y) == "(x.eq.y)\n"
     assert render(x != y) == "(x.ne.y)\n"
 
 
 def test_re_im_nodes():
-    z = Variable("z", nm.settings.DEFAULT_COMPLEX)
+    z = Variable("z", syntax_settings.DEFAULT_COMPLEX)
     assert render(z.real) == "z%re\n"
     assert render(z.imag) == "z%im\n"
 
 
 def test_array_constructor():
-    i = Variable("i", nm.settings.DEFAULT_INTEGER)
-    arr = Variable("arr", nm.settings.DEFAULT_INTEGER, dimension=(10, 10))
+    i = Variable("i", syntax_settings.DEFAULT_INTEGER)
+    arr = Variable("arr", syntax_settings.DEFAULT_INTEGER, dimension=(10, 10))
     expr = ArrayConstructor(arr[1, 1], 5, i).get_code_blocks()
     expected = ["[", "arr", "(", "1", ",", " ", "1", ")", ", ", "5_c_int64_t", ", ", "i", "]"]
     assert expr == expected
 
 
 def test_function_multiple_args():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     fn = Function("f", [x, y])
     assert render(fn) == "f(x, y)\n"
 
 
-def test_complex_function():
+def test_complex_function_default():
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    settings.set_default_from_datatype(nm.complex128, iso_c=True)
 
-    a = Variable("a", nm.f8)
-    b = Variable("b", nm.f8)
+    a = Variable("a", syntax_settings.DEFAULT_REAL)
+    b = Variable("b", syntax_settings.DEFAULT_REAL)
     expr = Complex(a, b)
+    assert render(expr) == "cmplx(a, b, c_double_complex)\n"
+
+
+def test_complex_function():
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    settings.set_default_from_datatype(nm.complex128, iso_c=True)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+
+    a = Variable("a", syntax_settings.DEFAULT_REAL)
+    b = Variable("b", syntax_settings.DEFAULT_REAL)
+    expr = Complex(a, b, kind=8)
     assert render(expr) == "cmplx(a, b, 8_c_int64_t)\n"
 
 
@@ -185,9 +200,9 @@ def test_complex_function():
     ],
 )
 def test_intrinsic_functions(func, nargs, token):
-    nm.settings.set_integer(64)
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     args = [x] if nargs == 1 else [x, y]
     if func is Size:
         args[1] = 1
@@ -200,40 +215,45 @@ def test_intrinsic_functions(func, nargs, token):
 
 
 def test_variable_declaration_scalar():
-    x = Variable("x", settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     dec = VariableDeclaration(x)
     assert dec.print_lines() == ["integer(c_int64_t) :: x\n"]
 
 
 def test_variable_declaration_array():
-    a = Variable("a", settings.DEFAULT_REAL, dimension=(5,))
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    a = Variable("a", syntax_settings.DEFAULT_REAL, dimension=(5,))
     dec = VariableDeclaration(a)
     assert dec.print_lines() == ["real(c_double), dimension(0:4) :: a\n"]
 
 
 def test_variable_declaration_pointer():
-    p = Variable("p", settings.DEFAULT_REAL, dimension=(10, 10), pointer=True)
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    p = Variable("p", syntax_settings.DEFAULT_REAL, dimension=(10, 10), pointer=True)
     dec = VariableDeclaration(p)
     assert dec.print_lines() == ["real(c_double), pointer, dimension(:,:) :: p\n"]
 
 
 def test_variable_declaration_allocatable():
-    arr = Variable("arr", settings.DEFAULT_REAL, dimension=(3, 3), allocatable=True)
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    arr = Variable("arr", syntax_settings.DEFAULT_REAL, dimension=(3, 3), allocatable=True)
     dec = VariableDeclaration(arr)
     assert dec.print_lines() == ["real(c_double), allocatable, dimension(:,:) :: arr\n"]
 
 
 def test_variable_declaration_intent():
-    v = Variable("v", settings.DEFAULT_REAL, intent="in")
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    v = Variable("v", syntax_settings.DEFAULT_REAL, intent="in")
     dec = VariableDeclaration(v)
     assert dec.print_lines() == ["real(c_double), intent(in), value :: v\n"]
 
 
 def test_subroutine_print_lines():
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER, intent="out")
     sub = Subroutine("mysub")
-    nm.settings.set_integer(64)
-    x = Variable("x", settings.DEFAULT_INTEGER, intent="in")
-    y = Variable("y", settings.DEFAULT_INTEGER, intent="out")
     sub.add_variable(x, y)
     with sub.scope:
         Assignment(y, x)
@@ -250,10 +270,10 @@ def test_subroutine_print_lines():
 
 
 def test_module_print_code():
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
     mod = Module("mymod")
     sub = Subroutine("mysub", module=mod)
-    nm.settings.set_integer(64)
-    x = Variable("x", settings.DEFAULT_INTEGER, intent="in")
     sub.add_variable(x)
     expected = [
         "module mymod\n",
@@ -270,12 +290,14 @@ def test_module_print_code():
 
 
 def test_derived_type_declaration():
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
     dt = DerivedType(
         "point",
         [
-            ("x", settings.DEFAULT_INTEGER, None),
-            ("y", settings.DEFAULT_INTEGER, None),
-            ("arr", settings.DEFAULT_REAL, (5,)),
+            ("x", syntax_settings.DEFAULT_INTEGER, None),
+            ("y", syntax_settings.DEFAULT_INTEGER, None),
+            ("arr", syntax_settings.DEFAULT_REAL, (5,)),
         ],
     )
     expected = [
@@ -289,9 +311,9 @@ def test_derived_type_declaration():
 
 
 def test_do_statement():
-    nm.settings.set_integer(64)
-    i = Variable("i", settings.DEFAULT_INTEGER)
-    x = Variable("x", settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    i = Variable("i", syntax_settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
     do = Do(i, 0, 3, add_to_scope=False)
     with do:
@@ -304,9 +326,9 @@ def test_do_statement():
 
 
 def test_if_statement():
-    nm.settings.set_integer(64)
-    i = Variable("i", settings.DEFAULT_INTEGER)
-    x = Variable("x", settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    i = Variable("i", syntax_settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
     wrapper = Do(i, 0, 3, add_to_scope=False)
     with wrapper:
@@ -334,9 +356,9 @@ def test_if_statement():
 
 
 def test_do_while_statement():
-    nm.settings.set_integer(64)
-    i = Variable("i", settings.DEFAULT_INTEGER)
-    x = Variable("x", settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    i = Variable("i", syntax_settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
     do = DoWhile(i < 5, add_to_scope=False)
     with do:
@@ -349,81 +371,83 @@ def test_do_while_statement():
 
 
 def test_update_variables_simple_assignment():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     stmt = Assignment(x, y, add_to_scope=False)
 
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
-    new_y = Variable("new_y", nm.settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
     stmt = stmt.get_with_updated_variables([(x, new_x), (y, new_y)])
     assert stmt.print_lines() == ["new_x=new_y\n"]
 
 
 def test_update_variables_binary_operation_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     expr = x + y
 
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
-    new_y = Variable("new_y", nm.settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
     expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
     assert render(expr) == "(new_x+new_y)\n"
 
 
 def test_update_variables_simple_add():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = x + 5
 
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     expr = expr.get_with_updated_variables([(x, new_x)])
     assert render(expr) == "(new_x+5_c_int64_t)\n"
 
 
 def test_update_variables_getattr_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = GetAttr(x, "tag")
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     expr = expr.get_with_updated_variables([(x, new_x)])
     assert render(expr) == "new_x%tag\n"
 
 
 def test_update_variables_getitem_node():
-    arr = Variable("a", nm.settings.DEFAULT_REAL, dimension=(10, 10))
+    arr = Variable("a", syntax_settings.DEFAULT_REAL, dimension=(10, 10))
     expr = arr[1, 2]
-    new_arr = Variable("new_a", nm.settings.DEFAULT_REAL, dimension=(40, 30))
+    new_arr = Variable("new_a", syntax_settings.DEFAULT_REAL, dimension=(40, 30))
     expr = expr.get_with_updated_variables([(arr, new_arr)])
     assert render(expr) == "new_a(1, 2)\n"
 
 
 def test_update_variables_withgetitem_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = Assignment(x, 5, add_to_scope=False)
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER, dimension=(10,))
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER, dimension=(10,))
     expr = expr.get_with_updated_variables([(x, new_x[3])])
     assert render(expr) == "new_x(3)=5_c_int64_t\n"
 
 
 def test_update_variables_function_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     fn = Function("f", [x])
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     fn = fn.get_with_updated_variables([(x, new_x)])
     assert render(fn) == "f(new_x)\n"
 
 
 def test_update_variables_unary_neg_node():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = -x
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     expr = expr.get_with_updated_variables([(x, new_x)])
     assert render(expr) == "-(new_x)\n"
 
 
 def test_update_variables_eq_ne_nodes():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
-    new_y = Variable("new_y", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
 
     expr = x == y
     expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
@@ -435,8 +459,8 @@ def test_update_variables_eq_ne_nodes():
 
 
 def test_update_variables_re_im_nodes():
-    z = Variable("z", nm.c8)
-    new_z = Variable("new_z", nm.c8)
+    z = Variable("z", syntax_settings.DEFAULT_COMPLEX)
+    new_z = Variable("new_z", syntax_settings.DEFAULT_COMPLEX)
 
     z_real = z.real
     z_real = z_real.get_with_updated_variables([(z, new_z)])
@@ -449,22 +473,22 @@ def test_update_variables_re_im_nodes():
 
 
 def test_update_variables_function_multiple_args():
-    x = Variable("x", nm.settings.DEFAULT_INTEGER)
-    y = Variable("y", nm.settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     fn = Function("f", [x, y])
-    new_x = Variable("new_x", nm.settings.DEFAULT_INTEGER)
-    new_y = Variable("new_y", nm.settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
     fn = fn.get_with_updated_variables([(x, new_x), (y, new_y)])
     assert render(fn) == "f(new_x, new_y)\n"
 
 
 def test_update_variables_do_statement():
-    nm.settings.set_integer(64)
-    i = Variable("i", settings.DEFAULT_INTEGER)
-    x = Variable("x", settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    i = Variable("i", syntax_settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
-    new_i = Variable("new_i", settings.DEFAULT_INTEGER)
-    new_x = Variable("new_x", settings.DEFAULT_INTEGER)
+    new_i = Variable("new_i", syntax_settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
 
     with Scope():
         do = Do(i, 0, 3, add_to_scope=False)
@@ -484,12 +508,12 @@ def test_update_variables_do_statement():
 
 
 def test_update_variables_if_statement():
-    nm.settings.set_integer(64)
-    i = Variable("i", settings.DEFAULT_INTEGER)
-    x = Variable("x", settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    i = Variable("i", syntax_settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
-    new_i = Variable("new_i", settings.DEFAULT_INTEGER)
-    new_x = Variable("new_x", settings.DEFAULT_INTEGER)
+    new_i = Variable("new_i", syntax_settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
 
     with Scope():
 
@@ -521,12 +545,12 @@ def test_update_variables_if_statement():
 
 
 def test_update_variables_do_while_statement():
-    nm.settings.set_integer(64)
-    i = Variable("i", settings.DEFAULT_INTEGER)
-    x = Variable("x", settings.DEFAULT_INTEGER)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    i = Variable("i", syntax_settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
-    new_i = Variable("new_i", settings.DEFAULT_INTEGER)
-    new_x = Variable("new_x", settings.DEFAULT_INTEGER)
+    new_i = Variable("new_i", syntax_settings.DEFAULT_INTEGER)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
 
     with Scope():
         do = DoWhile(i < 5, add_to_scope=False)
@@ -546,10 +570,10 @@ def test_update_variables_do_while_statement():
 
 
 def test_call():
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
+    y = Variable("y", syntax_settings.DEFAULT_INTEGER, intent="out")
     callee = Subroutine("callee")
-    nm.settings.set_integer(64)
-    x = Variable("x", settings.DEFAULT_INTEGER, intent="in")
-    y = Variable("y", settings.DEFAULT_INTEGER, intent="out")
     callee.add_variable(x, y)
     with callee.scope:
         Assignment(y, x)
@@ -579,12 +603,12 @@ def test_call():
 
 
 def test_call_external_library():
-    nm.settings.set_integer(64)
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
     lib = nm.syntax.external_module.ExternalLibrary("lib")
-    lib.add_method("foo", [Variable("a", settings.DEFAULT_INTEGER)], None)
+    lib.add_method("foo", [Variable("a", syntax_settings.DEFAULT_INTEGER)], None)
     foo = lib.foo
     sub = Subroutine("mysub")
-    x = Variable("x", settings.DEFAULT_INTEGER)
+    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     sub.add_variable(x)
     with sub.scope:
         foo(x)
@@ -613,7 +637,7 @@ import numpy as np
 
 def test_inline_slice_composition():
     sub = nm.Subroutine("set_one")
-    arr = nm.Variable("arr", nm.settings.DEFAULT_REAL, intent="inout")
+    arr = nm.Variable("arr", syntax_settings.DEFAULT_REAL, intent="inout")
     sub.add_variable(arr)
     with sub.scope:
         nm.Assignment(arr[:4], 1.0)

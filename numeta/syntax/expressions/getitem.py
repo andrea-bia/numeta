@@ -1,5 +1,5 @@
 from .expression_node import ExpressionNode
-from numeta.syntax.syntax_settings import settings
+from numeta.syntax.settings import settings
 from numeta.syntax.nodes import Node
 
 

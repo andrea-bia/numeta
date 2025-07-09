@@ -2,7 +2,6 @@ import numpy as np
 from dataclasses import dataclass
 from .external_modules.iso_c_binding import iso_c
 from .syntax import FortranType, DerivedType
-from .settings import settings
 
 
 class DataTypeMeta(type):
@@ -52,7 +51,7 @@ class ArrayType:
     """Helper object returned by DataType[x] to describe array types."""
 
     dtype: type
-    shape: tuple | None # if None dimension is unknown, it is a pointer
+    shape: tuple | None  # if None dimension is unknown, it is a pointer
 
     def __iter__(self):
         yield self.dtype
@@ -150,7 +149,9 @@ class DataType(metaclass=DataTypeMeta):
     @classmethod
     def get_fortran(cls, bind_c=None):
         if bind_c is None:
-            return cls._fortran_bind_c_type if settings.use_c_types else cls._fortran_type
+            from .settings import settings
+
+            return cls._fortran_bind_c_type if settings.iso_C else cls._fortran_type
         return cls._fortran_bind_c_type if bind_c else cls._fortran_type
 
     @classmethod

@@ -1,6 +1,6 @@
 from .statement import Statement
 from numeta.syntax.nodes import NamedEntity
-from numeta.syntax.syntax_settings import settings
+from numeta.syntax.settings import settings
 from .tools import get_shape_blocks
 
 
@@ -15,8 +15,7 @@ class VariableDeclaration(Statement):
         if settings.array_lower_bound != 1:
             # HACK: Non stardard array lower bound so we have to shift it
             # and well need the integer kind
-            if isinstance(settings.DEFAULT_INTEGER_KIND, NamedEntity):
-                yield settings.DEFAULT_INTEGER_KIND
+            yield from settings.DEFAULT_INTEGER.extract_entities()
 
         if isinstance(self.variable.dimension, NamedEntity):
             # TODO it is not okay

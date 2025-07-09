@@ -9,9 +9,7 @@ class FortranType(Node):
         self.module = None
 
     def get_code_blocks(self):
-        if isinstance(self.kind, NamedEntity):
-            return [self.type, "(", self.kind.name, ")"]
-        return [self.type, "(", str(self.kind), ")"]
+        return [self.type, "(", self.get_kind_str(), ")"]
 
     def extract_entities(self):
         if isinstance(self.kind, NamedEntity):
@@ -20,7 +18,7 @@ class FortranType(Node):
     def get_with_updated_variables(self, variables_couples):
         return self
 
-    def get_kind_spec(self):
+    def get_kind_str(self):
         if isinstance(self.kind, NamedEntity):
             return self.kind.name
         return str(self.kind)

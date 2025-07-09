@@ -1,6 +1,6 @@
 from .function import Function
 from numeta.syntax.tools import check_node
-from numeta.syntax.syntax_settings import settings
+from numeta.syntax.settings import settings
 
 
 class UnaryIntrinsicFunction(Function):
@@ -71,8 +71,10 @@ class Conjugate(UnaryIntrinsicFunction):
 
 
 class Complex(Function):
-    def __init__(self, real, imaginary, kind=settings.DEFAULT_COMPLEX_KIND):
+    def __init__(self, real, imaginary, kind=None):
         self.name = "cmplx"
+        if kind is None:
+            kind = settings.DEFAULT_COMPLEX.kind
         self.arguments = [check_node(real), check_node(imaginary), check_node(kind)]
 
 

@@ -1,6 +1,6 @@
 from numeta.syntax.tools import check_node
 from numeta.syntax.scope import Scope
-from numeta.syntax.syntax_settings import settings
+from numeta.syntax.settings import settings
 from .tools import print_block, get_shape_blocks
 from .statement import Statement, StatementWithScope
 

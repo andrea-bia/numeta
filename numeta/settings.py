@@ -1,86 +1,61 @@
-from numeta.syntax import settings as syntax_settings, FortranType
-from .external_modules.iso_c_binding import iso_c
+from .syntax.settings import settings as syntax_settings
 
 
 class Settings:
-    def __init__(
-        self,
-        c_like=False,
-        int_precision=64,
-        float_precision=64,
-        complex_precision=64,
-        bool_precision=8,
-        char_precision=8,
-        order="C",
-    ):
-        self.c_like = c_like
-        if self.c_like:
-            syntax_settings.set_array_lower_bound(0)
-            syntax_settings.set_subroutine_bind_c()
-            syntax_settings.set_derived_type_bind_c()
-            syntax_settings.set_force_value()
-            syntax_settings.set_c_like_bounds()
-        self.use_c_types = self.c_like
-        self.set_integer(int_precision)
-        self.set_real(float_precision)
-        self.set_complex(complex_precision)
-        self.set_logical(bool_precision)
-        self.set_character(char_precision)
-        self.order = order
 
-    def set_array_order(self, order):
-        if order == "C":
-            self.order = "C"
-        elif order == "F":
-            self.order = "F"
+    def __init__(self, iso_C):
+        self.iso_C = iso_C
+        if self.iso_C:
+            self.set_iso_C()
         else:
-            raise ValueError(f"Order {order} not supported")
+            self.unset_iso_C()
 
-    def set_integer(self, precision):
-        if precision == 32:
-            kind = iso_c.c_int32 if self.c_like else 4
-        elif precision == 64:
-            kind = iso_c.c_int64 if self.c_like else 8
-        else:
-            raise NotImplementedError(f"Integer precision {precision} bit not supported")
-        syntax_settings.set_default_integer_kind(kind)
-        self.DEFAULT_INTEGER = FortranType("integer", kind)
+    def set_default_from_datatype(self, dtype, *, iso_c: bool = False):
+        """Set the default Fortran type using a :class:`DataType` subclass."""
+        from .datatype import DataType
 
-    def set_real(self, precision):
-        if precision == 32:
-            kind = iso_c.c_float if self.c_like else 4
-        elif precision == 64:
-            kind = iso_c.c_double if self.c_like else 8
-        else:
-            raise NotImplementedError(f"Real precision {precision} bit not supported")
-        syntax_settings.set_default_real_kind(kind)
-        self.DEFAULT_REAL = FortranType("real", kind)
+        if not isinstance(dtype, type) or not issubclass(dtype, DataType):
+            raise TypeError("dtype must be a DataType subclass")
 
-    def set_complex(self, precision):
-        if precision == 32:
-            kind = iso_c.c_float_complex if self.c_like else 4
-        elif precision == 64:
-            kind = iso_c.c_double_complex if self.c_like else 8
-        else:
-            raise NotImplementedError(f"Complex precision {precision} bit not supported")
-        syntax_settings.set_default_complex_kind(kind)
-        self.DEFAULT_COMPLEX = FortranType("complex", kind)
+        ftype = dtype.get_fortran(bind_c=iso_c)
+        syntax_settings.set_default_fortran_type(ftype)
 
-    def set_logical(self, precision):
-        if precision == 8:
-            kind = iso_c.c_bool if self.c_like else 1
-        else:
-            raise NotImplementedError(f"Logical precision {precision} bit not supported")
-        syntax_settings.set_default_logical_kind(kind)
-        self.DEFAULT_LOGICAL = FortranType("logical", kind)
+    def set_iso_C(self):
+        """Set the ISO C compatibility mode."""
+        self.iso_C = True
+        syntax_settings.set_c_like()
+        from .datatype import (
+            int64,
+            float64,
+            complex128,
+            bool8,
+            char,
+        )
 
-    def set_character(self, precision):
-        if precision == 8:
-            kind = iso_c.c_char if self.c_like else 1
-        else:
-            raise NotImplementedError(f"Character precision {precision} bit not supported")
-        syntax_settings.set_default_character_kind(kind)
-        self.DEFAULT_CHARACTER = FortranType("character", kind)
+        self.set_default_from_datatype(int64, iso_c=True)
+        self.set_default_from_datatype(float64, iso_c=True)
+        self.set_default_from_datatype(complex128, iso_c=True)
+        self.set_default_from_datatype(bool8, iso_c=True)
+
+        self.set_default_from_datatype(char, iso_c=True)
+
+    def unset_iso_C(self):
+        """Unset the ISO C compatibility mode."""
+        self.iso_C = False
+        syntax_settings.unset_c_like()
+        from .datatype import (
+            int64,
+            float64,
+            complex128,
+            bool8,
+            char,
+        )
+
+        self.set_default_from_datatype(int64, iso_c=False)
+        self.set_default_from_datatype(float64, iso_c=False)
+        self.set_default_from_datatype(complex128, iso_c=False)
+        self.set_default_from_datatype(bool8, iso_c=False)
+        self.set_default_from_datatype(char, iso_c=False)
 
 
-settings = Settings(c_like=True)
+settings = Settings(iso_C=True)
