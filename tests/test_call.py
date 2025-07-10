@@ -66,8 +66,8 @@ def test_call_getitem_slice():
     def caller(n, a):
         callee(50, a[:])
         callee(n, a[:2, :3])
-        callee(2, a[3:4, 8:])
-        callee(3, a[:, 7])
+        callee(n + 1, a[3:4, 8:])
+        callee(n + 2, a[:, 7])
 
     a = np.zeros((5, 10), dtype=np.int64)
     caller(1, a)

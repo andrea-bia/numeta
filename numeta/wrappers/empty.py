@@ -29,7 +29,7 @@ def empty(shape, dtype: DataType | FortranType | np.generic = float64, order="C"
     array = builder.generate_local_variables(
         "fc_a",
         ftype=ftype,
-        dimension=tuple(None for _ in shape),
+        shape=tuple(None for _ in shape),
         allocatable=True,
         fortran_order=fortran_order,
     )

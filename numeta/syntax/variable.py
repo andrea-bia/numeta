@@ -1,5 +1,6 @@
 from .nodes import NamedEntity
 from .expressions import ExpressionNode
+from numeta.array_shape import ArrayShape, SCALAR
 
 
 class Variable(NamedEntity, ExpressionNode):
@@ -7,7 +8,7 @@ class Variable(NamedEntity, ExpressionNode):
         self,
         name,
         ftype,
-        dimension=None,
+        shape=SCALAR,
         intent=None,
         pointer=False,
         target=False,
@@ -18,10 +19,11 @@ class Variable(NamedEntity, ExpressionNode):
         fortran_order=True,
     ):
         super().__init__(name, module=module)
-        self.ftype = ftype
-        self.dimension = dimension
-        if not isinstance(self.dimension, tuple) and self.dimension is not None:
-            self.dimension = (self.dimension,)
+        self.__ftype = ftype
+        if not isinstance(shape, ArrayShape):
+            self.__shape = ArrayShape(shape)
+        else:
+            self.__shape = shape
         self.allocatable = allocatable
         self.parameter = parameter
         self.assign = assign
@@ -31,8 +33,12 @@ class Variable(NamedEntity, ExpressionNode):
         self.fortran_order = fortran_order
 
     @property
-    def dtype(self):
-        return self.ftype
+    def _ftype(self):
+        return self.__ftype
+
+    @property
+    def _shape(self):
+        return self.__shape
 
     def get_with_updated_variables(self, variables_couples):
         for old_variable, new_variable in variables_couples:
@@ -72,23 +78,8 @@ class Variable(NamedEntity, ExpressionNode):
         return Assignment(Im(self), value)
 
     @property
-    def T(self):
-        from .expressions import Transpose
-
-        return Transpose(self)
-
-    @property
     def shape(self):
-        if self.dimension is None:
-            raise ValueError("The variable is a scalar")
-        return self.dimension
-
-    def get_shape_array(self):
-        if self.dimension is None:
-            raise ValueError("The variable is a scalar")
-        from .expressions import ArrayConstructor
-
-        return ArrayConstructor(*self.dimension)
+        return self._shape.dims
 
     def __setitem__(self, key, value):
         """Does nothing, but allows to use variable[key] = value"""
@@ -101,15 +92,6 @@ class Variable(NamedEntity, ExpressionNode):
             Assignment(self, value)
         else:
             Assignment(self[key], value)
-
-    def __getitem__(self, key):
-        if isinstance(key, slice) and key.start is None and key.stop is None and key.step is None:
-            return self
-        from .expressions import GetAttr, GetItem
-
-        if isinstance(key, str):
-            return GetAttr(self, key)
-        return GetItem(self, key)
 
     def __ilshift__(self, other):
         from .statements import Assignment
@@ -134,8 +116,8 @@ class Variable(NamedEntity, ExpressionNode):
     def copy(self):
         return Variable(
             self.name,
-            self.ftype,
-            dimension=self.dimension,
+            self._ftype,
+            shape=self._shape,
             intent=self.intent,
             pointer=self.pointer,
             target=self.target,

@@ -1,6 +1,7 @@
 import pytest
 
 import numeta as nm
+from numeta.array_shape import ArrayShape, SCALAR
 from numeta.syntax import Variable, Assignment, LiteralNode, DerivedType
 from numeta.syntax.expressions import GetAttr, Function
 from numeta.syntax import Do, DoWhile, If, ElseIf, Else
@@ -88,15 +89,9 @@ def test_getattr_node():
 
 
 def test_getitem_node():
-    arr = Variable("a", syntax_settings.DEFAULT_REAL, dimension=(10, 10))
+    arr = Variable("a", syntax_settings.DEFAULT_REAL, shape=(10, 10))
     expr = arr[1, 2]
     assert render(expr) == "a(1, 2)\n"
-
-
-def test_function_node():
-    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
-    fn = Function("f", [x])
-    assert render(fn) == "f(x)\n"
 
 
 def test_unary_neg_node():
@@ -120,17 +115,10 @@ def test_re_im_nodes():
 
 def test_array_constructor():
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
-    arr = Variable("arr", syntax_settings.DEFAULT_INTEGER, dimension=(10, 10))
+    arr = Variable("arr", syntax_settings.DEFAULT_INTEGER, shape=(10, 10))
     expr = ArrayConstructor(arr[1, 1], 5, i).get_code_blocks()
     expected = ["[", "arr", "(", "1", ",", " ", "1", ")", ", ", "5_c_int64_t", ", ", "i", "]"]
     assert expr == expected
-
-
-def test_function_multiple_args():
-    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
-    y = Variable("y", syntax_settings.DEFAULT_INTEGER)
-    fn = Function("f", [x, y])
-    assert render(fn) == "f(x, y)\n"
 
 
 def test_complex_function_default():
@@ -223,21 +211,21 @@ def test_variable_declaration_scalar():
 
 def test_variable_declaration_array():
     settings.set_default_from_datatype(nm.float64, iso_c=True)
-    a = Variable("a", syntax_settings.DEFAULT_REAL, dimension=(5,))
+    a = Variable("a", syntax_settings.DEFAULT_REAL, shape=(5,))
     dec = VariableDeclaration(a)
     assert dec.print_lines() == ["real(c_double), dimension(0:4) :: a\n"]
 
 
 def test_variable_declaration_pointer():
     settings.set_default_from_datatype(nm.float64, iso_c=True)
-    p = Variable("p", syntax_settings.DEFAULT_REAL, dimension=(10, 10), pointer=True)
+    p = Variable("p", syntax_settings.DEFAULT_REAL, shape=(10, 10), pointer=True)
     dec = VariableDeclaration(p)
     assert dec.print_lines() == ["real(c_double), pointer, dimension(:,:) :: p\n"]
 
 
 def test_variable_declaration_allocatable():
     settings.set_default_from_datatype(nm.float64, iso_c=True)
-    arr = Variable("arr", syntax_settings.DEFAULT_REAL, dimension=(3, 3), allocatable=True)
+    arr = Variable("arr", syntax_settings.DEFAULT_REAL, shape=(3, 3), allocatable=True)
     dec = VariableDeclaration(arr)
     assert dec.print_lines() == ["real(c_double), allocatable, dimension(:,:) :: arr\n"]
 
@@ -295,9 +283,9 @@ def test_derived_type_declaration():
     dt = DerivedType(
         "point",
         [
-            ("x", syntax_settings.DEFAULT_INTEGER, None),
-            ("y", syntax_settings.DEFAULT_INTEGER, None),
-            ("arr", syntax_settings.DEFAULT_REAL, (5,)),
+            ("x", syntax_settings.DEFAULT_INTEGER, SCALAR),
+            ("y", syntax_settings.DEFAULT_INTEGER, SCALAR),
+            ("arr", syntax_settings.DEFAULT_REAL, ArrayShape((5,))),
         ],
     )
     expected = [
@@ -411,9 +399,9 @@ def test_update_variables_getattr_node():
 
 
 def test_update_variables_getitem_node():
-    arr = Variable("a", syntax_settings.DEFAULT_REAL, dimension=(10, 10))
+    arr = Variable("a", syntax_settings.DEFAULT_REAL, shape=(10, 10))
     expr = arr[1, 2]
-    new_arr = Variable("new_a", syntax_settings.DEFAULT_REAL, dimension=(40, 30))
+    new_arr = Variable("new_a", syntax_settings.DEFAULT_REAL, shape=(40, 30))
     expr = expr.get_with_updated_variables([(arr, new_arr)])
     assert render(expr) == "new_a(1, 2)\n"
 
@@ -422,25 +410,9 @@ def test_update_variables_withgetitem_node():
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = Assignment(x, 5, add_to_scope=False)
-    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER, dimension=(10,))
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER, shape=(10,))
     expr = expr.get_with_updated_variables([(x, new_x[3])])
     assert render(expr) == "new_x(3)=5_c_int64_t\n"
-
-
-def test_update_variables_function_node():
-    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
-    fn = Function("f", [x])
-    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
-    fn = fn.get_with_updated_variables([(x, new_x)])
-    assert render(fn) == "f(new_x)\n"
-
-
-def test_update_variables_unary_neg_node():
-    x = Variable("x", syntax_settings.DEFAULT_INTEGER)
-    expr = -x
-    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
-    expr = expr.get_with_updated_variables([(x, new_x)])
-    assert render(expr) == "-(new_x)\n"
 
 
 def test_update_variables_eq_ne_nodes():
@@ -472,14 +444,68 @@ def test_update_variables_re_im_nodes():
     assert render(z_imag) == "new_z%im\n"
 
 
-def test_update_variables_function_multiple_args():
+@pytest.mark.parametrize(
+    "func,nargs,token",
+    [
+        (Abs, 1, "abs"),
+        (Neg, 1, "-"),
+        (Not, 1, ".not."),
+        (Allocated, 1, "allocated"),
+        (Shape, 1, "shape"),
+        (All, 1, "all"),
+        (Real, 1, "real"),
+        (Imag, 1, "aimag"),
+        (Conjugate, 1, "conjg"),
+        (Transpose, 1, "transpose"),
+        (Exp, 1, "exp"),
+        (Sqrt, 1, "sqrt"),
+        (Floor, 1, "floor"),
+        (Sin, 1, "sin"),
+        (Cos, 1, "cos"),
+        (Tan, 1, "tan"),
+        (Sinh, 1, "sinh"),
+        (Cosh, 1, "cosh"),
+        (Tanh, 1, "tanh"),
+        (ASin, 1, "asin"),
+        (ACos, 1, "acos"),
+        (ATan, 1, "atan"),
+        (Rank, 1, "rank"),
+        (Maxval, 1, "maxval"),
+        (Minval, 1, "minval"),
+        (Popcnt, 1, "popcnt"),
+        (Trailz, 1, "trailz"),
+        (Sum, 1, "sum"),
+        (ATan2, 2, "atan2"),
+        (Dotproduct, 2, "dot_product"),
+        (Size, 2, "size"),
+        (Max, 2, "max"),
+        (Min, 2, "min"),
+        (Iand, 2, "iand"),
+        (Ior, 2, "ior"),
+        (Xor, 2, "xor"),
+        (Ishft, 2, "ishft"),
+        (Ibset, 2, "ibset"),
+        (Ibclr, 2, "ibclr"),
+        (Matmul, 2, "matmul"),
+    ],
+)
+def test_intrinsic_functions(func, nargs, token):
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
-    fn = Function("f", [x, y])
+    args = [x] if nargs == 1 else [x, y]
+    if func is Size:
+        args[1] = 1
+    expr = func(*args)
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
-    fn = fn.get_with_updated_variables([(x, new_x), (y, new_y)])
-    assert render(fn) == "f(new_x, new_y)\n"
+    expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
+
+    expected_args = ["new_x"] if nargs == 1 else ["new_x", "new_y"]
+    if func is Size:
+        expected_args[1] = "1_c_int64_t"
+    expected = f"{token}({', '.join(expected_args)})\n"
+    assert render(expr) == expected
 
 
 def test_update_variables_do_statement():

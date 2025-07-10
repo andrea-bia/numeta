@@ -30,4 +30,4 @@ class Function(NamedEntity, ExpressionNode):
 
     def get_with_updated_variables(self, variables_couples):
         new_args = [arg.get_with_updated_variables(variables_couples) for arg in self.arguments]
-        return Function(self.name, new_args, module=self.module)
+        return type(self)(self.name, new_args, module=self.module)

@@ -27,7 +27,7 @@ def test_blas():
 
     n = 100
 
-    @nm.jit(directory=".")
+    @nm.jit
     def matmul(a, b, c):
         blas.dgemm(
             "N",

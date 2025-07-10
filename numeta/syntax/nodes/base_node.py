@@ -11,4 +11,4 @@ class Node(ABC):
 
     @abstractmethod
     def extract_entities(self):
-        pass
+        """Extract the nested entities of the node."""

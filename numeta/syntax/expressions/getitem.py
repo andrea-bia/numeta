@@ -1,6 +1,7 @@
 from .expression_node import ExpressionNode
 from numeta.syntax.settings import settings
 from numeta.syntax.nodes import Node
+from numeta.array_shape import ArrayShape
 
 
 class GetItem(ExpressionNode):
@@ -10,59 +11,38 @@ class GetItem(ExpressionNode):
         self.sliced = slice_
 
     @property
-    def real(self):
-        from .various import Re
-
-        return Re(self)
-
-    @real.setter
-    def real(self, value):
-        from .various import Re
-        from numeta.syntax.statements import Assignment
-
-        return Assignment(Re(self), value)
+    def _ftype(self):
+        return self.variable._ftype
 
     @property
-    def imag(self):
-        from .various import Im
-
-        return Im(self)
-
-    @imag.setter
-    def imag(self, value):
-        from .various import Im
-        from numeta.syntax.statements import Assignment
-
-        return Assignment(Im(self), value)
-
-    def get_shape_array(self):
-        from .various import ArrayConstructor
-
+    def _shape(self):
         def get_dim_slice(slice_, max_dim):
             start = slice_.start
             if start is None:
                 start = settings.array_lower_bound
             stop = slice_.stop
-            if stop is None:
+            if stop is None and max_dim is not None:
                 stop = max_dim
             if slice_.step is not None:
                 raise NotImplementedError("Step slicing not implemented for shape extraction")
+            if stop is None:
+                return None
             return stop - start
 
-        shapes = []
+        dims = []
         if isinstance(self.sliced, tuple):
             for i, element in enumerate(self.sliced):
                 if isinstance(element, slice):
-                    shapes.append(get_dim_slice(element, self.variable.shape[i]))
+                    dims.append(get_dim_slice(element, self.variable._shape.dims[i]))
                 else:
-                    shapes.append(1)
+                    dims.append(1)
         else:
             if isinstance(self.sliced, slice):
-                shapes.append(get_dim_slice(self.sliced, self.variable.shape[0]))
+                dims.append(get_dim_slice(self.sliced, self.variable._shape.dims[0]))
             else:
-                shapes.append(1)
+                dims.append(1)
 
-        return ArrayConstructor(*shapes)
+        return ArrayShape(tuple(dims))
 
     def extract_entities(self):
         yield from self.variable.extract_entities()

@@ -1,6 +1,7 @@
 from .expressions import Function
 from .subroutine import Subroutine
 from .module import Module
+from ..array_shape import SCALAR
 
 
 class ExternalLibrary(Module):
@@ -61,7 +62,15 @@ class ExternalLibrary(Module):
                 self.arguments = args
                 self.module = module
 
-            method = type(name, (Function,), {"__init__": __init__})
+            method = type(
+                name,
+                (Function,),
+                {
+                    "__init__": __init__,
+                    "_ftype": property(lambda self: result_),
+                    "_shape": property(lambda self: SCALAR),
+                },
+            )
             self.subroutines[name] = method
 
 
@@ -93,7 +102,15 @@ class ExternalModule(Module):
                 self.arguments = args
                 self.module = module
 
-            method = type(name, (Function,), {"__init__": __init__})
+            method = type(
+                name,
+                (Function,),
+                {
+                    "__init__": __init__,
+                    "_ftype": property(lambda self: result_),
+                    "_shape": property(lambda self: SCALAR),
+                },
+            )
             self.subroutines[name] = method
 
 

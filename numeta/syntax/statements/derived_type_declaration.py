@@ -14,8 +14,8 @@ class DerivedTypeDeclaration(StatementWithScope):
         return []
 
     def get_statements(self):
-        for name, fortran_type, dimension in self.derived_type.fields:
-            yield VariableDeclaration(Variable(name, ftype=fortran_type, dimension=dimension))
+        for name, fortran_type, shape in self.derived_type.fields:
+            yield VariableDeclaration(Variable(name, ftype=fortran_type, shape=shape))
 
     def get_start_code_blocks(self):
         if settings.derived_type_bind_c:

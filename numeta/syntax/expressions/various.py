@@ -1,10 +1,20 @@
 from .expression_node import ExpressionNode
 from numeta.syntax.tools import check_node
+from numeta.array_shape import ArrayShape
+from numeta.syntax.settings import settings
 
 
 class Re(ExpressionNode):
     def __init__(self, variable):
         self.variable = variable
+
+    @property
+    def _ftype(self):
+        return settings.DEFAULT_REAL
+
+    @property
+    def _shape(self):
+        return self.variable._shape
 
     def get_code_blocks(self):
         return [*self.variable.get_code_blocks(), "%", "re"]
@@ -20,6 +30,14 @@ class Im(ExpressionNode):
     def __init__(self, variable):
         self.variable = variable
 
+    @property
+    def _ftype(self):
+        return settings.DEFAULT_REAL
+
+    @property
+    def _shape(self):
+        return self.variable.shape
+
     def get_code_blocks(self):
         return [*self.variable.get_code_blocks(), "%", "im"]
 
@@ -33,6 +51,16 @@ class Im(ExpressionNode):
 class ArrayConstructor(ExpressionNode):
     def __init__(self, *elements):
         self.elements = [check_node(e) for e in elements]
+
+    @property
+    def _ftype(self):
+        if not self.elements:
+            raise ValueError("ArrayConstructor must have at least one element")
+        return self.elements[0].dtype
+
+    @property
+    def _shape(self):
+        return ArrayShape((len(self.elements),))
 
     def get_code_blocks(self):
         result = ["["]
@@ -50,4 +78,4 @@ class ArrayConstructor(ExpressionNode):
 
     def get_with_updated_variables(self, variables_couples):
         new_elements = [e.get_with_updated_variables(variables_couples) for e in self.elements]
-        return ArrayConstructor(new_elements)
+        return ArrayConstructor(*new_elements)

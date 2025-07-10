@@ -2,6 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 from .external_modules.iso_c_binding import iso_c
 from .syntax import FortranType, DerivedType
+from .array_shape import ArrayShape, SCALAR, UNKNOWN
 
 
 class DataTypeMeta(type):
@@ -51,29 +52,29 @@ class ArrayType:
     """Helper object returned by DataType[x] to describe array types."""
 
     dtype: type
-    shape: tuple | None  # if None dimension is unknown, it is a pointer
+    shape: ArrayShape
 
     def __iter__(self):
         yield self.dtype
         yield self.shape
 
     def __repr__(self):
-        if self.shape is None:
+        if self.shape is UNKNOWN:
             return f"{self.dtype.__name__}[*]"
         dims = ",".join(
-            ":" if isinstance(d, slice) and d == slice(None) else str(d) for d in self.shape
+            ":" if isinstance(d, slice) and d == slice(None) else str(d) for d in self.shape.dims
         )
         return f"{self.dtype.__name__}[{dims}]"
 
     def __call__(self, *args, **kwargs):
-        if self.shape is None:
+        if self.shape is UNKNOWN:
             raise ValueError("Cannot create an array with unknown shape [None] has be used")
 
         value = args[0] if args else kwargs.get("value", None)
 
         from .wrappers.empty import empty
 
-        array = empty(self.shape, dtype=self.dtype, order=kwargs.get("order", "C"))
+        array = empty(self.shape.dims, dtype=self.dtype, order=kwargs.get("order", "C"))
         array[:] = value
 
         return array
@@ -99,7 +100,7 @@ class DataType(metaclass=DataTypeMeta):
     def __class_getitem__(cls, key) -> ArrayType:
         if key is None:
             # It is a pointer
-            return ArrayType(dtype=cls, shape=None)
+            return ArrayType(dtype=cls, shape=UNKNOWN)
         if not isinstance(key, tuple):
             key = (key,)
         new_key = []
@@ -112,7 +113,7 @@ class DataType(metaclass=DataTypeMeta):
             if isinstance(k, int) and k < 0:
                 raise ValueError("Negative dimensions are not allowed")
             new_key.append(k if isinstance(k, int) else None)
-        return ArrayType(dtype=cls, shape=tuple(key))
+        return ArrayType(dtype=cls, shape=ArrayShape(tuple(new_key)))
 
     @classmethod
     def is_np_dtype(cls, dtype):
@@ -267,11 +268,10 @@ class StructType(DataType, metaclass=DataTypeMeta):
     @classmethod
     def c_declaration(cls):
         members_str = []
-        for mname, dt, dim in cls._members:
+        for mname, dt, shape in cls._members:
             dec = f"{dt.get_cnumpy()} {mname}"
-            if dim is not None:
-                for d in dim:
-                    dec += f"[{d}]"
+            if shape is not SCALAR and shape is not UNKNOWN:
+                dec += "".join(f"[{d}]" for d in shape.dims)
             members_str.append(dec)
         members_join = "; ".join(members_str)
         return f"typedef struct {{ {members_join} ;}} {cls._cnp_type};\n"
@@ -280,10 +280,10 @@ class StructType(DataType, metaclass=DataTypeMeta):
     def __class_getitem__(cls, key) -> ArrayType:
         if key is None:
             # It is a pointer
-            return ArrayType(dtype=cls, shape=None)
+            return ArrayType(dtype=cls, shape=UNKNOWN)
         if not isinstance(key, tuple):
             key = (key,)
-        return ArrayType(dtype=cls, shape=tuple(key))
+        return ArrayType(dtype=cls, shape=ArrayShape(key))
 
 
 def make_struct_type(members, name=None):
@@ -341,7 +341,7 @@ def get_struct_from_np_dtype(np_dtype):
         else:
             raise ValueError(f"Invalid dtype {np_d.base.type}, {np_d.fields}")
 
-        shape = None if len(np_d.shape) == 0 else np_d.shape
+        shape = SCALAR if len(np_d.shape) == 0 else ArrayShape(np_d.shape)
         fields.append((name, dtype, shape))
 
     struct_cls = make_struct_type(fields)

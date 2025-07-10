@@ -16,16 +16,10 @@ class DerivedType(NamedEntity):
     def __init__(self, name, fields):
         super().__init__(name)
         self.fields = fields
-        for name, _, dimension in self.fields:
-            if isinstance(dimension, tuple):
-                for dim in dimension:
-                    if isinstance(dim, slice):
-                        raise ValueError(
-                            f"Dimension of structs should be defined at compile time. Got {dimension} for field {name}."
-                        )
-            elif isinstance(dimension, slice):
+        for name, _, shape in self.fields:
+            if shape.has_comptime_undefined_dims():
                 raise ValueError(
-                    f"Dimension of structs should be defined at compile time. Got {dimension} for field {name}."
+                    f"Derived type '{name}' cannot have compile-time undefined dimensions."
                 )
         self.module = None
 

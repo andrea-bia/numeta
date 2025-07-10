@@ -1,7 +1,8 @@
 from .statement import Statement
-from numeta.syntax.nodes import NamedEntity
+from numeta.syntax.nodes import Node
 from numeta.syntax.settings import settings
 from .tools import get_shape_blocks
+from numeta.array_shape import SCALAR, UNKNOWN
 
 
 class VariableDeclaration(Statement):
@@ -10,43 +11,44 @@ class VariableDeclaration(Statement):
         self.variable = variable
 
     def extract_entities(self):
-        yield from self.variable.ftype.extract_entities()
+        yield from self.variable._ftype.extract_entities()
 
         if settings.array_lower_bound != 1:
             # HACK: Non stardard array lower bound so we have to shift it
             # and well need the integer kind
             yield from settings.DEFAULT_INTEGER.extract_entities()
 
-        if isinstance(self.variable.dimension, NamedEntity):
-            # TODO it is not okay
-            yield self.variable.dimension
-        elif isinstance(self.variable.dimension, tuple):
-            for element in self.variable.dimension:
-                if isinstance(element, NamedEntity):
-                    yield element
+        if self.variable._shape.dims is not None:
+            for element in self.variable._shape.dims:
+                if isinstance(element, Node):
+                    yield from element.extract_entities()
 
     def get_code_blocks(self):
-        result = self.variable.ftype.get_code_blocks()
+        result = self.variable._ftype.get_code_blocks()
 
         if self.variable.allocatable:
             result += [", ", "allocatable"]
             result += [", ", "dimension"]
-            result += ["("] + [":", ","] * (len(self.variable.dimension) - 1) + [":", ")"]
+            result += ["("] + [":", ","] * (len(self.variable._shape.dims) - 1) + [":", ")"]
         elif self.variable.pointer:
             result += [", ", "pointer"]
             result += [", ", "dimension"]
-            result += ["("] + [":", ","] * (len(self.variable.dimension) - 1) + [":", ")"]
-        elif self.variable.dimension is not None:
+            result += ["("] + [":", ","] * (len(self.variable._shape.dims) - 1) + [":", ")"]
+        elif self.variable._shape.dims:
             result += [", ", "dimension"]
             result += get_shape_blocks(
-                self.variable.dimension, fortran_order=self.variable.fortran_order
+                self.variable._shape.dims, fortran_order=self.variable.fortran_order
             )
+        elif self.variable._shape is UNKNOWN:
+            # if is a pointer
+            result += [", ", "dimension"]
+            result += ["(", str(settings.array_lower_bound), ":", "*", ")"]
 
         if self.variable.intent is not None:
             result += [", ", "intent", "(", self.variable.intent, ")"]
 
         if settings.force_value:
-            if self.variable.dimension is None and self.variable.intent == "in":
+            if self.variable._shape is SCALAR and self.variable.intent == "in":
                 result += [", ", "value"]
 
         if self.variable.parameter:
@@ -86,7 +88,7 @@ class VariableDeclaration(Statement):
                                 )
                             error_str += f"\nName of the self.variable: {self.variable.name}"
                             error_str += (
-                                f"\nDimension of the self.variable: {self.variable.dimension}"
+                                f"\nDimension of the self.variable: {self.variable._shape.dims}"
                             )
                             error_str += f"\nDimension of the assignment: {tuple(dim_assign[::-1])}"
                             raise Warning(error_str)
@@ -126,13 +128,13 @@ class VariableDeclaration(Statement):
                     to_assign.append(", ")
                 to_assign[-1] = "]"
 
-            if self.variable.dimension is None:
+            if self.variable._shape is SCALAR:
                 assign_str = [" = ", to_assign]
 
-            elif not isinstance(self.variable.dimension, tuple):
+            elif not isinstance(self.variable._shape.dims, tuple):
                 assign_str = [" = ", *to_assign]
 
-            elif len(self.variable.dimension) == 1:
+            elif len(self.variable._shape.dims) == 1:
                 assign_str = [" = ", *to_assign]
 
             else:
@@ -140,7 +142,7 @@ class VariableDeclaration(Statement):
                 assign_str += to_assign
                 assign_str.append(", ")
                 assign_str.append("[")
-                for dim in self.variable.dimension:
+                for dim in self.variable._shape.dims:
                     assign_str += [str(dim), ", "]
                 assign_str[-1] = "]"
                 assign_str.append(")")

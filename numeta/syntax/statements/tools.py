@@ -34,7 +34,6 @@ def get_shape_blocks(shape, fortran_order=True):
             -> ["(", "5", ",", "2", ":", "4", ")"] # fortran_order=False
 
     """
-
     from numeta.syntax.settings import settings
 
     lbound = settings.array_lower_bound

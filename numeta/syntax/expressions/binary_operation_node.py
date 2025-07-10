@@ -1,5 +1,6 @@
 from .expression_node import ExpressionNode
 from numeta.syntax.tools import check_node
+from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
 
 
 class BinaryOperationNode(ExpressionNode):
@@ -11,6 +12,27 @@ class BinaryOperationNode(ExpressionNode):
         # self.right = right
         self.left = check_node(left)
         self.right = check_node(right)
+
+    @property
+    def _ftype(self):
+        """Return the Fortran type of the expression."""
+        # This is a simplification. In reality, the type of the result
+        # depends on the types of the operands and the operation.
+        # For example, dividing two integers should result in a real.
+        # For now, we'll just return the type of the left operand.
+        return self.left._ftype
+
+    @property
+    def _shape(self):
+        """Return the shape of the expression if any."""
+        # This is a simplification. It doesn't handle broadcasting correctly.
+        # For now, we'll just return the shape of the left operand.
+        if self.left._shape is SCALAR:
+            return self.right._shape
+        elif self.right._shape is SCALAR:
+            return self.left._shape
+        else:
+            return self.left._shape
 
     def get_code_blocks(self):
         result = ["("]

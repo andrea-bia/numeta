@@ -10,11 +10,12 @@ import pickle
 import shutil
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
-from .syntax.expressions import GetItem, GetAttr
+from .syntax.expressions import ExpressionNode, GetAttr
 from .datatype import DataType, ArrayType, get_datatype, size_t
 import textwrap
 from .capi_interface import CAPIInterface
 from .types_hint import comptime
+from .array_shape import ArrayShape, SCALAR, UNKNOWN
 
 
 class ArgumentPlaceholder:
@@ -41,24 +42,9 @@ class ArgumentPlaceholder:
         self.rank = rank
         self.shape = shape
         if self.shape is None:
-            self.shape = tuple([None] * self.rank)
+            self.shape = ArrayShape(tuple([None] * self.rank))
         self.value = value
         self.fortran_order = fortran_order
-
-    @property
-    def und_shape(self):
-        """
-        Returns the indices of the dimensions that are undefined at compile time.
-        """
-        if self.rank == 0:
-            return []
-        return [i for i, dim in enumerate(self.shape) if dim is None]
-
-    def has_und_dims(self):
-        """
-        Checks if the argument has undefined dimensions at compile time.
-        """
-        return None in self.shape
 
 
 class NumetaFunction:
@@ -191,77 +177,33 @@ class NumetaFunction:
                         )
                 elif isinstance(arg, type) and issubclass(arg, DataType):
                     comptime_args.append((arg.get_numpy(),))
-                elif isinstance(arg, Variable):
-                    ftype = arg.ftype
+                elif isinstance(arg, ExpressionNode):
+                    ftype = arg._ftype
                     dtype = DataType.from_ftype(ftype)
-                    if arg.dimension is None:
-                        if arg.intent == "in":
-                            # it should be value
-                            comptime_args.append((dtype.get_numpy(),))
-                        else:
+                    if arg._shape is SCALAR:
+                        if isinstance(arg, GetAttr) or (
+                            isinstance(arg, Variable) and arg.intent != "in"
+                        ):
                             comptime_args.append((dtype.get_numpy(), 0))
-                    else:
-                        is_fixed = True
-                        shape = []
-                        for dim in arg.dimension:
-                            if isinstance(dim, int):
-                                shape.append(dim)
-                            else:
-                                shape.append(None)
-                                is_fixed = False
-                        shape = tuple(shape)
-
-                        if is_fixed:
-                            comptime_args.append(
-                                (dtype.get_numpy(), len(shape), arg.fortran_order, shape)
-                            )
                         else:
-                            comptime_args.append((dtype.get_numpy(), len(shape), arg.fortran_order))
-                            runtime_args.append(arg.get_shape_array())
-
-                elif isinstance(arg, GetItem):
-                    ftype = arg.variable.ftype
-                    dtype = DataType.from_ftype(ftype)
-                    if arg.sliced is None:
-                        comptime_args.append((dtype.get_numpy(), None))
+                            # it should be value if it an expression
+                            comptime_args.append((dtype.get_numpy(),))
+                    elif arg._shape is UNKNOWN:
+                        # it is a pointer
+                        comptime_args.append((dtype.get_numpy(), 0))
                         # TODO means what, pointer?
                         raise NotImplementedError
-                    elif isinstance(arg.sliced, tuple):
-                        to_add_descriptor = False
-                        for dim in arg.sliced:
-                            if isinstance(dim, slice):
-                                to_add_descriptor = True
-
-                        if to_add_descriptor:
-                            rank = len(arg.sliced)
-                            comptime_args.append((dtype.get_numpy(), rank))
-                            runtime_args.append(arg.get_shape_array())
-                        else:
-                            comptime_args.append((dtype.get_numpy(), 0))
-                    else:
-                        raise ValueError("sliced can be only None or slice")
-
-                elif isinstance(arg, GetAttr):
-                    struct_ftype = arg.variable.ftype
-                    struct_dtype = DataType.from_ftype(struct_ftype)
-                    dtype = None
-                    shape = None
-                    for member in struct_dtype.members:
-                        if member[0] == arg.attr:
-                            dtype = member[1]
-                            if len(member) > 2:
-                                shape = member[2]
-                            break
-                    if dtype is None:
-                        raise ValueError(f"Attribute {arg.attr} not found in {struct_dtype}")
-
-                    if shape is None:
-                        # Put shape = 0 to make it not value
-                        comptime_args.append((dtype.get_numpy(), 0))
-                    else:
-                        # The shape of a struct member is fixed
+                    elif arg._shape.has_comptime_undefined_dims():
                         comptime_args.append(
-                            (dtype.get_numpy(), len(shape), arg.variable.fortran_order, shape)
+                            (
+                                dtype.get_numpy(),
+                                len(arg._shape.dims),
+                            )
+                        )
+                        runtime_args.append(arg._get_shape_descriptor())
+                    else:
+                        comptime_args.append(
+                            (dtype.get_numpy(), len(arg._shape.dims), False, arg._shape)
                         )
                 else:
                     raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
@@ -401,16 +343,18 @@ class NumetaFunction:
                     intent = "in" if arg.value else "inout"
 
                     symbolic_args.append(
-                        Variable(arg.name, ftype=ftype, fortran_order=False, intent=intent)
+                        Variable(
+                            arg.name, ftype=ftype, shape=SCALAR, fortran_order=False, intent=intent
+                        )
                     )
-                elif arg.has_und_dims():
+                elif arg.shape.has_comptime_undefined_dims():
 
-                    # The dimension has to be passed
+                    # The shape will to be passed as a separate argument
                     dim_var = builder.generate_local_variables(
                         f"fc_n",
                         ftype=size_t.get_fortran(bind_c=True),
+                        shape=ArrayShape((arg.rank,)),
                         intent="in",
-                        dimension=arg.rank,
                     )
                     sub.add_variable(dim_var)
 
@@ -418,8 +362,8 @@ class NumetaFunction:
                         Variable(
                             arg.name,
                             ftype=ftype,
+                            shape=ArrayShape(tuple([dim_var[i] for i in range(arg.rank)])),
                             fortran_order=arg.fortran_order,
-                            dimension=tuple([dim_var[i] for i in range(arg.rank)]),
                             intent="inout",
                         )
                     )
@@ -429,8 +373,8 @@ class NumetaFunction:
                         Variable(
                             arg.name,
                             ftype=ftype,
+                            shape=arg.shape,
                             fortran_order=arg.fortran_order,
-                            dimension=arg.shape,
                             intent="inout",
                         )
                     )
