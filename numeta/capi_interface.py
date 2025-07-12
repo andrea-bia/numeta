@@ -145,7 +145,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
         this function returns the string 'int32_t* a' for the first argument.
         """
 
-        if variable.value:
+        if variable.to_pass_by_value:
             return f"{variable.datatype.get_cnumpy()} {variable.name}"
         elif variable.shape.has_comptime_undefined_dims():
             return (
@@ -163,7 +163,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
 
         this function returns the string '(int32_t)a' for the first argument.
         """
-        if variable.value:
+        if variable.to_pass_by_value:
             return f"({variable.datatype.get_cnumpy()}){variable.name}"
         elif variable.rank == 0 and variable.datatype.is_struct():
             return f"({variable.datatype.get_cnumpy()}*){variable.name}"
@@ -182,7 +182,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
         Where args[idx] is the corresponding argument in the Python function.
         """
 
-        if variable.value:
+        if variable.to_pass_by_value:
             if variable.datatype.get_numpy() in (np.complex64, np.complex128):
                 result = "\n"
                 result += "#if NPY_ABI_VERSION < 0x02000000\n"

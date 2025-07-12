@@ -14,11 +14,10 @@ class BuilderHelper:
             raise Warning("The current builder is not initialized")
         return cls.current_builder
 
-    def __init__(self, numeta_function, symbolic_function, comptime_args):
+    def __init__(self, numeta_function, symbolic_function, signature):
         self.numeta_function = numeta_function
         self.symbolic_function = symbolic_function
-        # Comptime args is stored to be used as identifier
-        self.comptime_args = comptime_args
+        self.signature = signature
 
         self.prefix_counter = {}
 

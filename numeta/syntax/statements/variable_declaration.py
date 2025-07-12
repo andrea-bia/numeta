@@ -18,7 +18,7 @@ class VariableDeclaration(Statement):
             # and well need the integer kind
             yield from settings.DEFAULT_INTEGER.extract_entities()
 
-        if self.variable._shape.dims is not None:
+        if self.variable._shape is not UNKNOWN:
             for element in self.variable._shape.dims:
                 if isinstance(element, Node):
                     yield from element.extract_entities()
@@ -34,15 +34,15 @@ class VariableDeclaration(Statement):
             result += [", ", "pointer"]
             result += [", ", "dimension"]
             result += ["("] + [":", ","] * (len(self.variable._shape.dims) - 1) + [":", ")"]
+        elif self.variable._shape is UNKNOWN:
+            # if is a pointer
+            result += [", ", "dimension"]
+            result += ["(", str(settings.array_lower_bound), ":", "*", ")"]
         elif self.variable._shape.dims:
             result += [", ", "dimension"]
             result += get_shape_blocks(
                 self.variable._shape.dims, fortran_order=self.variable.fortran_order
             )
-        elif self.variable._shape is UNKNOWN:
-            # if is a pointer
-            result += [", ", "dimension"]
-            result += ["(", str(settings.array_lower_bound), ":", "*", ")"]
 
         if self.variable.intent is not None:
             result += [", ", "intent", "(", self.variable.intent, ")"]
@@ -128,15 +128,17 @@ class VariableDeclaration(Statement):
                     to_assign.append(", ")
                 to_assign[-1] = "]"
 
-            if self.variable._shape is SCALAR:
+            if self.variable._shape is UNKNOWN:
+                raise ValueError(
+                    "Cannot assign to a variable with unknown shape. "
+                    "Please specify the shape of the variable."
+                )
+            elif self.variable._shape is SCALAR:
                 assign_str = [" = ", to_assign]
-
             elif not isinstance(self.variable._shape.dims, tuple):
                 assign_str = [" = ", *to_assign]
-
             elif len(self.variable._shape.dims) == 1:
                 assign_str = [" = ", *to_assign]
-
             else:
                 assign_str = [" = ", "reshape", "("]
                 assign_str += to_assign

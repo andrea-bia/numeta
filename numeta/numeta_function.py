@@ -3,48 +3,39 @@ import subprocess as sp
 from pathlib import Path
 import tempfile
 import importlib.util
-import numpy as np
 import sys
 import sysconfig
 import pickle
 import shutil
+from dataclasses import dataclass
+from typing import Any
+import textwrap
+
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
-from .syntax.expressions import ExpressionNode, GetAttr
+from .syntax.expressions import ExpressionNode, GetAttr, GetItem
 from .datatype import DataType, ArrayType, get_datatype, size_t
-import textwrap
 from .capi_interface import CAPIInterface
 from .types_hint import comptime
 from .array_shape import ArrayShape, SCALAR, UNKNOWN
 
 
-class ArgumentPlaceholder:
+@dataclass(frozen=True)
+class ArgumentSpec:
     """
     This class is used to store the details of the arguments of the function.
     The ones that are compile-time are stored in the is_comptime attribute.
     """
 
-    def __init__(
-        self,
-        name,
-        is_comptime=False,
-        datatype=None,
-        rank=0,
-        shape=None,
-        value=False,
-        fortran_order=False,
-        comptime_value=None,
-    ) -> None:
-        self.name = name
-        self.is_comptime = is_comptime
-        self.comptime_value = comptime_value
-        self.datatype = datatype
-        self.rank = rank
-        self.shape = shape
-        if self.shape is None:
-            self.shape = ArrayShape(tuple([None] * self.rank))
-        self.value = value
-        self.fortran_order = fortran_order
+    name: str
+    is_comptime: bool = False
+    comptime_value: Any = None
+    datatype: DataType | None = None
+    shape: ArrayShape | None = None
+    rank: int = 0  # rank of the array, 0 for scalar
+    intent: str = "inout"  # can be "in" or "inout"
+    to_pass_by_value: bool = False
+    fortran_order: bool = True
 
 
 class NumetaFunction:
@@ -66,7 +57,7 @@ class NumetaFunction:
         self.namer = namer
 
         self.__func = func
-        self.__comptime_args_to_name = {}
+        self.__signature_to_name = {}
         self.__symbolic_functions = {}
         self.__libraries = {}
         self.__loaded_functions = {}
@@ -74,25 +65,10 @@ class NumetaFunction:
         # To store the dependencies of the compiled functions to other numeta generated functions.
         self.__dependencies = {}
 
-        self.comptime_args_indices = self.get_comptime_args_idx(func)
-
-    def get_name(self, comptime_args):
-        if comptime_args not in self.__comptime_args_to_name:
-            if self.namer is None:
-                name = f"{self.name}_{len(self.__comptime_args_to_name)}"
-            else:
-                name = self.namer(comptime_args)
-            self.__comptime_args_to_name[comptime_args] = name
-        return self.__comptime_args_to_name[comptime_args]
-
-    def run_symbolic(self, *args):
-        return self.__func(*args)
-
-    def get_comptime_args_idx(self, func):
-        return [i for i, arg in enumerate(func.__annotations__.values()) if arg is comptime]
-
-    def get_symbolic_functions(self):
-        return list(self.__symbolic_functions.values())
+        self.comptime_indices = []
+        for i, arg in enumerate(func.__annotations__.values()):
+            if arg is comptime:
+                self.comptime_indices.append(i)
 
     def dump(self, directory):
         """
@@ -103,18 +79,18 @@ class NumetaFunction:
 
         # Copy the libraries to the new directory
         new_libraries = {}
-        for comptime_args, (lib_name, lib_obj, lib_file) in self.__libraries.items():
-            name = self.get_name(comptime_args)
+        for signature, (lib_name, lib_obj, lib_file) in self.__libraries.items():
+            name = self.get_name(signature)
             new_directory = directory / name
             new_directory.mkdir(exist_ok=True)
             new_lib_obj = new_directory / lib_obj.name
             new_lib_file = new_directory / lib_file.name
             shutil.copy(lib_obj, new_lib_obj)
             shutil.copy(lib_file, new_lib_file)
-            new_libraries[comptime_args] = (lib_name, new_lib_obj, new_lib_file)
+            new_libraries[signature] = (lib_name, new_lib_obj, new_lib_file)
 
         with open(directory / f"{self.name}.pkl", "wb") as f:
-            pickle.dump(self.__comptime_args_to_name, f)
+            pickle.dump(self.__signature_to_name, f)
             pickle.dump(self.__symbolic_functions, f)
             pickle.dump(new_libraries, f)
 
@@ -127,91 +103,172 @@ class NumetaFunction:
         """
         self.__loaded_functions = {}
         with open(Path(directory) / f"{self.name}.pkl", "rb") as f:
-            self.__comptime_args_to_name = pickle.load(f)
+            self.__signature_to_name = pickle.load(f)
             self.__symbolic_functions = pickle.load(f)
             self.__libraries = pickle.load(f)
 
-    def get_runtime_args_and_spec(self, args):
+    def get_name(self, signature):
+        if signature not in self.__signature_to_name:
+            if self.namer is None:
+                name = f"{self.name}_{len(self.__signature_to_name)}"
+            else:
+                name = self.namer(signature)
+            self.__signature_to_name[signature] = name
+        return self.__signature_to_name[signature]
+
+    def get_signature_idx(self, func):
+        return
+
+    def get_symbolic_functions(self):
+        return list(self.__symbolic_functions.values())
+
+    def run_symbolic(self, *args):
+        return self.__func(*args)
+
+    def _get_signature_and_runtime_args_from_args(self, args):
+        """
+        This method quickly extracts the signature and runtime arguments from the provided args.
+        If the runtime arguments are not all numpy arrays or numeric types, the call is not to be executed.
+        It returns a tuple of:
+        - to_execute: a boolean indicating if the function can be executed with the provided args
+        - signature: a tuple of the signature of the function
+        - runtime_args: a list of runtime arguments to be passed to run the function
+        A signature is a tuple of tuples, where each inner tuple represents an argument.
+        - (dtype,) is scalar types passed by value
+        - (dtype, 0) is for scalar types passed by reference
+        - (dtype, rank) for numpy arrays
+        - (dtype, rank, has_fortran_order) to set the Fortran order
+        - (dtype, rank, has_fortran_order, intent) intent can be "in" or "inout"
+        - (dtype, rank, has_fortran_order, intent, shape) if the shape is know at comptime
+        """
 
         runtime_args = []
-        runtime_args_spec = []
+        signature = []
+        to_execute = True
         for i, arg in enumerate(args):
-            if i in self.comptime_args_indices:
+            if i in self.comptime_indices:
+                signature.append(arg)
                 continue
-            elif isinstance(arg, np.ndarray):
-                runtime_args_spec.append((arg.dtype, len(arg.shape), np.isfortran(arg)))
+
+            if isinstance(arg, np.ndarray):
+                signature.append((arg.dtype, len(arg.shape), np.isfortran(arg)))
             elif isinstance(arg, (int, float, complex)):
-                runtime_args_spec.append((type(arg),))
+                signature.append((type(arg),))
+            elif isinstance(arg, np.generic):
+                # it is a numpy scalar like np.int32(1) or np.float64(1.0) or a struct
+                # A struct is mutable
+                if arg.dtype.names is not None:
+                    signature.append((arg.dtype, 0))
+                else:
+                    signature.append((arg.dtype,))
+            elif isinstance(arg, ArrayType):
+                to_execute = False
+                if arg.shape is UNKNOWN:
+                    # it is a pointer
+                    raise NotImplementedError("Pointers are not supported yet")
+                elif arg.shape.has_comptime_undefined_dims():
+                    signature.append((arg.dtype.get_numpy(), arg.shape.rank, False))
+                    # Should add runtime args?
+                    raise NotImplementedError
+                else:
+                    signature.append(
+                        (arg.dtype.get_numpy(), arg.shape.rank, False, "inout", arg.shape.dims)
+                    )
+            elif isinstance(arg, type) and issubclass(arg, DataType):
+                to_execute = False
+                signature.append((arg.get_numpy(),))
+            elif isinstance(arg, ExpressionNode):
+                to_execute = False
+                ftype = arg._ftype
+                dtype = DataType.from_ftype(ftype)
+                # Let's stay safe, let's assume is an expression so intent is in
+                intent = "in"
+                # These are the cases where we can assume it is an inout argument
+                # becase the intent can be only "in" or "inout"
+                if isinstance(arg, Variable) and arg.intent != "in":
+                    intent = "inout"
+                if isinstance(arg, GetAttr) and arg.variable.intent != "in":
+                    intent = "inout"
+                if isinstance(arg, GetItem) and arg.variable.intent != "in":
+                    intent = "inout"
+
+                if arg._shape is SCALAR:
+                    if intent == "inout":
+                        signature.append((dtype.get_numpy(), 0, False, intent))
+                    else:
+                        signature.append((dtype.get_numpy(),))
+                elif arg._shape is UNKNOWN:
+                    signature.append((dtype.get_numpy(), 0, False, intent))
+                elif arg._shape.has_comptime_undefined_dims():
+                    signature.append(
+                        (
+                            dtype.get_numpy(),
+                            arg._shape.rank,
+                            False,
+                            intent,
+                        )
+                    )
+                else:
+                    signature.append(
+                        (dtype.get_numpy(), arg._shape.rank, False, intent, arg._shape.dims)
+                    )
+            else:
+                raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
             runtime_args.append(arg)
 
-        return runtime_args, tuple(runtime_args_spec)
+        return to_execute, tuple(signature), runtime_args
 
-    def get_comptime_and_runtime_args(self, args):
-        comptime_args = []
-        runtime_args = []
-        for i, arg in enumerate(args):
-            if i in self.comptime_args_indices:
-                comptime_args.append(arg)
+    def _convert_signature_to_argument_specs(self, signature):
+        """
+        Converts a signature tuple into a list of ArgumentSpec objects.
+        A signature is a tuple of tuples, where each inner tuple represents an argument.
+        """
+        signature_spec = []
+        for i, arg in enumerate(signature):
+            if i in self.comptime_indices:
+                # it is a comptime argument
+                ap = ArgumentSpec(f"in_{i}", is_comptime=True, comptime_value=arg)
             else:
-                # The other arguments are runtime arguments and we need to
-                # check their type and shape to create the Fortran interface.
-                if isinstance(arg, np.generic):
-                    # it is a numpy scalar like np.int32(1) or np.float64(1.0)
-                    comptime_args.append((arg.dtype,))
-                elif isinstance(arg, np.ndarray):
-                    comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg)))
-                elif isinstance(arg, (int, float, complex)):
-                    comptime_args.append((type(arg),))
-                elif isinstance(arg, ArrayType):
-                    if arg.shape is None:
-                        # it is a pointer
-                        raise NotImplementedError("Pointers are not supported yet")
-                    # add the shape only of is it fixed
-                    if None in arg.shape:
-                        comptime_args.append((arg.dtype.get_numpy(), len(arg.shape), False))
-                        # Should add runtime args?
-                        raise NotImplementedError
-                    else:
-                        comptime_args.append(
-                            (arg.dtype.get_numpy(), len(arg.shape), False, arg.shape)
-                        )
-                elif isinstance(arg, type) and issubclass(arg, DataType):
-                    comptime_args.append((arg.get_numpy(),))
-                elif isinstance(arg, ExpressionNode):
-                    ftype = arg._ftype
-                    dtype = DataType.from_ftype(ftype)
-                    if arg._shape is SCALAR:
-                        if isinstance(arg, GetAttr) or (
-                            isinstance(arg, Variable) and arg.intent != "in"
-                        ):
-                            comptime_args.append((dtype.get_numpy(), 0))
-                        else:
-                            # it should be value if it an expression
-                            comptime_args.append((dtype.get_numpy(),))
-                    elif arg._shape is UNKNOWN:
-                        # it is a pointer
-                        comptime_args.append((dtype.get_numpy(), 0))
-                        # TODO means what, pointer?
-                        raise NotImplementedError
-                    elif arg._shape.has_comptime_undefined_dims():
-                        comptime_args.append(
-                            (
-                                dtype.get_numpy(),
-                                len(arg._shape.dims),
-                            )
-                        )
-                        runtime_args.append(arg._get_shape_descriptor())
-                    else:
-                        comptime_args.append(
-                            (dtype.get_numpy(), len(arg._shape.dims), False, arg._shape)
-                        )
+                dtype = get_datatype(arg[0])
+                if len(arg) == 1:
+                    # it is a numeric type or a string
+                    # So the intent will be always "in"
+                    # but complex numbers cannot be passed by value because of C
+                    ap = ArgumentSpec(
+                        f"in_{i}",
+                        datatype=dtype,
+                        shape=SCALAR,
+                        to_pass_by_value=dtype.can_be_value(),
+                        intent="in",
+                    )
                 else:
-                    raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
-                runtime_args.append(arg)
+                    # for numpy arrays arg[1] is the rank, for the other types it is the shape
+                    rank = arg[1]
 
-        comptime_args = tuple(comptime_args)
+                    fortran_order = False
+                    if len(arg) == 3:
+                        fortran_order = arg[2]
 
-        return comptime_args, runtime_args
+                    intent = "inout"
+                    if len(arg) == 4:
+                        intent = arg[3]
+
+                    shape = SCALAR if rank == 0 else ArrayShape([None] * rank)
+                    if len(arg) == 5:
+                        # it means that the shape is known at comptime
+                        shape = ArrayShape(arg[4])
+
+                    ap = ArgumentSpec(
+                        f"in_{i}",
+                        datatype=dtype,
+                        rank=rank,
+                        shape=shape,
+                        fortran_order=fortran_order,
+                        intent=intent,
+                    )
+
+            signature_spec.append(ap)
+        return signature_spec
 
     def __call__(self, *args):
         """
@@ -223,170 +280,112 @@ class NumetaFunction:
         if BuilderHelper.current_builder is not None:
             # We are already contructing a symbolic function
 
-            comptime_args, runtime_args = self.get_comptime_and_runtime_args(args)
+            _, signature, runtime_args = self._get_signature_and_runtime_args_from_args(args)
 
-            symbolic_fun = self.get_symbolic_function(comptime_args)
+            symbolic_fun = self.get_symbolic_function(signature)
+
+            # first check the runtime arguments
+            # they should be symbolic nodes
+            from .syntax.tools import check_node
+
+            runtime_args = [check_node(arg) for arg in runtime_args]
+
+            # Should add the array descriptor for each array
+            full_runtime_args = []
+            for arg in runtime_args:
+                if arg._shape.has_comptime_undefined_dims():
+                    full_runtime_args.append(arg._get_shape_descriptor())
+                full_runtime_args.append(arg)
 
             # This add a Call statement to the current builder
-            symbolic_fun(*runtime_args)
+            symbolic_fun(*full_runtime_args)
 
             # Add this function to the dependencies of the current builder
             caller = BuilderHelper.get_current_builder().numeta_function
-            caller_identifier = BuilderHelper.get_current_builder().comptime_args
+            caller_identifier = BuilderHelper.get_current_builder().signature
             if caller_identifier not in caller.__dependencies:
                 caller.__dependencies[caller_identifier] = {}
-            caller.__dependencies[caller_identifier][self.name, comptime_args] = (
+            caller.__dependencies[caller_identifier][self.name, signature] = (
                 self,
-                comptime_args,
+                signature,
             )
 
         else:
-            to_compile = True
+
             # TODO: probably overhead, to do in C?
-            # a comptme arg is a tuple like this:
-            # (dtype, rank, has_fortran_order, shape)
-            # The last elements can be omitted
-            # To be fast constructed and hashable to speed calls
-            comptime_args = []
-            runtime_args = []
-            for i, arg in enumerate(args):
-                if i in self.comptime_args_indices:
-                    comptime_args.append(arg)
-                else:
-                    # The other arguments are runtime arguments and we need to
-                    # check their type and shape to create the Fortran interface.
-                    if isinstance(arg, np.generic):
-                        # it is a numpy scalar like np.int32(1) or np.float64(1.0)
-                        comptime_args.append((arg.dtype,))
-                    elif isinstance(arg, np.ndarray):
-                        comptime_args.append((arg.dtype, len(arg.shape), np.isfortran(arg)))
-                    elif isinstance(arg, (int, float, complex)):
-                        comptime_args.append((type(arg),))
-                    elif isinstance(arg, ArrayType):
-                        if arg.shape is None:
-                            # it is a pointer
-                            raise NotImplementedError("Pointers are not supported yet")
-                        # Here we keep all the information about the array shape because we can construct a symbolic function with fixed shapes.
-                        comptime_args.append(
-                            (arg.dtype.get_numpy(), len(arg.shape), False, arg.shape)
-                        )
-                        to_compile = False
-                    elif isinstance(arg, type) and issubclass(arg, DataType):
-                        comptime_args.append((arg.get_numpy(),))
-                        to_compile = False
-                    else:
-                        raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
-                    runtime_args.append(arg)
+            to_execute, signature, runtime_args = self._get_signature_and_runtime_args_from_args(
+                args
+            )
 
-            comptime_args = tuple(comptime_args)
+            if not to_execute:
+                return self.get_symbolic_function(signature)
 
-            if not to_compile:
-                return self.get_symbolic_function(comptime_args)
+            return self.execute_function(signature, runtime_args)
 
-            self.get_symbolic_function(comptime_args)
+    def get_symbolic_function(self, signature):
+        if signature not in self.__symbolic_functions:
+            self.construct_symbolic_function(signature)
+        return self.__symbolic_functions[signature]
 
-            return self.execute_function(comptime_args, runtime_args)
-
-    def get_comptime_args_spec(self, comptime_args):
-        comptime_args_spec = []
-        for i, arg in enumerate(comptime_args):
-            if i in self.comptime_args_indices:
-                ap = ArgumentPlaceholder(f"in_{i}", is_comptime=True, comptime_value=arg)
-            else:
-                dtype = get_datatype(arg[0])
-                if len(arg) == 1:
-                    # it is a numeric type or a string
-                    ap = ArgumentPlaceholder(f"in_{i}", datatype=dtype, value=dtype.can_be_value())
-                else:
-                    # for numpy arrays arg[1] is the rank, for the other types it is the shape
-                    rank = arg[1]
-
-                    fortran_order = False
-                    if len(arg) == 3:
-                        fortran_order = arg[2]
-
-                    shape = None
-                    if len(arg) == 4:
-                        shape = arg[3]
-
-                    ap = ArgumentPlaceholder(
-                        f"in_{i}",
-                        datatype=dtype,
-                        rank=rank,
-                        shape=shape,
-                        fortran_order=fortran_order,
-                    )
-
-            comptime_args_spec.append(ap)
-        return comptime_args_spec
-
-    def get_symbolic_function(self, comptime_args):
-        if comptime_args not in self.__symbolic_functions:
-            self.construct_symbolic_function(comptime_args)
-        return self.__symbolic_functions[comptime_args]
-
-    def construct_symbolic_function(self, comptime_args):
-        name = self.get_name(comptime_args)
-        comptime_args_spec = self.get_comptime_args_spec(comptime_args)
+    def construct_symbolic_function(self, signature):
+        name = self.get_name(signature)
+        argument_specs = self._convert_signature_to_argument_specs(signature)
 
         sub = Subroutine(name)
-        builder = BuilderHelper(self, sub, comptime_args)
+        builder = BuilderHelper(self, sub, signature)
+
+        def convert_argument_spec_to_variable(arg_spec):
+            """
+            Converts an ArgumentSpec to a Variable.
+            """
+            ftype = arg_spec.datatype.get_fortran()
+            if arg_spec.rank == 0:
+                return Variable(
+                    arg_spec.name, ftype=ftype, shape=SCALAR, fortran_order=False, intent=arg.intent
+                )
+            elif arg_spec.shape.has_comptime_undefined_dims():
+                # The shape will to be passed as a separate argument
+                dim_var = builder.generate_local_variables(
+                    f"fc_n",
+                    ftype=size_t.get_fortran(bind_c=True),
+                    shape=ArrayShape((arg_spec.rank,)),
+                    intent="in",
+                )
+                sub.add_variable(dim_var)
+
+                return Variable(
+                    arg_spec.name,
+                    ftype=ftype,
+                    shape=ArrayShape(tuple([dim_var[i] for i in range(arg_spec.rank)])),
+                    fortran_order=arg_spec.fortran_order,
+                    intent=arg.intent,
+                )
+            else:
+                # The dimension is fixed
+                return Variable(
+                    arg_spec.name,
+                    ftype=ftype,
+                    shape=arg_spec.shape,
+                    fortran_order=arg_spec.fortran_order,
+                    intent=arg.intent,
+                )
 
         symbolic_args = []
-        for arg in comptime_args_spec:
+        for arg in argument_specs:
             if arg.is_comptime:
                 symbolic_args.append(arg.comptime_value)
             else:
-                ftype = arg.datatype.get_fortran()
-                if arg.rank == 0:
-                    # is it a scalar
-                    intent = "in" if arg.value else "inout"
-
-                    symbolic_args.append(
-                        Variable(
-                            arg.name, ftype=ftype, shape=SCALAR, fortran_order=False, intent=intent
-                        )
-                    )
-                elif arg.shape.has_comptime_undefined_dims():
-
-                    # The shape will to be passed as a separate argument
-                    dim_var = builder.generate_local_variables(
-                        f"fc_n",
-                        ftype=size_t.get_fortran(bind_c=True),
-                        shape=ArrayShape((arg.rank,)),
-                        intent="in",
-                    )
-                    sub.add_variable(dim_var)
-
-                    symbolic_args.append(
-                        Variable(
-                            arg.name,
-                            ftype=ftype,
-                            shape=ArrayShape(tuple([dim_var[i] for i in range(arg.rank)])),
-                            fortran_order=arg.fortran_order,
-                            intent="inout",
-                        )
-                    )
-                else:
-                    # The dimension is fixed
-                    symbolic_args.append(
-                        Variable(
-                            arg.name,
-                            ftype=ftype,
-                            shape=arg.shape,
-                            fortran_order=arg.fortran_order,
-                            intent="inout",
-                        )
-                    )
-
-                sub.add_variable(symbolic_args[-1])
+                var = convert_argument_spec_to_variable(arg)
+                # Add the variable to the subroutine
+                sub.add_variable(var)
+                symbolic_args.append(var)
 
         builder.build(*symbolic_args)
-        self.__symbolic_functions[comptime_args] = sub
+        self.__symbolic_functions[signature] = sub
 
     def compile_function(
         self,
-        comptime_args,
+        signature,
     ):
         """
         Compiles Fortran code and constructs a C API interface,
@@ -398,20 +397,20 @@ class NumetaFunction:
         Returns:
             tuple: (compiled function, subroutine)
         """
-        name = self.get_name(comptime_args)
+        name = self.get_name(signature)
 
         local_dir = self.directory / name
         local_dir.mkdir(exist_ok=True)
 
-        symbolic_function = self.get_symbolic_function(comptime_args)
+        symbolic_function = self.get_symbolic_function(signature)
         fortran_obj = self.compile_fortran(name, symbolic_function, local_dir)
 
         capi_name = f"{name}_capi"
-        comptime_args_spec = self.get_comptime_args_spec(comptime_args)
+        argument_specs = self._convert_signature_to_argument_specs(signature)
         capi_interface = CAPIInterface(
             name,
             capi_name,
-            comptime_args_spec,
+            argument_specs,
             local_dir,
             self.compile_flags,
             self.do_checks,
@@ -429,11 +428,11 @@ class NumetaFunction:
         extra_objects = []
         additional_flags = []
 
-        if comptime_args in self.__dependencies:
-            for dep, dep_comptime_args in self.__dependencies[comptime_args].values():
-                if dep_comptime_args not in dep.__libraries:
-                    dep.compile_function(dep_comptime_args)
-                _, dep_obj, _ = dep.__libraries[dep_comptime_args]
+        if signature in self.__dependencies:
+            for dep, dep_signature in self.__dependencies[signature].values():
+                if dep_signature not in dep.__libraries:
+                    dep.compile_function(dep_signature)
+                _, dep_obj, _ = dep.__libraries[dep_signature]
                 extra_objects.append(dep_obj)
 
         for external_dep in symbolic_function.get_external_dependencies().values():
@@ -481,7 +480,7 @@ class NumetaFunction:
             error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
             raise Warning(error_message)
 
-        self.__libraries[comptime_args] = (capi_name, fortran_obj, compiled_library_file)
+        self.__libraries[signature] = (capi_name, fortran_obj, compiled_library_file)
 
     def compile_fortran(self, name, fortran_function, directory):
         """
@@ -548,23 +547,22 @@ class NumetaFunction:
 
         return output
 
-    def load_function(self, comptime_args):
-        if comptime_args in self.__loaded_functions:
+    def load_function(self, signature):
+        if signature in self.__loaded_functions:
             return
 
-        if comptime_args not in self.__libraries:
-            self.compile_function(comptime_args)
+        if signature not in self.__libraries:
+            self.compile_function(signature)
 
-        capi_name, _, compiled_library_file = self.__libraries[comptime_args]
+        capi_name, _, compiled_library_file = self.__libraries[signature]
         spec = importlib.util.spec_from_file_location(capi_name, compiled_library_file)
         compiled_sub = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(compiled_sub)
 
-        name = self.get_name(comptime_args)
-        self.__loaded_functions[comptime_args] = getattr(compiled_sub, name)
+        name = self.get_name(signature)
+        self.__loaded_functions[signature] = getattr(compiled_sub, name)
 
-    def execute_function(self, comptime_args, runtime_args):
-        if comptime_args not in self.__loaded_functions:
-            self.load_function(comptime_args)
-        f = self.__loaded_functions[comptime_args]
-        return f(*runtime_args)
+    def execute_function(self, signature, runtime_args):
+        if signature not in self.__loaded_functions:
+            self.load_function(signature)
+        return self.__loaded_functions[signature](*runtime_args)

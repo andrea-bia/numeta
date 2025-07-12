@@ -47,39 +47,6 @@ class DataTypeMeta(type):
         return scalar(cls, value)
 
 
-@dataclass(frozen=True)
-class ArrayType:
-    """Helper object returned by DataType[x] to describe array types."""
-
-    dtype: type
-    shape: ArrayShape
-
-    def __iter__(self):
-        yield self.dtype
-        yield self.shape
-
-    def __repr__(self):
-        if self.shape is UNKNOWN:
-            return f"{self.dtype.__name__}[*]"
-        dims = ",".join(
-            ":" if isinstance(d, slice) and d == slice(None) else str(d) for d in self.shape.dims
-        )
-        return f"{self.dtype.__name__}[{dims}]"
-
-    def __call__(self, *args, **kwargs):
-        if self.shape is UNKNOWN:
-            raise ValueError("Cannot create an array with unknown shape [None] has be used")
-
-        value = args[0] if args else kwargs.get("value", None)
-
-        from .wrappers.empty import empty
-
-        array = empty(self.shape.dims, dtype=self.dtype, order=kwargs.get("order", "C"))
-        array[:] = value
-
-        return array
-
-
 class DataType(metaclass=DataTypeMeta):
     """Base class for all data type definitions."""
 
@@ -97,7 +64,7 @@ class DataType(metaclass=DataTypeMeta):
         return cls._name
 
     @classmethod
-    def __class_getitem__(cls, key) -> ArrayType:
+    def __class_getitem__(cls, key):
         if key is None:
             # It is a pointer
             return ArrayType(dtype=cls, shape=UNKNOWN)
@@ -158,6 +125,39 @@ class DataType(metaclass=DataTypeMeta):
     @classmethod
     def get_capi_cast(cls, obj):
         return cls._capi_cast(obj)
+
+
+@dataclass(frozen=True)
+class ArrayType:
+    """Helper object returned by DataType[x] to describe array types."""
+
+    dtype: DataType
+    shape: ArrayShape
+
+    def __iter__(self):
+        yield self.dtype
+        yield self.shape
+
+    def __repr__(self):
+        if self.shape is UNKNOWN:
+            return f"{self.dtype._name}[*]"
+        dims = ",".join(
+            ":" if isinstance(d, slice) and d == slice(None) else str(d) for d in self.shape.dims
+        )
+        return f"{self.dtype._name}[{dims}]"
+
+    def __call__(self, *args, **kwargs):
+        if self.shape is UNKNOWN:
+            raise ValueError("Cannot create an array with unknown shape [None] has be used")
+
+        value = args[0] if args else kwargs.get("value", None)
+
+        from .wrappers.empty import empty
+
+        array = empty(self.shape.dims, dtype=self.dtype, order=kwargs.get("order", "C"))
+        array[:] = value
+
+        return array
 
 
 class int32(DataType):
@@ -350,10 +350,14 @@ def get_struct_from_np_dtype(np_dtype):
 
 
 def get_datatype(dtype):
+    #
+    # Numeta DataType
+    #
     if isinstance(dtype, type) and issubclass(dtype, DataType):
         return dtype
-
-    # Python types
+    #
+    # Python numeric types
+    #
     if dtype is int:
         return int64
     elif dtype is float:
@@ -363,17 +367,23 @@ def get_datatype(dtype):
     elif dtype is bool:
         return bool8
 
-    # Numpy types
+    #
+    # Numpy dtypes
+    #
+
+    # Canonalize dtype
     if isinstance(dtype, np.dtype):
         base = dtype.base.type
     else:
         base = getattr(dtype, "base", dtype).type if hasattr(dtype, "type") else dtype
         if isinstance(base, np.dtype):
             base = base.type
+
+    # Check if it is a numpy dtype
     if DataType.is_np_dtype(base):
         return DataType.from_np_dtype(base)
 
-    # Numpy struct
+    # It could be a struct
     if hasattr(dtype, "fields"):
         return get_struct_from_np_dtype(dtype)
 

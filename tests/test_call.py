@@ -146,3 +146,23 @@ def test_call_getattr_array():
     expected = np.zeros((), dtype=dtype)
     expected["y"] = 2.0
     np.testing.assert_equal(a, expected)
+
+
+def test_call_matmul():
+
+    @nm.jit
+    def callee(a, d):
+        a[:] = d
+
+    @nm.jit
+    def caller(a, b, c):
+        callee(c, nm.matmul(b, a))
+
+    n = 10
+    a = np.random.random((n, n))
+    b = np.random.random((n, n))
+    c = np.zeros((10, 10))
+    caller(a, b, c)
+
+    expected = a @ b
+    np.testing.assert_equal(c, expected)
