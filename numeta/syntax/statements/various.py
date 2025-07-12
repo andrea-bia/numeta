@@ -142,7 +142,7 @@ class Allocate(Statement):
             else:
                 dims.append([*(argument).get_code_blocks()])
 
-        if not self.target.fortran_order:
+        if not self.target._shape.fortran_order:
             dims = dims[::-1]
 
         result.append("(")

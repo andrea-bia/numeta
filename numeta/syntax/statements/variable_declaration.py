@@ -41,7 +41,7 @@ class VariableDeclaration(Statement):
         elif self.variable._shape.dims:
             result += [", ", "dimension"]
             result += get_shape_blocks(
-                self.variable._shape.dims, fortran_order=self.variable.fortran_order
+                self.variable._shape.dims, fortran_order=self.variable._shape.fortran_order
             )
 
         if self.variable.intent is not None:

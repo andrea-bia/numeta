@@ -1,5 +1,6 @@
 from numeta.syntax import PointerAssignment
 from numeta.builder_helper import BuilderHelper
+from numeta.array_shape import ArrayShape
 
 
 def reshape(variable, shape, order="C"):
@@ -18,9 +19,8 @@ def reshape(variable, shape, order="C"):
     pointer = builder.generate_local_variables(
         "fc_v",
         ftype=variable._ftype,
-        shape=tuple([None for _ in shape]),
+        shape=ArrayShape(tuple([None for _ in shape]), fortran_order=fortran_order),
         pointer=True,
-        fortran_order=fortran_order,
     )
 
     PointerAssignment(pointer, shape, variable)

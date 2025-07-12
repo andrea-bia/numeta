@@ -2,6 +2,7 @@ import numpy as np
 from numeta.builder_helper import BuilderHelper
 from numeta.datatype import DataType, float64
 from numeta.syntax import Allocate, If, Allocated, Not, FortranType
+from numeta.array_shape import ArrayShape
 
 
 def empty(shape, dtype: DataType | FortranType | np.generic = float64, order="C"):
@@ -29,9 +30,8 @@ def empty(shape, dtype: DataType | FortranType | np.generic = float64, order="C"
     array = builder.generate_local_variables(
         "fc_a",
         ftype=ftype,
-        shape=tuple(None for _ in shape),
+        shape=ArrayShape(tuple(None for _ in shape), fortran_order=fortran_order),
         allocatable=True,
-        fortran_order=fortran_order,
     )
     with If(Not(Allocated(array))):
         Allocate(array, *shape)

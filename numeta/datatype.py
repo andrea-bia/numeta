@@ -134,9 +134,15 @@ class ArrayType:
     dtype: DataType
     shape: ArrayShape
 
-    def __iter__(self):
-        yield self.dtype
-        yield self.shape
+    @classmethod
+    def __class_getitem__(cls, key):
+        """
+        Create an ArrayType with a given order and shape.
+        If key is 'C' is C-style order, if 'F' is Fortran-style order.
+        """
+        if key != "C" and key != "F":
+            raise ValueError(f"Invalid order: {key}, must be 'C' or 'F'")
+        return cls(dtype=cls.dtype, shape=ArrayShape(cls.shape.dims, fortran_order=(key == "F")))
 
     def __repr__(self):
         if self.shape is UNKNOWN:

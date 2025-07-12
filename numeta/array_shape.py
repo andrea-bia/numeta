@@ -9,6 +9,7 @@ class ArrayShape:
     # (3,4)     ⇒ fixed 2-D So it is know at compile time
     # (None, 4) ⇒ 2-D with an undefined dimension at compile time
     _dims: Optional[Tuple]
+    fortran_order: bool = False
 
     def __repr__(self) -> str:
         if self._dims is None:

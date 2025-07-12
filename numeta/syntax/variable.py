@@ -16,12 +16,11 @@ class Variable(NamedEntity, ExpressionNode):
         parameter=False,
         assign=None,
         module=None,
-        fortran_order=True,
     ):
         super().__init__(name, module=module)
         self.__ftype = ftype
         if not isinstance(shape, ArrayShape):
-            self.__shape = ArrayShape(shape)
+            self.__shape = ArrayShape(shape, fortran_order=True)
         else:
             self.__shape = shape
         self.allocatable = allocatable
@@ -30,7 +29,6 @@ class Variable(NamedEntity, ExpressionNode):
         self.intent = intent
         self.pointer = pointer
         self.target = target
-        self.fortran_order = fortran_order
 
     @property
     def _ftype(self):
@@ -125,5 +123,4 @@ class Variable(NamedEntity, ExpressionNode):
             parameter=self.parameter,
             assign=self.assign,
             module=self.module,
-            fortran_order=self.fortran_order,
         )

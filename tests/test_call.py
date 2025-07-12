@@ -166,3 +166,23 @@ def test_call_matmul():
 
     expected = a @ b
     np.testing.assert_equal(c, expected)
+
+
+def test_call_matmul_fortran_order():
+
+    @nm.jit
+    def callee(a, d):
+        a[:] = d
+
+    @nm.jit
+    def caller(a, b, c):
+        callee(c, nm.matmul(a, b))
+
+    n = 10
+    a = np.random.random((n, n)).astype(np.float64, order="F")
+    b = np.random.random((n, n)).astype(np.float64, order="F")
+    c = np.zeros((10, 10), order="F")
+    caller(a, b, c)
+
+    expected = a @ b
+    np.testing.assert_equal(c, expected)

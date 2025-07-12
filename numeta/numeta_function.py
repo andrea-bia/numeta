@@ -35,7 +35,6 @@ class ArgumentSpec:
     rank: int = 0  # rank of the array, 0 for scalar
     intent: str = "inout"  # can be "in" or "inout"
     to_pass_by_value: bool = False
-    fortran_order: bool = True
 
 
 class NumetaFunction:
@@ -167,12 +166,20 @@ class NumetaFunction:
                     # it is a pointer
                     raise NotImplementedError("Pointers are not supported yet")
                 elif arg.shape.has_comptime_undefined_dims():
-                    signature.append((arg.dtype.get_numpy(), arg.shape.rank, False))
+                    signature.append(
+                        (arg.dtype.get_numpy(), arg.shape.rank, arg.shape.fortran_order)
+                    )
                     # Should add runtime args?
                     raise NotImplementedError
                 else:
                     signature.append(
-                        (arg.dtype.get_numpy(), arg.shape.rank, False, "inout", arg.shape.dims)
+                        (
+                            arg.dtype.get_numpy(),
+                            arg.shape.rank,
+                            arg.shape.fortran_order,
+                            "inout",
+                            arg.shape.dims,
+                        )
                     )
             elif isinstance(arg, type) and issubclass(arg, DataType):
                 to_execute = False
@@ -204,13 +211,19 @@ class NumetaFunction:
                         (
                             dtype.get_numpy(),
                             arg._shape.rank,
-                            False,
+                            arg._shape.fortran_order,
                             intent,
                         )
                     )
                 else:
                     signature.append(
-                        (dtype.get_numpy(), arg._shape.rank, False, intent, arg._shape.dims)
+                        (
+                            dtype.get_numpy(),
+                            arg._shape.rank,
+                            arg._shape.fortran_order,
+                            intent,
+                            arg._shape.dims,
+                        )
                     )
             else:
                 raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
@@ -253,17 +266,20 @@ class NumetaFunction:
                     if len(arg) == 4:
                         intent = arg[3]
 
-                    shape = SCALAR if rank == 0 else ArrayShape([None] * rank)
+                    shape = (
+                        SCALAR
+                        if rank == 0
+                        else ArrayShape([None] * rank, fortran_order=fortran_order)
+                    )
                     if len(arg) == 5:
                         # it means that the shape is known at comptime
-                        shape = ArrayShape(arg[4])
+                        shape = ArrayShape(arg[4], fortran_order=fortran_order)
 
                     ap = ArgumentSpec(
                         f"in_{i}",
                         datatype=dtype,
                         rank=rank,
                         shape=shape,
-                        fortran_order=fortran_order,
                         intent=intent,
                     )
 
@@ -340,9 +356,7 @@ class NumetaFunction:
             """
             ftype = arg_spec.datatype.get_fortran()
             if arg_spec.rank == 0:
-                return Variable(
-                    arg_spec.name, ftype=ftype, shape=SCALAR, fortran_order=False, intent=arg.intent
-                )
+                return Variable(arg_spec.name, ftype=ftype, shape=SCALAR, intent=arg.intent)
             elif arg_spec.shape.has_comptime_undefined_dims():
                 # The shape will to be passed as a separate argument
                 dim_var = builder.generate_local_variables(
@@ -353,11 +367,14 @@ class NumetaFunction:
                 )
                 sub.add_variable(dim_var)
 
+                shape = ArrayShape(
+                    tuple([dim_var[i] for i in range(arg_spec.rank)]),
+                    fortran_order=arg_spec.shape.fortran_order,
+                )
                 return Variable(
                     arg_spec.name,
                     ftype=ftype,
-                    shape=ArrayShape(tuple([dim_var[i] for i in range(arg_spec.rank)])),
-                    fortran_order=arg_spec.fortran_order,
+                    shape=shape,
                     intent=arg.intent,
                 )
             else:
@@ -366,7 +383,6 @@ class NumetaFunction:
                     arg_spec.name,
                     ftype=ftype,
                     shape=arg_spec.shape,
-                    fortran_order=arg_spec.fortran_order,
                     intent=arg.intent,
                 )
 

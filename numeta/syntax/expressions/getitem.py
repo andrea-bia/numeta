@@ -93,7 +93,7 @@ class GetItem(ExpressionNode):
                     dims.append(convert_slice(element))
                 else:
                     dims.append([str(element)])
-            if not self.variable.fortran_order:
+            if not self.variable._shape.fortran_order:
                 dims = dims[::-1]
 
             result += dims[0]
