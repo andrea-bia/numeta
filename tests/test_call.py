@@ -58,7 +58,7 @@ def test_call_getitem_scalar():
 
 def test_call_getitem_slice():
 
-    @nm.jit(directory="test_call_getitem_slice")
+    @nm.jit
     def callee(n, a):
         a[:] = n
 
@@ -82,7 +82,7 @@ def test_call_getitem_slice():
 
 def test_call_getitem_slice_runtime_dep():
 
-    @nm.jit(directory="test_call_getitem_slice")
+    @nm.jit
     def callee(n, a):
         a[:] = n
 
