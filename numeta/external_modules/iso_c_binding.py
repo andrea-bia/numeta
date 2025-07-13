@@ -1,4 +1,5 @@
 from numeta.syntax import Variable, ExternalModule, FortranType
+from numeta.array_shape import UNKNOWN
 
 
 class IsoCBinding(ExternalModule):
@@ -14,6 +15,7 @@ class IsoCBinding(ExternalModule):
         self.c_double_complex = Variable("c_double_complex", ftype=None)
         self.c_bool = Variable("c_bool", ftype=None)
         self.c_char = Variable("c_char", ftype=None)
+        self.c_ptr = Variable("c_ptr", ftype=None)
 
         self.add_variable(
             self.c_int32,
@@ -25,6 +27,17 @@ class IsoCBinding(ExternalModule):
             self.c_double_complex,
             self.c_bool,
             self.c_char,
+            self.c_ptr,
+        )
+
+        self.add_method(
+            "c_f_pointer",
+            [
+                Variable("cptr", self.c_ptr),
+                Variable("fptr", ftype=None),
+                Variable("shape", self.c_size_t, shape=UNKNOWN),
+            ],
+            bind_c=False,
         )
 
 
@@ -39,3 +52,4 @@ FComplex32_c = FortranType("complex", iso_c.c_float_complex)
 FComplex64_c = FortranType("complex", iso_c.c_double_complex)
 FLogical_c = FortranType("logical", iso_c.c_bool)
 FCharacter_c = FortranType("character", iso_c.c_char)
+FPointer_c = FortranType("type", iso_c.c_ptr)

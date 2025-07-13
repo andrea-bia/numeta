@@ -12,13 +12,14 @@ class ExternalLibrary(Module):
     Can contain ExternalModule objects.
     """
 
-    def __init__(self, name, directory=None, include=None, additional_flags=None):
+    def __init__(self, name, directory=None, include=None, additional_flags=None, to_link=True):
         """
         Directory is the path to the directory where the external library to link is located.
         Include is the path of the header file to include.
         """
         super().__init__(name, hidden=True)
         self.external = True
+        self.to_link = to_link
         self.directory = directory
         self.include = include
         self.additional_flags = additional_flags
@@ -58,8 +59,10 @@ class ExternalLibrary(Module):
         else:
             # TODO: Arguments are not used but it could be used to check if the arguments are correct
             def __init__(self, *args):
+                from .tools import check_node
+
                 self.name = name
-                self.arguments = args
+                self.arguments = [check_node(arg) for arg in args]
                 self.module = module
 
             method = type(
@@ -98,8 +101,10 @@ class ExternalModule(Module):
         else:
             # TODO: Arguments are not used but it could be used to check if the arguments are correct
             def __init__(self, *args):
+                from .tools import check_node
+
                 self.name = name
-                self.arguments = args
+                self.arguments = [check_node(arg) for arg in args]
                 self.module = module
 
             method = type(

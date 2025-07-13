@@ -126,6 +126,13 @@ class DataType(metaclass=DataTypeMeta):
     def get_capi_cast(cls, obj):
         return cls._capi_cast(obj)
 
+    @classmethod
+    def get_nbytes(cls):
+        """Get the number of bytes used by this data type."""
+        if cls._np_type is not None:
+            return np.dtype(cls._np_type).itemsize
+        raise NotImplementedError(f"DataType {cls._name} does not have a defined size")
+    
 
 @dataclass(frozen=True)
 class ArrayType:
@@ -257,19 +264,13 @@ class StructType(DataType, metaclass=DataTypeMeta):
     _counter = 0
     _fortran_type = None
     _fortran_bind_c_type = None
+    _np_type = None
     _cnp_type = None
     _capi_cast = staticmethod(lambda x: x)
     _name = "datatype"
     _is_struct = False
     _can_be_value = True
     _members = []
-
-    @property
-    def _np_type(cls):
-        fields = []
-        for mname, dt, dim in cls._members:
-            fields.append((mname, dt.get_numpy(), dim))
-        return np.dtype(fields)
 
     @classmethod
     def c_declaration(cls):
@@ -292,7 +293,7 @@ class StructType(DataType, metaclass=DataTypeMeta):
         return ArrayType(dtype=cls, shape=ArrayShape(key))
 
 
-def make_struct_type(members, name=None):
+def make_struct_type(np_dtype, members, name=None):
     """Create (or retrieve) a struct datatype class for ``members``."""
 
     key = tuple(members)
@@ -317,6 +318,7 @@ def make_struct_type(members, name=None):
         "name": name,
         "_members": members,
         "members": members,
+        "_np_type": np_dtype,
         "_cnp_type": name,
         "_fortran_type": fortran_type,
         "_fortran_bind_c_type": fortran_type,
@@ -326,9 +328,6 @@ def make_struct_type(members, name=None):
 
     new_cls = type(name, (StructType,), attrs)
 
-    DataTypeMeta._np_dtype[key] = new_cls
-    # also register mapping from numpy dtype for conversion
-    DataTypeMeta._np_dtype[new_cls.get_numpy()] = new_cls
     return new_cls
 
 
@@ -350,7 +349,7 @@ def get_struct_from_np_dtype(np_dtype):
         shape = SCALAR if len(np_d.shape) == 0 else ArrayShape(np_d.shape)
         fields.append((name, dtype, shape))
 
-    struct_cls = make_struct_type(fields)
+    struct_cls = make_struct_type(np_dtype, fields)
     DataTypeMeta._np_dtype[np_dtype] = struct_cls
     return struct_cls
 

@@ -1,3 +1,4 @@
+from .numpy_mem import numpy_mem
 from .range import range
 from .prange import prange
 from .cond import cond, endif

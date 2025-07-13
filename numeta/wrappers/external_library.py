@@ -10,8 +10,8 @@ class ExternalLibraryWrapper(ExternalLibrary):
     Used to convert types hint to fortran symbolic variables
     """
 
-    def __init__(self, name, directory=None, include=None, additional_flags=None):
-        super().__init__(name, directory, include, additional_flags)
+    def __init__(self, name, directory=None, include=None, additional_flags=None, to_link=True):
+        super().__init__(name, directory, include, additional_flags, to_link=to_link)
 
     def add_module(self, name):
         self.modules[name] = ExternalModuleWrapper(name, library=self)

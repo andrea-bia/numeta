@@ -1,7 +1,6 @@
 import numpy as np
 from numeta.builder_helper import BuilderHelper
-from numeta.datatype import DataType, float64
-from numeta.syntax import Allocate, If, Allocated, Not, FortranType
+from numeta.datatype import DataType, float64, FortranType
 from numeta.array_shape import ArrayShape
 
 
@@ -10,9 +9,9 @@ def empty(shape, dtype: DataType | FortranType | np.generic = float64, order="C"
         raise ValueError(f"Invalid order: {order}, must be 'C' or 'F'")
 
     fortran_order = order == "F"
-
     if not isinstance(shape, (tuple, list)):
         shape = (shape,)
+    shape = ArrayShape(shape, fortran_order=fortran_order)
 
     if isinstance(dtype, FortranType):
         ftype = dtype
@@ -30,10 +29,8 @@ def empty(shape, dtype: DataType | FortranType | np.generic = float64, order="C"
     array = builder.generate_local_variables(
         "fc_a",
         ftype=ftype,
-        shape=ArrayShape(tuple(None for _ in shape), fortran_order=fortran_order),
-        allocatable=True,
+        shape=shape,
+        allocate=True,
     )
-    with If(Not(Allocated(array))):
-        Allocate(array, *shape)
 
     return array

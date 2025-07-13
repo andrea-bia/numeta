@@ -389,11 +389,13 @@ class PointerAssignment(Statement):
         self.pointer = check_node(pointer)
         self.pointer_shape = []
         # should specify bounds for the pointer
-        for dim in pointer_shape:
+        for dim in pointer_shape.dims:
             if not isinstance(dim, slice):
                 self.pointer_shape.append(slice(None, dim))
             else:
                 self.pointer_shape.append(dim)
+        if not pointer_shape.fortran_order:
+            self.pointer_shape.reverse()
         self.pointer_shape = tuple(self.pointer_shape)
         self.target = check_node(target)
         self.target_shape = target_shape

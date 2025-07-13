@@ -3,12 +3,13 @@ from .syntax.settings import settings as syntax_settings
 
 class Settings:
 
-    def __init__(self, iso_C):
+    def __init__(self, iso_C, use_numpy_allocator=True):
         self.iso_C = iso_C
         if self.iso_C:
             self.set_iso_C()
         else:
             self.unset_iso_C()
+        self.use_numpy_allocator = use_numpy_allocator 
 
     def set_default_from_datatype(self, dtype, *, iso_c: bool = False):
         """Set the default Fortran type using a :class:`DataType` subclass."""
@@ -57,5 +58,12 @@ class Settings:
         self.set_default_from_datatype(bool8, iso_c=False)
         self.set_default_from_datatype(char, iso_c=False)
 
+    def set_numpy_allocator(self):
+        """Set whether to use the NumPy memory allocator."""
+        self.use_numpy_allocator = True
 
-settings = Settings(iso_C=True)
+    def unset_numpy_allocator(self):
+        """Unset the NumPy memory allocator."""
+        self.use_numpy_allocator = False
+
+settings = Settings(iso_C=True, use_numpy_allocator=True)

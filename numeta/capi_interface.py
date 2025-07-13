@@ -35,6 +35,14 @@ class CAPIInterface:
 #include <Python.h>
 #include <numpy/arrayobject.h>
 
+void numpy_allocate(void **ptr, size_t *nbytes) {
+    *ptr = PyDataMem_NEW(*nbytes);
+}
+
+void numpy_deallocate(void **ptr) {
+    PyDataMem_FREE(*ptr);
+}
+
 ${struct_definitions}
 
 ${procedure_definitions}
