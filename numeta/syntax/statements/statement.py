@@ -103,6 +103,10 @@ class StatementWithScope(Statement):
             f"Subclass '{self.__class__.__name__}' must implement 'get_end_code_blocks'."
         )
 
+    def __str__(self):
+        """Return the string representation of the scoped statement."""
+        return "".join(self.print_lines(indent=0))
+
     def get_statements(self):
         """Return the list of statements within the scope."""
         return self.scope.get_statements()

@@ -141,6 +141,14 @@ class GetItem(ExpressionNode):
         if isinstance(new_var, GetItem):
             return new_var[new_slice]
 
+        # If the variable is an ArrayConstructor and the slice is an int,
+        # HACK because fortran does not treat temporary variables as first class citizens
+        # only for ArrayConstructor
+        from .various import ArrayConstructor
+
+        if isinstance(new_var, ArrayConstructor) and isinstance(self.sliced, int):
+            return new_var.elements[self.sliced]
+
         return GetItem(new_var, new_slice)
 
     def __getitem__(self, key):

@@ -186,3 +186,24 @@ def test_call_matmul_fortran_order():
 
     expected = a @ b
     np.testing.assert_equal(c, expected)
+
+
+def test_nested_calls():
+    @nm.jit
+    def inner(n, arr):
+        arr[0] = n
+
+    @nm.jit
+    def middle(n, arr):
+        inner(n, arr)
+        arr[1] = n + 1
+
+    @nm.jit
+    def caller(n, arr):
+        middle(n, arr)
+
+    arr = np.zeros(2, dtype=np.int64)
+    caller(5, arr)
+
+    expected = np.array([5, 6], dtype=np.int64)
+    np.testing.assert_equal(arr, expected)

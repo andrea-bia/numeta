@@ -45,6 +45,7 @@ class NumetaFunction:
         do_checks=True,
         compile_flags="-O3 -march=native",
         namer=None,
+        inline: bool | int = False,
     ) -> None:
         self.name = func.__name__
         if directory is None:
@@ -54,6 +55,7 @@ class NumetaFunction:
         self.do_checks = do_checks
         self.compile_flags = compile_flags.split()
         self.namer = namer
+        self.inline = inline
 
         self.__func = func
         self.__signature_to_name = {}
@@ -313,18 +315,47 @@ class NumetaFunction:
                     full_runtime_args.append(arg._get_shape_descriptor())
                 full_runtime_args.append(arg)
 
-            # This add a Call statement to the current builder
-            symbolic_fun(*full_runtime_args)
+            do_inline = False
+            if isinstance(self.inline, bool):
+                do_inline = self.inline
+            elif isinstance(self.inline, int):
+                if symbolic_fun.count_statements() <= self.inline:
+                    do_inline = True
 
-            # Add this function to the dependencies of the current builder
-            caller = BuilderHelper.get_current_builder().numeta_function
-            caller_identifier = BuilderHelper.get_current_builder().signature
-            if caller_identifier not in caller.__dependencies:
-                caller.__dependencies[caller_identifier] = {}
-            caller.__dependencies[caller_identifier][self.name, signature] = (
-                self,
-                signature,
-            )
+            if do_inline:
+                from .syntax.inline import inline as inline_call
+
+                inline_call(symbolic_fun, *full_runtime_args)
+
+                # Add nested dependencies
+                caller = BuilderHelper.get_current_builder().numeta_function
+                caller_identifier = BuilderHelper.get_current_builder().signature
+                for dep, dep_signature in self.__dependencies.get(signature, {}).values():
+                    if caller_identifier not in caller.__dependencies:
+                        caller.__dependencies[caller_identifier] = {}
+                    caller.__dependencies[caller_identifier][dep.name, dep_signature] = (
+                        dep,
+                        dep_signature,
+                    )
+            else:
+                # This add a Call statement to the current builder
+                symbolic_fun(*full_runtime_args)
+
+                # Add this function to the dependencies of the current builder
+                caller = BuilderHelper.get_current_builder().numeta_function
+                caller_identifier = BuilderHelper.get_current_builder().signature
+                if caller_identifier not in caller.__dependencies:
+                    caller.__dependencies[caller_identifier] = {}
+                caller.__dependencies[caller_identifier][self.name, signature] = (
+                    self,
+                    signature,
+                )
+                # Add nested dependencies
+                for dep, dep_signature in self.__dependencies.get(signature, {}).values():
+                    caller.__dependencies[caller_identifier][dep.name, dep_signature] = (
+                        dep,
+                        dep_signature,
+                    )
 
         else:
 
@@ -459,7 +490,7 @@ class NumetaFunction:
             else:
                 lib = external_dep
 
-            if lib is not None:
+            if lib is not None and lib.to_link:
                 libraries.append(lib.name)
                 if lib.directory is not None:
                     libraries_dirs.append(lib.directory)

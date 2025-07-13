@@ -8,35 +8,25 @@ class Call(Statement):
         self,
         function,
         *arguments,
-        force_variables=False,
-        inline=False,
-        **inline_variables,
+        add_to_scope=True,
     ):
-        Scope.add_to_current_scope(self)
+        super().__init__(add_to_scope=add_to_scope)
         self.function = function
         self.arguments = [check_node(arg) for arg in arguments]
-        self.force_variables = force_variables
-        self.inline = inline
-        self.inline_variables = inline_variables
 
-    # def get_with_updated_variables(self, variables_couples):
-    #    new_arguments = []
-    #    for arg in self.arguments:
-    #        if hasattr(arg, "get_with_updated_variables"):
-    #            new_arguments.append(arg.get_with_updated_variables(variables_couples))
-    #        else:
-    #            new_arguments.append(arg)
+    @property
+    def children(self):
+        """Return the child nodes of the call."""
+        return [self.function] + self.arguments
 
-    #    return Call(function, new_arguments)
-
-    def extract_entities(self):
-        yield from self.function.extract_entities()
-        for arg in self.arguments:
-            yield from arg.extract_entities()
+    def get_with_updated_variables(self, variables_couples):
+        new_arguments = [
+            arg.get_with_updated_variables(variables_couples) for arg in self.arguments
+        ]
+        return Call(self.function, *new_arguments, add_to_scope=False)
 
     def get_code_blocks(self):
         if isinstance(self.function, str):
-            print("todo function name")
             result = ["call", " ", self.function]
         else:
             result = ["call", " ", self.function.name]
