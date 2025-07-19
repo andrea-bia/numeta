@@ -57,6 +57,10 @@ class SubroutineDeclaration(StatementWithScope):
     def children(self):
         return []
 
+    def extract_entities(self):
+        # Assume nothing is visible outside the Subroutine (maybe not okay?)
+        yield self.subroutine
+
     def get_statements(self):
         if self.subroutine.description is not None:
             for line in self.subroutine.description.split("\n"):
@@ -115,6 +119,10 @@ class InterfaceDeclaration(StatementWithScope):
     @property
     def children(self):
         return []
+
+    def extract_entities(self):
+        # Assume nothing is visible outside the interface (maybe not okay?)
+        yield self.subroutine
 
     def get_statements(self):
         if self.subroutine.description is not None:
