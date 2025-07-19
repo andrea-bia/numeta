@@ -25,7 +25,7 @@ class BuilderHelper:
 
         if settings.use_numpy_allocator:
             self.allocate_array = self._allocate_array_numpy
-            self.deallocate_array = self._deallocate_array_numpy 
+            self.deallocate_array = self._deallocate_array_numpy
         else:
             self.allocate_array = self._allocate_array
             self.deallocate_array = self._deallocate_array
@@ -41,7 +41,8 @@ class BuilderHelper:
     def _allocate_array(self, name, shape, **kwargs):
         from .syntax import Allocate, If, Allocated, Not
         from .array_shape import ArrayShape
-        alloc_shape = ArrayShape(tuple([None] * shape.rank), fortran_order=shape.fortran_order) 
+
+        alloc_shape = ArrayShape(tuple([None] * shape.rank), fortran_order=shape.fortran_order)
         variable = Variable(name, shape=alloc_shape, allocatable=True, **kwargs)
         with If(Not(Allocated(variable))):
             Allocate(variable, *shape.dims)
@@ -50,6 +51,7 @@ class BuilderHelper:
 
     def _deallocate_array(self, array):
         from numeta.syntax import Deallocate, If, Allocated
+
         with If(Allocated(array)):
             Deallocate(array)
 
@@ -59,14 +61,14 @@ class BuilderHelper:
         from .wrappers import numpy_mem
         from .external_modules.iso_c_binding import FPointer_c, iso_c
         from .array_shape import ArrayShape
-        from .datatype import DataType 
+        from .datatype import DataType
 
         # create a c pointer variable that will be also deallocated
-        variable_ptr =  Variable(f"{name}_c_ptr", FPointer_c)
+        variable_ptr = Variable(f"{name}_c_ptr", FPointer_c)
         self.allocated_arrays[name] = variable_ptr
 
-        dtype = DataType.from_ftype(kwargs['ftype'])
-        
+        dtype = DataType.from_ftype(kwargs["ftype"])
+
         size = dtype.get_nbytes()
         for dim in shape.dims:
             size *= dim
@@ -76,11 +78,13 @@ class BuilderHelper:
 
         # Fortran is so versone
         # create fortran pointer (with lower bound 1)
-        variable_lb1 = Variable(f"{name}_f_ptr_lb1", ftype=kwargs['ftype'], shape=ArrayShape((None,)), pointer=True)
+        variable_lb1 = Variable(
+            f"{name}_f_ptr_lb1", ftype=kwargs["ftype"], shape=ArrayShape((None,)), pointer=True
+        )
         # point the fortran pointer to the allocated memory
         iso_c.c_f_pointer(variable_ptr, variable_lb1, ArrayConstructor(size))
 
-        alloc_shape = ArrayShape(tuple([None] * shape.rank), fortran_order=shape.fortran_order) 
+        alloc_shape = ArrayShape(tuple([None] * shape.rank), fortran_order=shape.fortran_order)
         variable = Variable(name, shape=alloc_shape, pointer=True, **kwargs)
 
         # assign the fortran pointer with the proper lower bound
@@ -90,16 +94,17 @@ class BuilderHelper:
 
     def _deallocate_array_numpy(self, array):
         from .wrappers import numpy_mem
+
         numpy_mem.numpy_deallocate(array)
 
-    def build(self, *args):
+    def build(self, *args, **kwargs):
         old_builder = self.current_builder
         self.set_current_builder(self)
 
         old_scope = Scope.current_scope
         self.symbolic_function.scope.enter()
 
-        self.numeta_function.run_symbolic(*args)
+        self.numeta_function.run_symbolic(*args, **kwargs)
 
         for array in self.allocated_arrays.values():
             self.deallocate_array(array)
