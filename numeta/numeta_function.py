@@ -9,7 +9,9 @@ import pickle
 import shutil
 from dataclasses import dataclass
 from typing import Any
+from enum import Enum
 import textwrap
+import inspect
 
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
@@ -35,6 +37,20 @@ class ArgumentSpec:
     rank: int = 0  # rank of the array, 0 for scalar
     intent: str = "inout"  # can be "in" or "inout"
     to_pass_by_value: bool = False
+    is_keyword: bool = False
+
+
+class ArgumentKind(Enum):
+    """
+    Enum to represent the kind of argument.
+    - COMPTIME: Argument is a compile-time constant.
+    - POSITIONAL: Argument is a positional argument.
+    - DEFAULT: Argument is a default argument.
+    """
+
+    COMPTIME = 1
+    POSITIONAL = 2
+    DEFAULT = 3
 
 
 class NumetaFunction:
@@ -66,10 +82,33 @@ class NumetaFunction:
         # To store the dependencies of the compiled functions to other numeta generated functions.
         self.__dependencies = {}
 
-        self.comptime_indices = []
-        for i, arg in enumerate(func.__annotations__.values()):
-            if arg is comptime:
-                self.comptime_indices.append(i)
+        self._py_signature = inspect.signature(func)
+
+        self.default_arguments = {}
+        self.indices_to_type = []
+        self.argument_names = []
+        self.var_positional_idx = None  # index of the *args argument if any
+        self.n_positional_or_default_args = 0
+
+        for i, (name, parameter) in enumerate(self._py_signature.parameters.items()):
+            if func.__annotations__.get(name) is comptime:
+                self.indices_to_type.append(ArgumentKind.COMPTIME)
+
+            # catch *args and **kwargs
+            if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+                self.var_positional_idx = i
+                self.indices_to_type.append(None)
+            elif parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                self.indices_to_type.append(None)
+            elif parameter.default is not inspect.Parameter.empty:
+                self.default_arguments[name] = parameter.default
+                self.indices_to_type.append(ArgumentKind.DEFAULT)
+                self.n_positional_or_default_args += 1
+            else:
+                self.indices_to_type.append(ArgumentKind.POSITIONAL)
+                self.n_positional_or_default_args += 1
+
+            self.argument_names.append(name)
 
     def dump(self, directory):
         """
@@ -123,10 +162,10 @@ class NumetaFunction:
     def get_symbolic_functions(self):
         return list(self.__symbolic_functions.values())
 
-    def run_symbolic(self, *args):
-        return self.__func(*args)
+    def run_symbolic(self, *args, **kwargs):
+        return self.__func(*args, **kwargs)
 
-    def _get_signature_and_runtime_args_from_args(self, args):
+    def _get_signature_and_runtime_args_from_args(self, args, kwargs):
         """
         This method quickly extracts the signature and runtime arguments from the provided args.
         If the runtime arguments are not all numpy arrays or numeric types, the call is not to be executed.
@@ -146,46 +185,81 @@ class NumetaFunction:
         runtime_args = []
         signature = []
         to_execute = True
-        for i, arg in enumerate(args):
-            if i in self.comptime_indices:
-                signature.append(arg)
+        i_variable_positional_args = 0
+        for i, _arg in enumerate(args + tuple(kwargs.keys())):
+            if i < (len(self.indices_to_type) - 1) and (
+                self.indices_to_type[i] == ArgumentKind.COMPTIME
+            ):
+                signature.append(
+                    _arg,
+                )
                 continue
 
+            arg = _arg
+            if i >= len(args):
+                # it was passed by keyword
+                name = _arg
+                arg = kwargs[_arg]
+            elif self.var_positional_idx is not None and i >= self.var_positional_idx:
+                # it is caught by *args
+                name = (self.argument_names[self.var_positional_idx], i_variable_positional_args)
+                i_variable_positional_args += 1
+                arg = _arg
+            elif i < self.n_positional_or_default_args:
+                # it is a standard positional
+                name = self.argument_names[i]
+                arg = _arg
+            else:
+                raise ValueError(
+                    f"Too many positional arguments, expected {self.n_positional_or_default_args}"
+                )
+
             if isinstance(arg, np.ndarray):
-                signature.append((arg.dtype, len(arg.shape), np.isfortran(arg)))
+                arg_signature = (name, arg.dtype, len(arg.shape), np.isfortran(arg))
             elif isinstance(arg, (int, float, complex)):
-                signature.append((type(arg),))
+                arg_signature = (
+                    name,
+                    type(arg),
+                )
             elif isinstance(arg, np.generic):
                 # it is a numpy scalar like np.int32(1) or np.float64(1.0) or a struct
                 # A struct is mutable
                 if arg.dtype.names is not None:
-                    signature.append((arg.dtype, 0))
+                    arg_signature = (name, arg.dtype, 0)
                 else:
-                    signature.append((arg.dtype,))
+                    arg_signature = (
+                        name,
+                        arg.dtype,
+                    )
             elif isinstance(arg, ArrayType):
                 to_execute = False
                 if arg.shape is UNKNOWN:
                     # it is a pointer
-                    raise NotImplementedError("Pointers are not supported yet")
+                    arg_signature = (name, arg.dtype.get_numpy(), None, arg.shape.fortran_order)
                 elif arg.shape.has_comptime_undefined_dims():
-                    signature.append(
-                        (arg.dtype.get_numpy(), arg.shape.rank, arg.shape.fortran_order)
+                    arg_signature = (
+                        name,
+                        arg.dtype.get_numpy(),
+                        arg.shape.rank,
+                        arg.shape.fortran_order,
                     )
                     # Should add runtime args?
-                    raise NotImplementedError
+                    # raise NotImplementedError
                 else:
-                    signature.append(
-                        (
-                            arg.dtype.get_numpy(),
-                            arg.shape.rank,
-                            arg.shape.fortran_order,
-                            "inout",
-                            arg.shape.dims,
-                        )
+                    arg_signature = (
+                        name,
+                        arg.dtype.get_numpy(),
+                        arg.shape.rank,
+                        arg.shape.fortran_order,
+                        "inout",
+                        arg.shape.dims,
                     )
             elif isinstance(arg, type) and issubclass(arg, DataType):
                 to_execute = False
-                signature.append((arg.get_numpy(),))
+                arg_signature = (
+                    name,
+                    arg.get_numpy(),
+                )
             elif isinstance(arg, ExpressionNode):
                 to_execute = False
                 ftype = arg._ftype
@@ -203,32 +277,35 @@ class NumetaFunction:
 
                 if arg._shape is SCALAR:
                     if intent == "inout":
-                        signature.append((dtype.get_numpy(), 0, False, intent))
+                        arg_signature = (name, dtype.get_numpy(), 0, False, intent)
                     else:
-                        signature.append((dtype.get_numpy(),))
-                elif arg._shape is UNKNOWN:
-                    signature.append((dtype.get_numpy(), 0, False, intent))
-                elif arg._shape.has_comptime_undefined_dims():
-                    signature.append(
-                        (
+                        arg_signature = (
+                            name,
                             dtype.get_numpy(),
-                            arg._shape.rank,
-                            arg._shape.fortran_order,
-                            intent,
                         )
+                elif arg._shape is UNKNOWN:
+                    arg_signature = (name, dtype.get_numpy(), 0, False, intent)
+                elif arg._shape.has_comptime_undefined_dims():
+                    arg_signature = (
+                        name,
+                        dtype.get_numpy(),
+                        arg._shape.rank,
+                        arg._shape.fortran_order,
+                        intent,
                     )
                 else:
-                    signature.append(
-                        (
-                            dtype.get_numpy(),
-                            arg._shape.rank,
-                            arg._shape.fortran_order,
-                            intent,
-                            arg._shape.dims,
-                        )
+                    arg_signature = (
+                        name,
+                        dtype.get_numpy(),
+                        arg._shape.rank,
+                        arg._shape.fortran_order,
+                        intent,
+                        arg._shape.dims,
                     )
             else:
                 raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
+
+            signature.append(arg_signature)
             runtime_args.append(arg)
 
         return to_execute, tuple(signature), runtime_args
@@ -238,57 +315,87 @@ class NumetaFunction:
         Converts a signature tuple into a list of ArgumentSpec objects.
         A signature is a tuple of tuples, where each inner tuple represents an argument.
         """
+
+        def convert_arg_to_argument_spec(arg, is_keyword, name=None):
+            name = arg[0] if name is None else name
+
+            dtype = get_datatype(arg[1])
+            if len(arg) == 2:
+                # it is a numeric type or a string
+                # So the intent will be always "in"
+                # but complex numbers cannot be passed by value because of C
+                ap = ArgumentSpec(
+                    name,
+                    datatype=dtype,
+                    shape=SCALAR,
+                    to_pass_by_value=dtype.can_be_value(),
+                    intent="in",
+                    is_keyword=is_keyword,
+                )
+            else:
+                # for numpy arrays arg[1] is the rank, for the other types it is the shape
+                rank = arg[2]
+
+                fortran_order = False
+                if len(arg) == 4:
+                    fortran_order = arg[3]
+
+                intent = "inout"
+                if len(arg) == 5:
+                    intent = arg[4]
+
+                if rank is None:
+                    shape = UNKNOWN
+                elif rank == 0:
+                    shape = SCALAR
+                else:
+                    shape = ArrayShape([None] * rank, fortran_order=fortran_order)
+
+                if len(arg) == 6:
+                    # it means that the shape is known at comptime
+                    shape = ArrayShape(arg[5], fortran_order=fortran_order)
+
+                ap = ArgumentSpec(
+                    name,
+                    datatype=dtype,
+                    rank=rank,
+                    shape=shape,
+                    intent=intent,
+                    is_keyword=is_keyword,
+                )
+
+            return ap
+
         signature_spec = []
         for i, arg in enumerate(signature):
-            if i in self.comptime_indices:
+
+            print(arg, len(self.indices_to_type), i, self.indices_to_type)
+
+            if i < len(self.indices_to_type) and self.indices_to_type[i] == ArgumentKind.COMPTIME:
                 # it is a comptime argument
                 ap = ArgumentSpec(f"in_{i}", is_comptime=True, comptime_value=arg)
+            elif isinstance(arg[0], tuple):
+                # it is a positional argument called with *args
+                is_keyword = False
+                name = f"{arg[0][0]}_{arg[0][1]}"
+                ap = convert_arg_to_argument_spec(arg, is_keyword, name=name)
+            elif i > len(self.indices_to_type) - 1:
+                # it is a keyword argument because all the positional arguments have been consumed
+                # and i its greater than the number of positional arguments
+                is_keyword = True
+                ap = convert_arg_to_argument_spec(arg, is_keyword)
+            elif self.indices_to_type[i] == ArgumentKind.POSITIONAL:
+                is_keyword = False
+                ap = convert_arg_to_argument_spec(arg, is_keyword)
             else:
-                dtype = get_datatype(arg[0])
-                if len(arg) == 1:
-                    # it is a numeric type or a string
-                    # So the intent will be always "in"
-                    # but complex numbers cannot be passed by value because of C
-                    ap = ArgumentSpec(
-                        f"in_{i}",
-                        datatype=dtype,
-                        shape=SCALAR,
-                        to_pass_by_value=dtype.can_be_value(),
-                        intent="in",
-                    )
-                else:
-                    # for numpy arrays arg[1] is the rank, for the other types it is the shape
-                    rank = arg[1]
-
-                    fortran_order = False
-                    if len(arg) == 3:
-                        fortran_order = arg[2]
-
-                    intent = "inout"
-                    if len(arg) == 4:
-                        intent = arg[3]
-
-                    shape = (
-                        SCALAR
-                        if rank == 0
-                        else ArrayShape([None] * rank, fortran_order=fortran_order)
-                    )
-                    if len(arg) == 5:
-                        # it means that the shape is known at comptime
-                        shape = ArrayShape(arg[4], fortran_order=fortran_order)
-
-                    ap = ArgumentSpec(
-                        f"in_{i}",
-                        datatype=dtype,
-                        rank=rank,
-                        shape=shape,
-                        intent=intent,
-                    )
+                is_keyword = True
+                ap = convert_arg_to_argument_spec(arg, is_keyword)
 
             signature_spec.append(ap)
+
         return signature_spec
 
-    def __call__(self, *args):
+    def __call__(self, *args, **kwargs):
         """
         **Note**: Support for fixed shapes for arrays works when not using numpy arrays.
         But if the function is called with numeta types hint like nm.float32[2, 3] it will create a symbolic function with fixed shapes arguments.
@@ -298,7 +405,9 @@ class NumetaFunction:
         if BuilderHelper.current_builder is not None:
             # We are already contructing a symbolic function
 
-            _, signature, runtime_args = self._get_signature_and_runtime_args_from_args(args)
+            _, signature, runtime_args = self._get_signature_and_runtime_args_from_args(
+                args, kwargs
+            )
 
             symbolic_fun = self.get_symbolic_function(signature)
 
@@ -361,7 +470,7 @@ class NumetaFunction:
 
             # TODO: probably overhead, to do in C?
             to_execute, signature, runtime_args = self._get_signature_and_runtime_args_from_args(
-                args
+                args, kwargs
             )
 
             if not to_execute:
@@ -388,6 +497,13 @@ class NumetaFunction:
             ftype = arg_spec.datatype.get_fortran()
             if arg_spec.rank == 0:
                 return Variable(arg_spec.name, ftype=ftype, shape=SCALAR, intent=arg.intent)
+            elif arg_spec.shape is UNKNOWN:
+                return Variable(
+                    arg_spec.name,
+                    ftype=ftype,
+                    shape=UNKNOWN,
+                    intent=arg.intent,
+                )
             elif arg_spec.shape.has_comptime_undefined_dims():
                 # The shape will to be passed as a separate argument
                 dim_var = builder.generate_local_variables(
@@ -418,6 +534,7 @@ class NumetaFunction:
                 )
 
         symbolic_args = []
+        symbolic_kwargs = {}
         for arg in argument_specs:
             if arg.is_comptime:
                 symbolic_args.append(arg.comptime_value)
@@ -425,9 +542,12 @@ class NumetaFunction:
                 var = convert_argument_spec_to_variable(arg)
                 # Add the variable to the subroutine
                 sub.add_variable(var)
-                symbolic_args.append(var)
+                if arg.is_keyword:
+                    symbolic_kwargs[arg.name] = var
+                else:
+                    symbolic_args.append(var)
 
-        builder.build(*symbolic_args)
+        builder.build(*symbolic_args, **symbolic_kwargs)
         self.__symbolic_functions[signature] = sub
 
     def compile_function(
