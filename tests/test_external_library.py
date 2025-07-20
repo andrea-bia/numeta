@@ -1,8 +1,12 @@
 import numeta as nm
 import numpy as np
+import ctypes.util
+import pytest
 
 
 def test_blas():
+    if ctypes.util.find_library("blas") is None:
+        pytest.skip("BLAS library not found")
     blas = nm.ExternalLibraryWrapper("blas")
     blas.add_method(
         "dgemm",
