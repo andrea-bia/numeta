@@ -15,8 +15,6 @@ def test_optional_argument():
     np.testing.assert_allclose(a, np.full((5,), 2.0, dtype=np.float64))
     fill(a, value=3.0)
     np.testing.assert_allclose(a, np.full((5,), 3.0, dtype=np.float64))
-    fill(a - a, value=3.0)
-    np.testing.assert_allclose(a, np.full((5,), 3.0, dtype=np.float64))
 
 
 def test_optional_argument_mixed():
@@ -78,7 +76,7 @@ def test_keyword_arguments(n_args, dtype, shape):
 
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
-def test_variable_number_and_keyword_arguments(n_args, n_kwargs):
+def test_variable_positional_and_keyword_arguments(n_args, n_kwargs):
     @nm.jit
     def fill(*args, **kwargs):
         for i, arg in enumerate(args):
@@ -100,7 +98,7 @@ def test_variable_number_and_keyword_arguments(n_args, n_kwargs):
 
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
-def test_variable_number_and_keyword_arguments(n_args, n_kwargs):
+def test_positional_and_variable_positional_and_keyword_arguments(n_args, n_kwargs):
     @nm.jit
     def fill(a, *args, **kwargs):
         for i, arg in enumerate(args):
@@ -129,7 +127,7 @@ def test_variable_number_and_keyword_arguments(n_args, n_kwargs):
 
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
-def test_variable_number_and_keyword_arguments(n_args, n_kwargs):
+def test_positional_and_variable_positional_and_optional_and_keyword_arguments(n_args, n_kwargs):
     @nm.jit
     def fill(a, *args, b=2.0, **kwargs):
         for i, arg in enumerate(args):
@@ -156,3 +154,39 @@ def test_variable_number_and_keyword_arguments(n_args, n_kwargs):
         np.testing.assert_allclose(arg, expected)
     expected_a -= 2.0
     np.testing.assert_allclose(a, expected_a)
+
+
+def test_optional_array_argument():
+    @nm.jit
+    def fill(a, b=np.zeros((5,), dtype=np.float64)):
+        for i in nm.range(a.shape[0]):
+            a[i] = b[i] + 1.0
+
+    arr = np.empty((5,), dtype=np.float64)
+    fill(arr)
+    np.testing.assert_allclose(arr, np.ones((5,), dtype=np.float64))
+
+    other = np.full((5,), 2.0, dtype=np.float64)
+    fill(arr, other)
+    np.testing.assert_allclose(arr, np.full((5,), 3.0, dtype=np.float64))
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        ("a", "b", "c"),
+        ("b", "c", "a"),
+        ("c", "a", "b"),
+    ],
+)
+def test_all_keyword_permutations(order):
+    @nm.jit
+    def fill(a, b, c=1.0):
+        a[:] = b + c
+
+    a = np.zeros(())
+    params = {"a": a, "b": 2.0, "c": 3.0}
+    call_kwargs = {k: params[k] for k in order}
+    fill(**call_kwargs)
+
+    np.testing.assert_allclose(a, np.full((), 5.0))

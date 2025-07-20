@@ -87,6 +87,9 @@ class NumetaFunction:
         self.default_arguments = {}
         self.indices_to_type = []
         self.argument_names = []
+        self.catch_var_positional_name = "args"
+        self.catch_var_keyword_name = "kwargs"
+        self.names_to_indices = {}
         self.var_positional_idx = None  # index of the *args argument if any
         self.n_positional_or_default_args = 0
 
@@ -98,17 +101,21 @@ class NumetaFunction:
             if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
                 self.var_positional_idx = i
                 self.indices_to_type.append(None)
+                self.catch_var_positional_name = name
             elif parameter.kind == inspect.Parameter.VAR_KEYWORD:
                 self.indices_to_type.append(None)
+                self.catch_var_keyword_name = name
             elif parameter.default is not inspect.Parameter.empty:
                 self.default_arguments[name] = parameter.default
                 self.indices_to_type.append(ArgumentKind.DEFAULT)
+                self.names_to_indices[name] = i
                 self.n_positional_or_default_args += 1
+                self.argument_names.append(name)
             else:
                 self.indices_to_type.append(ArgumentKind.POSITIONAL)
+                self.names_to_indices[name] = i
                 self.n_positional_or_default_args += 1
-
-            self.argument_names.append(name)
+                self.argument_names.append(name)
 
     def dump(self, directory):
         """
@@ -181,38 +188,12 @@ class NumetaFunction:
         - (dtype, rank, has_fortran_order, intent) intent can be "in" or "inout"
         - (dtype, rank, has_fortran_order, intent, shape) if the shape is know at comptime
         """
+        # the order is:
+        # positional, optional, var_positional, keyword
 
-        runtime_args = []
-        signature = []
         to_execute = True
-        i_variable_positional_args = 0
-        for i, _arg in enumerate(args + tuple(kwargs.keys())):
-            if i < (len(self.indices_to_type) - 1) and (
-                self.indices_to_type[i] == ArgumentKind.COMPTIME
-            ):
-                signature.append(
-                    _arg,
-                )
-                continue
 
-            arg = _arg
-            if i >= len(args):
-                # it was passed by keyword
-                name = _arg
-                arg = kwargs[_arg]
-            elif self.var_positional_idx is not None and i >= self.var_positional_idx:
-                # it is caught by *args
-                name = (self.argument_names[self.var_positional_idx], i_variable_positional_args)
-                i_variable_positional_args += 1
-                arg = _arg
-            elif i < self.n_positional_or_default_args:
-                # it is a standard positional
-                name = self.argument_names[i]
-                arg = _arg
-            else:
-                raise ValueError(
-                    f"Too many positional arguments, expected {self.n_positional_or_default_args}"
-                )
+        def get_signature_from_arg(arg, name):
 
             if isinstance(arg, np.ndarray):
                 arg_signature = (name, arg.dtype, len(arg.shape), np.isfortran(arg))
@@ -305,8 +286,74 @@ class NumetaFunction:
             else:
                 raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
 
-            signature.append(arg_signature)
-            runtime_args.append(arg)
+            return arg_signature
+
+        runtime_args = [None] * self.n_positional_or_default_args
+        signature = [None] * self.n_positional_or_default_args
+
+        i_variable_positional_args = 0
+        for i, _arg in enumerate(args):
+            if i < (len(self.indices_to_type) - 1) and (
+                self.indices_to_type[i] == ArgumentKind.COMPTIME
+            ):
+                signature[i] = _arg
+                continue
+
+            if self.var_positional_idx is not None and i >= self.var_positional_idx:
+                # it is caught by *args
+                name = (self.catch_var_positional_name, i_variable_positional_args)
+                i_variable_positional_args += 1
+                arg = _arg
+                signature.append(None)
+                runtime_args.append(None)
+                idx = len(signature) - 1
+            elif i < self.n_positional_or_default_args:
+                # it is a standard positional or positional that overrides a default argument
+                name = self.argument_names[i]
+                arg = _arg
+                idx = i
+            else:
+                raise ValueError(
+                    f"Too many positional arguments, expected {self.n_positional_or_default_args}"
+                )
+            runtime_args[idx] = arg
+            arg_signature = get_signature_from_arg(arg, name)
+            signature[idx] = arg_signature
+
+        for name, arg in kwargs.items():
+            # first check the keyword arguments
+            idx = self.names_to_indices.get(name, None)
+            if idx is not None:
+                arg = kwargs[name]
+                if self.indices_to_type[idx] == ArgumentKind.COMPTIME:
+                    signature[idx] = arg
+                else:
+                    arg_signature = get_signature_from_arg(arg, name)
+                    signature[idx] = arg_signature
+                    runtime_args[idx] = arg
+            else:
+                arg_signature = get_signature_from_arg(arg, name)
+                signature.append(arg_signature)
+                runtime_args.append(arg)
+
+        for idx, signature_arg in enumerate(signature):
+            if signature_arg is None:
+                # if the argument is not in the kwargs and it is not a comptime argument
+                # it means that it was not passed, so we should raise an error
+                name = self.argument_names[idx]
+                if name in self.default_arguments:
+                    # if it has a default value, we can use it
+                    arg = self.default_arguments[name]
+                    arg_signature = get_signature_from_arg(arg, name)
+                    signature[idx] = arg_signature
+                    runtime_args[idx] = arg
+                else:
+                    # it is a required argument, so we cannot execute the function
+                    raise ValueError(f"Missing required argument: {name}")
+
+        to_execute = True
+
+        runtime_args = [arg for arg in runtime_args if arg is not None]
 
         return to_execute, tuple(signature), runtime_args
 
@@ -368,8 +415,6 @@ class NumetaFunction:
 
         signature_spec = []
         for i, arg in enumerate(signature):
-
-            print(arg, len(self.indices_to_type), i, self.indices_to_type)
 
             if i < len(self.indices_to_type) and self.indices_to_type[i] == ArgumentKind.COMPTIME:
                 # it is a comptime argument
@@ -546,7 +591,6 @@ class NumetaFunction:
                     symbolic_kwargs[arg.name] = var
                 else:
                     symbolic_args.append(var)
-
         builder.build(*symbolic_args, **symbolic_kwargs)
         self.__symbolic_functions[signature] = sub
 
