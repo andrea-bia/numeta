@@ -175,6 +175,7 @@ class NumetaFunction:
         to_execute = True
 
         def get_signature_from_arg(arg, name):
+            nonlocal to_execute
 
             if isinstance(arg, np.ndarray):
                 arg_signature = (name, arg.dtype, len(arg.shape), np.isfortran(arg))
@@ -205,8 +206,6 @@ class NumetaFunction:
                         arg.shape.rank,
                         arg.shape.fortran_order,
                     )
-                    # Should add runtime args?
-                    # raise NotImplementedError
                 else:
                     arg_signature = (
                         name,
