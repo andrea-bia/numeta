@@ -16,6 +16,24 @@ def test_optional_argument():
     fill(a, value=3.0)
     np.testing.assert_allclose(a, np.full((5,), 3.0, dtype=np.float64))
 
+    assert len(fill.get_symbolic_functions()) == 1
+
+
+def test_optional_comptime_argument():
+    @nm.jit
+    def fill(a, value: nm.comptime = 1.0):
+        a[:] = value
+
+    a = np.empty((5,), dtype=np.float64)
+    fill(a)
+    np.testing.assert_allclose(a, np.full((5,), 1.0, dtype=np.float64))
+    fill(a, 2.0)
+    np.testing.assert_allclose(a, np.full((5,), 2.0, dtype=np.float64))
+    fill(a, value=3.0)
+    np.testing.assert_allclose(a, np.full((5,), 3.0, dtype=np.float64))
+
+    assert len(fill.get_symbolic_functions()) == 3
+
 
 def test_optional_argument_mixed():
     @nm.jit
@@ -53,6 +71,8 @@ def test_optional_argument_mixed():
     expected = np.full((5,), 2.0, dtype=np.float64)
     expected[2] = 5.0
     np.testing.assert_allclose(a, expected)
+
+    assert len(fill.get_symbolic_functions()) == 1
 
 
 @pytest.mark.parametrize("n_args", range(1, 5))
@@ -190,3 +210,44 @@ def test_all_keyword_permutations(order):
     fill(**call_kwargs)
 
     np.testing.assert_allclose(a, np.full((), 5.0))
+
+
+def test_optional_keyword_only_comptime_argument():
+
+    @nm.jit
+    def fill(a, *, length: nm.comptime = 4):
+        for i in nm.range(length):
+            a[i] = -i
+
+    a = np.zeros(6, dtype=np.float64)
+    fill(a)
+    expected = np.zeros_like(a)
+    expected[:4] = -np.arange(4, dtype=a.dtype)
+    np.testing.assert_allclose(a, expected)
+
+    b = np.zeros(6, dtype=np.float64)
+    fill(b, length=5)
+    expected = np.zeros_like(b)
+    expected[:5] = -np.arange(5, dtype=b.dtype)
+    np.testing.assert_allclose(b, expected)
+
+
+def test_keyword_arguments_have_unique_signature():
+    @nm.jit
+    def fill(**kwargs):
+        for i, arg in kwargs.items():
+            arg[:] = float(i[3])
+
+    args = {f"in_{i}": np.zeros(()) for i in range(3)}
+    fill(**args)
+
+    for i, arg in args.items():
+        np.testing.assert_allclose(arg, float(i[3]))
+
+    args = {f"in_{i}": np.zeros(()) for i in range(2, -1, -1)}
+    fill(**args)
+
+    for i, arg in args.items():
+        np.testing.assert_allclose(arg, float(i[3]))
+
+    assert len(fill.get_symbolic_functions()) == 1

@@ -40,17 +40,14 @@ class ArgumentSpec:
     is_keyword: bool = False
 
 
-class ArgumentKind(Enum):
-    """
-    Enum to represent the kind of argument.
-    - COMPTIME: Argument is a compile-time constant.
-    - POSITIONAL: Argument is a positional argument.
-    - DEFAULT: Argument is a default argument.
-    """
+@dataclass(frozen=True)
+class ParameterInfo:
+    """Store metadata about a Python function parameter."""
 
-    COMPTIME = 1
-    POSITIONAL = 2
-    DEFAULT = 3
+    name: str
+    kind: inspect._ParameterKind
+    default: Any = inspect._empty
+    is_comptime: bool = False
 
 
 class NumetaFunction:
@@ -84,38 +81,23 @@ class NumetaFunction:
 
         self._py_signature = inspect.signature(func)
 
-        self.default_arguments = {}
-        self.indices_to_type = []
-        self.argument_names = []
+        self.params = []
         self.catch_var_positional_name = "args"
-        self.catch_var_keyword_name = "kwargs"
-        self.names_to_indices = {}
-        self.var_positional_idx = None  # index of the *args argument if any
-        self.n_positional_or_default_args = 0
 
-        for i, (name, parameter) in enumerate(self._py_signature.parameters.items()):
-            if func.__annotations__.get(name) is comptime:
-                self.indices_to_type.append(ArgumentKind.COMPTIME)
+        for name, parameter in self._py_signature.parameters.items():
+            is_comp = func.__annotations__.get(name) is comptime
+            pinfo = ParameterInfo(name, parameter.kind, parameter.default, is_comp)
+            self.params.append(pinfo)
 
-            # catch *args and **kwargs
             if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
-                self.var_positional_idx = i
-                self.indices_to_type.append(None)
                 self.catch_var_positional_name = name
-            elif parameter.kind == inspect.Parameter.VAR_KEYWORD:
-                self.indices_to_type.append(None)
-                self.catch_var_keyword_name = name
-            elif parameter.default is not inspect.Parameter.empty:
-                self.default_arguments[name] = parameter.default
-                self.indices_to_type.append(ArgumentKind.DEFAULT)
-                self.names_to_indices[name] = i
-                self.n_positional_or_default_args += 1
-                self.argument_names.append(name)
-            else:
-                self.indices_to_type.append(ArgumentKind.POSITIONAL)
-                self.names_to_indices[name] = i
-                self.n_positional_or_default_args += 1
-                self.argument_names.append(name)
+
+        self.fixed_param_indices = [
+            i
+            for i, p in enumerate(self.params)
+            if p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        ]
+        self.n_positional_or_default_args = len(self.fixed_param_indices)
 
     def dump(self, directory):
         """
@@ -181,15 +163,14 @@ class NumetaFunction:
         - signature: a tuple of the signature of the function
         - runtime_args: a list of runtime arguments to be passed to run the function
         A signature is a tuple of tuples, where each inner tuple represents an argument.
-        - (dtype,) is scalar types passed by value
-        - (dtype, 0) is for scalar types passed by reference
-        - (dtype, rank) for numpy arrays
-        - (dtype, rank, has_fortran_order) to set the Fortran order
-        - (dtype, rank, has_fortran_order, intent) intent can be "in" or "inout"
-        - (dtype, rank, has_fortran_order, intent, shape) if the shape is know at comptime
+        - (name, dtype,) is scalar types passed by value
+        - (name, dtype, 0) is for scalar types passed by reference
+        - (name, dtype, rank) for numpy arrays
+        - (name, dtype, rank, has_fortran_order) to set the Fortran order
+        - (name, dtype, rank, has_fortran_order, intent) intent can be "in" or "inout"
+        - (name, dtype, rank, has_fortran_order, intent, shape) if the shape is know at comptime
+        **name** is a tuple is the argument comes from a variable positional argument (*args)
         """
-        # the order is:
-        # positional, optional, var_positional, keyword
 
         to_execute = True
 
@@ -284,76 +265,58 @@ class NumetaFunction:
                         arg._shape.dims,
                     )
             else:
-                raise ValueError(f"Argument {i} of type {type(arg)} is not supported")
+                raise ValueError(f"Argument {name} of type {type(arg)} is not supported")
 
             return arg_signature
 
-        runtime_args = [None] * self.n_positional_or_default_args
+        runtime_args = []
         signature = [None] * self.n_positional_or_default_args
 
-        i_variable_positional_args = 0
-        for i, _arg in enumerate(args):
-            if i < (len(self.indices_to_type) - 1) and (
-                self.indices_to_type[i] == ArgumentKind.COMPTIME
+        unused_kwargs = dict(kwargs)
+        pos_idx = 0
+
+        for fi, param_idx in enumerate(self.fixed_param_indices):
+            param = self.params[param_idx]
+
+            if param.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
             ):
-                signature[i] = _arg
-                continue
-
-            if self.var_positional_idx is not None and i >= self.var_positional_idx:
-                # it is caught by *args
-                name = (self.catch_var_positional_name, i_variable_positional_args)
-                i_variable_positional_args += 1
-                arg = _arg
-                signature.append(None)
-                runtime_args.append(None)
-                idx = len(signature) - 1
-            elif i < self.n_positional_or_default_args:
-                # it is a standard positional or positional that overrides a default argument
-                name = self.argument_names[i]
-                arg = _arg
-                idx = i
-            else:
-                raise ValueError(
-                    f"Too many positional arguments, expected {self.n_positional_or_default_args}"
-                )
-            runtime_args[idx] = arg
-            arg_signature = get_signature_from_arg(arg, name)
-            signature[idx] = arg_signature
-
-        for name, arg in kwargs.items():
-            # first check the keyword arguments
-            idx = self.names_to_indices.get(name, None)
-            if idx is not None:
-                arg = kwargs[name]
-                if self.indices_to_type[idx] == ArgumentKind.COMPTIME:
-                    signature[idx] = arg
+                if pos_idx < len(args):
+                    arg = args[pos_idx]
+                    pos_idx += 1
+                elif param.name in unused_kwargs:
+                    arg = unused_kwargs.pop(param.name)
+                elif param.default is not inspect._empty:
+                    arg = param.default
                 else:
-                    arg_signature = get_signature_from_arg(arg, name)
-                    signature[idx] = arg_signature
-                    runtime_args[idx] = arg
+                    raise ValueError(f"Missing required argument: {param.name}")
+            else:  # KEYWORD_ONLY
+                if param.name in unused_kwargs:
+                    arg = unused_kwargs.pop(param.name)
+                elif param.default is not inspect._empty:
+                    arg = param.default
+                else:
+                    raise ValueError(f"Missing required argument: {param.name}")
+
+            if param.is_comptime:
+                signature[fi] = arg
             else:
-                arg_signature = get_signature_from_arg(arg, name)
-                signature.append(arg_signature)
+                signature[fi] = get_signature_from_arg(arg, param.name)
                 runtime_args.append(arg)
 
-        for idx, signature_arg in enumerate(signature):
-            if signature_arg is None:
-                # if the argument is not in the kwargs and it is not a comptime argument
-                # it means that it was not passed, so we should raise an error
-                name = self.argument_names[idx]
-                if name in self.default_arguments:
-                    # if it has a default value, we can use it
-                    arg = self.default_arguments[name]
-                    arg_signature = get_signature_from_arg(arg, name)
-                    signature[idx] = arg_signature
-                    runtime_args[idx] = arg
-                else:
-                    # it is a required argument, so we cannot execute the function
-                    raise ValueError(f"Missing required argument: {name}")
+        # catch the *args variable positional arguments
+        if pos_idx < len(args):
+            for j, arg in enumerate(args[pos_idx:]):
+                name = (self.catch_var_positional_name, j)
+                signature.append(get_signature_from_arg(arg, name))
+                runtime_args.append(arg)
 
-        to_execute = True
-
-        runtime_args = [arg for arg in runtime_args if arg is not None]
+        # catch the **kwargs variable keyword arguments
+        for name in sorted(unused_kwargs.keys()):
+            arg = unused_kwargs[name]
+            signature.append(get_signature_from_arg(arg, name))
+            runtime_args.append(arg)
 
         return to_execute, tuple(signature), runtime_args
 
@@ -416,22 +379,23 @@ class NumetaFunction:
         signature_spec = []
         for i, arg in enumerate(signature):
 
-            if i < len(self.indices_to_type) and self.indices_to_type[i] == ArgumentKind.COMPTIME:
-                # it is a comptime argument
-                ap = ArgumentSpec(f"in_{i}", is_comptime=True, comptime_value=arg)
+            if i < self.n_positional_or_default_args:
+                param = self.params[self.fixed_param_indices[i]]
+                if param.is_comptime:
+                    ap = ArgumentSpec(
+                        param.name,
+                        is_comptime=True,
+                        comptime_value=arg,
+                        is_keyword=param.kind == inspect.Parameter.KEYWORD_ONLY,
+                    )
+                else:
+                    is_keyword = param.kind == inspect.Parameter.KEYWORD_ONLY
+                    ap = convert_arg_to_argument_spec(arg, is_keyword)
             elif isinstance(arg[0], tuple):
                 # it is a positional argument called with *args
                 is_keyword = False
                 name = f"{arg[0][0]}_{arg[0][1]}"
                 ap = convert_arg_to_argument_spec(arg, is_keyword, name=name)
-            elif i > len(self.indices_to_type) - 1:
-                # it is a keyword argument because all the positional arguments have been consumed
-                # and i its greater than the number of positional arguments
-                is_keyword = True
-                ap = convert_arg_to_argument_spec(arg, is_keyword)
-            elif self.indices_to_type[i] == ArgumentKind.POSITIONAL:
-                is_keyword = False
-                ap = convert_arg_to_argument_spec(arg, is_keyword)
             else:
                 is_keyword = True
                 ap = convert_arg_to_argument_spec(arg, is_keyword)
@@ -582,7 +546,10 @@ class NumetaFunction:
         symbolic_kwargs = {}
         for arg in argument_specs:
             if arg.is_comptime:
-                symbolic_args.append(arg.comptime_value)
+                if arg.is_keyword:
+                    symbolic_kwargs[arg.name] = arg.comptime_value
+                else:
+                    symbolic_args.append(arg.comptime_value)
             else:
                 var = convert_argument_spec_to_variable(arg)
                 # Add the variable to the subroutine
