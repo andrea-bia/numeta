@@ -158,14 +158,9 @@ def get_nested_dependencies_or_declarations(entities, curr_module, for_module=Fa
     while new_declarations:
         new_entities = []
         for declaration in new_declarations.values():
-            if hasattr(declaration, "extract_declaration_entities"):
-                for variable in declaration.extract_declaration_entities():
-                    if variable not in new_entities and variable not in entities:
-                        new_entities.append(variable)
-            else:
-                for variable in declaration.extract_entities():
-                    if variable not in new_entities and variable not in entities:
-                        new_entities.append(variable)
+            for variable in declaration.extract_entities():
+                if variable not in new_entities and variable not in entities:
+                    new_entities.append(variable)
 
         entities.extend(new_entities)
 

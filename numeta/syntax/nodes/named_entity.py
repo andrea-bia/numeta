@@ -16,7 +16,7 @@ class NamedEntity(Node, ABC):
     Methods
     -------
     extract_entities():
-        Extract the entity.
+        Extract the entity itself.
     get_code_blocks():
         Return the code blocks representing the entity.
     """

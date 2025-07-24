@@ -10,7 +10,7 @@ class Statement(Node):
     Methods
     -------
     extract_entities():
-        Extract entities referenced within the statement.
+        Extract entities referenced within the statement that have to be defined outside.
 
     get_code_blocks():
         Return the code blocks representing the statement.
@@ -121,7 +121,7 @@ class StatementWithScope(Statement):
         return result
 
     def extract_entities(self):
-        """Extract all entities within this statement and its scoped statements."""
+        """Extract all the visible from outside entities within this statement and its scoped statements."""
         for child in self.children:
             yield from child.extract_entities()
         for statement in self.get_statements():
