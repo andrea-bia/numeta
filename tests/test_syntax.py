@@ -246,7 +246,7 @@ def test_subroutine_print_lines():
     with sub.scope:
         Assignment(y, x)
     expected = [
-        "subroutine mysub(x, y) bind(C)\n",
+        "subroutine mysub(x, y) bind(C, name='mysub')\n",
         "    use iso_c_binding, only: c_int64_t\n",
         "    implicit none\n",
         "    integer(c_int64_t), intent(in), value :: x\n",
@@ -267,7 +267,7 @@ def test_module_print_code():
         "module mymod\n",
         "    implicit none\n",
         "    contains\n",
-        "    subroutine mysub(x) bind(C)\n",
+        "    subroutine mysub(x) bind(C, name='mysub')\n",
         "        use iso_c_binding, only: c_int64_t\n",
         "        implicit none\n",
         "        integer(c_int64_t), intent(in), value :: x\n",
@@ -608,11 +608,11 @@ def test_call():
         Call(callee, x, y)
 
     expected = [
-        "subroutine caller() bind(C)\n",
+        "subroutine caller() bind(C, name='caller')\n",
         "    use iso_c_binding, only: c_int64_t\n",
         "    implicit none\n",
         "    interface\n",
-        "        subroutine callee(x, y) bind(C)\n",
+        "        subroutine callee(x, y) bind(C, name='callee')\n",
         "            use iso_c_binding, only: c_int64_t\n",
         "            implicit none\n",
         "            integer(c_int64_t), intent(in), value :: x\n",
@@ -640,7 +640,7 @@ def test_call_external_library():
         foo(x)
 
     expected = [
-        "subroutine mysub() bind(C)\n",
+        "subroutine mysub() bind(C, name='mysub')\n",
         "    use iso_c_binding, only: c_int64_t\n",
         "    implicit none\n",
         "    interface\n",

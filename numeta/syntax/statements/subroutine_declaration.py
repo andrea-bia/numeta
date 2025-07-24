@@ -104,7 +104,7 @@ class SubroutineDeclaration(StatementWithScope):
         result.append(")")
 
         if self.subroutine.bind_c:
-            result.extend([" ", "bind(C)"])
+            result.extend([" ", f"bind(C, name='{self.subroutine.name}')"])
 
         return result
 
@@ -168,7 +168,7 @@ class InterfaceDeclaration(StatementWithScope):
         result.append(")")
 
         if self.subroutine.bind_c:
-            result.extend([" ", "bind(C)"])
+            result.extend([" ", f"bind(C, name='{self.subroutine.name}')"])
 
         return result
 
