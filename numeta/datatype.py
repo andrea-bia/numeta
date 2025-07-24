@@ -132,7 +132,7 @@ class DataType(metaclass=DataTypeMeta):
         if cls._np_type is not None:
             return np.dtype(cls._np_type).itemsize
         raise NotImplementedError(f"DataType {cls._name} does not have a defined size")
-    
+
 
 @dataclass(frozen=True)
 class ArrayType:

@@ -10,6 +10,7 @@ class CAPIInterface:
         name,
         module_name,
         args_details,
+        return_specs,
         directory,
         compile_flags,
         do_checks=True,
@@ -18,6 +19,7 @@ class CAPIInterface:
         self.name = name
         self.module_name = module_name
         self.args_details = args_details
+        self.return_specs = return_specs
         self.directory = directory
         self.compile_flags = compile_flags
         self.do_checks = do_checks
@@ -118,9 +120,13 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
 
     ${checks}
 
+    ${return_args_declarations}
+
     ${fortran_name}(${call_args});
 
-    Py_RETURN_NONE;
+    ${return_args_conversion_to_numpy}
+
+    ${return}
 }
 """
         args = [a for a in self.args_details if not a.is_comptime]
@@ -130,7 +136,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
         substitutions["procedure_name"] = f"fc_{self.name}"
         substitutions["n_args"] = len(args)
 
-        substitutions["fortran_args"] = ", ".join([self.get_fortran_args(var) for var in args])
+        fortran_args = [self.get_fortran_args(var) for var in args]
         substitutions["initializations"] = "\n    ".join(
             [self.get_initialization(i, var) for i, var in enumerate(args)]
         )
@@ -139,7 +145,45 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
         if self.do_checks:
             substitutions["checks"] = "\n    ".join([self.get_check(var) for var in args])
 
-        substitutions["call_args"] = ", ".join([self.get_call_args(var) for var in args])
+        call_args = [self.get_call_args(var) for var in args]
+
+        substitutions["return_args_declarations"] = "\n"
+        substitutions["return_args_conversion_to_numpy"] = ""
+        return_vars = []
+        for i, (dtype, rank) in enumerate(self.return_specs):
+            if rank != 0:
+                # npy_intp* {variable.name}_dims
+                substitutions[
+                    "return_args_declarations"
+                ] += f"\n    npy_intp out_shape_{i}[{rank}];"
+                call_args.append(f"out_shape_{i}")
+                fortran_args.append(f"npy_intp* out_shape_{i}")
+
+                substitutions["return_args_declarations"] += f"\n    void* out_ptr_{i} = NULL;"
+                call_args.append(f"&out_ptr_{i}")
+                fortran_args.append(f"void** out_ptr_{i}")
+                substitutions[
+                    "return_args_conversion_to_numpy"
+                ] += f"\n    PyObject* ret_out_{i} = PyArray_SimpleNewFromData({rank}, out_shape_{i}, {dtype.get_cnumpy().upper()}, out_ptr_{i});"
+                substitutions[
+                    "return_args_conversion_to_numpy"
+                ] += f"\n    PyArray_ENABLEFLAGS((PyArrayObject*)ret_out_{i}, NPY_ARRAY_OWNDATA);"
+                return_vars.append(f"ret_out_{i}")
+
+        substitutions["fortran_args"] = ", ".join(fortran_args)
+        substitutions["call_args"] = ", ".join(call_args)
+
+        if len(return_vars) == 0:
+            substitutions["return"] = "Py_RETURN_NONE;"
+        elif len(return_vars) == 1:
+            substitutions["return"] = f"return {return_vars[0]};"
+        else:
+            return_str = f"PyObject* tuple = PyTuple_New({len(return_vars)});"
+            for i, var in enumerate(return_vars):
+                return_str += f"\n    Py_INCREF({var});"
+                return_str += f"\n    PyTuple_SetItem(tuple, {i}, {var});"
+            return_str += "\n    return tuple;"
+            substitutions["return"] = return_str
 
         return Template(template).substitute(substitutions)
 

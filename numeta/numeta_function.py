@@ -9,7 +9,6 @@ import pickle
 import shutil
 from dataclasses import dataclass
 from typing import Any
-from enum import Enum
 import textwrap
 import inspect
 
@@ -75,6 +74,7 @@ class NumetaFunction:
         self.__symbolic_functions = {}
         self.__libraries = {}
         self.__loaded_functions = {}
+        self.return_signatures = {}
 
         # To store the dependencies of the compiled functions to other numeta generated functions.
         self.__dependencies = {}
@@ -557,8 +557,9 @@ class NumetaFunction:
                     symbolic_kwargs[arg.name] = var
                 else:
                     symbolic_args.append(var)
-        builder.build(*symbolic_args, **symbolic_kwargs)
+        return_signature = builder.build(*symbolic_args, **symbolic_kwargs)
         self.__symbolic_functions[signature] = sub
+        self.return_signatures[signature] = return_signature
 
     def compile_function(
         self,
@@ -584,10 +585,12 @@ class NumetaFunction:
 
         capi_name = f"{name}_capi"
         argument_specs = self._convert_signature_to_argument_specs(signature)
+        return_specs = self.return_signatures[signature]
         capi_interface = CAPIInterface(
             name,
             capi_name,
             argument_specs,
+            return_specs,
             local_dir,
             self.compile_flags,
             self.do_checks,

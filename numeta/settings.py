@@ -9,7 +9,7 @@ class Settings:
             self.set_iso_C()
         else:
             self.unset_iso_C()
-        self.use_numpy_allocator = use_numpy_allocator 
+        self.use_numpy_allocator = use_numpy_allocator
 
     def set_default_from_datatype(self, dtype, *, iso_c: bool = False):
         """Set the default Fortran type using a :class:`DataType` subclass."""
@@ -65,5 +65,6 @@ class Settings:
     def unset_numpy_allocator(self):
         """Unset the NumPy memory allocator."""
         self.use_numpy_allocator = False
+
 
 settings = Settings(iso_C=True, use_numpy_allocator=True)

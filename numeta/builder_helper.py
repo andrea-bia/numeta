@@ -104,7 +104,36 @@ class BuilderHelper:
         old_scope = Scope.current_scope
         self.symbolic_function.scope.enter()
 
-        self.numeta_function.run_symbolic(*args, **kwargs)
+        return_variables = self.numeta_function.run_symbolic(*args, **kwargs)
+
+        if return_variables is None:
+            return_variables = []
+        elif not isinstance(return_variables, (list, tuple)):
+            return_variables = [return_variables]
+
+        ret = []
+        for i, var in enumerate(return_variables):
+            if var.name in self.allocated_arrays:
+                from .array_shape import ArrayShape
+                from .syntax import Shape
+                from .datatype import DataType, size_t
+
+                rank = var._shape.rank
+                shape = Variable(
+                    f"fc_out_shape_{i}",
+                    ftype=size_t.get_fortran(bind_c=True),
+                    shape=ArrayShape((rank,)),
+                    intent="out",
+                )
+                self.symbolic_function.add_variable(shape)
+                # add to the symbolic function
+                shape[:] = Shape(var)
+
+                ptr = self.allocated_arrays.pop(var.name)
+                ptr.intent = "out"
+                self.symbolic_function.add_variable(ptr)
+
+                ret.append((DataType.from_ftype(var._ftype), rank))
 
         for array in self.allocated_arrays.values():
             self.deallocate_array(array)
@@ -113,3 +142,5 @@ class BuilderHelper:
         Scope.current_scope = old_scope
 
         self.set_current_builder(old_builder)
+
+        return ret

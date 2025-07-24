@@ -10,4 +10,5 @@ class NumpyMemLib(ExternalLibraryWrapper):
         self.add_method("numpy_allocate", [FPointer_c, FSizet_c], None)
         self.add_method("numpy_deallocate", [FPointer_c], None)
 
+
 numpy_mem = NumpyMemLib()
