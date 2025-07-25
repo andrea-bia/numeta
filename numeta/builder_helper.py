@@ -111,13 +111,44 @@ class BuilderHelper:
         elif not isinstance(return_variables, (list, tuple)):
             return_variables = [return_variables]
 
+        from .array_shape import ArrayShape, SCALAR
+        from .syntax import Shape
+        from .datatype import DataType, size_t
+
         ret = []
         for i, var in enumerate(return_variables):
-            if var.name in self.allocated_arrays:
-                from .array_shape import ArrayShape
-                from .syntax import Shape
-                from .datatype import DataType, size_t
+            if isinstance(var, Variable):
+                if var.name in self.allocated_arrays:
 
+                    rank = var._shape.rank
+                    shape = Variable(
+                        f"fc_out_shape_{i}",
+                        ftype=size_t.get_fortran(bind_c=True),
+                        shape=ArrayShape((rank,)),
+                        intent="out",
+                    )
+                    self.symbolic_function.add_variable(shape)
+                    # add to the symbolic function
+                    shape[:] = Shape(var)
+
+                    ptr = self.allocated_arrays.pop(var.name)
+                    ptr.intent = "out"
+                    self.symbolic_function.add_variable(ptr)
+
+                    ret.append((DataType.from_ftype(var._ftype), rank))
+                elif var._shape is SCALAR and var.name not in self.symbolic_function.arguments:
+
+                    var.intent = "out"
+                    self.symbolic_function.add_variable(var)
+
+                    ret.append((DataType.from_ftype(var._ftype), 0))
+                else:
+                    raise NotImplementedError(
+                        f"Variable {var.name} is not allocated, cannot return it."
+                    )
+            else:
+                # it is an expression
+                # We have to copy the expression in a new array
                 rank = var._shape.rank
                 shape = Variable(
                     f"fc_out_shape_{i}",
@@ -129,7 +160,16 @@ class BuilderHelper:
                 # add to the symbolic function
                 shape[:] = Shape(var)
 
-                ptr = self.allocated_arrays.pop(var.name)
+                from .wrappers import empty
+
+                tmp = empty(
+                    [shape[i] for i in range(rank)],
+                    dtype=var._ftype,
+                    order="F" if var._shape.fortran_order else "C",
+                )
+                tmp[:] = var
+
+                ptr = self.allocated_arrays.pop(tmp.name)
                 ptr.intent = "out"
                 self.symbolic_function.add_variable(ptr)
 

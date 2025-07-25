@@ -152,7 +152,6 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
         return_vars = []
         for i, (dtype, rank) in enumerate(self.return_specs):
             if rank != 0:
-                # npy_intp* {variable.name}_dims
                 substitutions[
                     "return_args_declarations"
                 ] += f"\n    npy_intp out_shape_{i}[{rank}];"
@@ -168,6 +167,16 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
                 substitutions[
                     "return_args_conversion_to_numpy"
                 ] += f"\n    PyArray_ENABLEFLAGS((PyArrayObject*)ret_out_{i}, NPY_ARRAY_OWNDATA);"
+                return_vars.append(f"ret_out_{i}")
+            else:
+                substitutions[
+                    "return_args_declarations"
+                ] += f"\n    {dtype.get_cnumpy()} out_val_{i};"
+                call_args.append(f"&out_val_{i}")
+                fortran_args.append(f"{dtype.get_cnumpy()}* out_val_{i}")
+                substitutions[
+                    "return_args_conversion_to_numpy"
+                ] += f"\n    PyObject* ret_out_{i} = PyArray_Scalar(&out_val_{i}, PyArray_DescrFromType({dtype.get_cnumpy().upper()}), NULL);"
                 return_vars.append(f"ret_out_{i}")
 
         substitutions["fortran_args"] = ", ".join(fortran_args)
