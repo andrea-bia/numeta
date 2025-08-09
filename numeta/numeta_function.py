@@ -600,7 +600,7 @@ class NumetaFunction:
             "gfortran",
             f"python{sys.version_info.major}.{sys.version_info.minor}",
         ]
-        libraries_dirs = []
+        libraries_dirs = [sysconfig.get_config_var("LIBDIR")]
         include_dirs = [sysconfig.get_paths()["include"], np.get_include()]
         extra_objects = []
         additional_flags = []
