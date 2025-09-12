@@ -44,6 +44,9 @@ class ArrayShape:
         """
         Checks if the argument has undefined dimensions at compile time.
         """
+        if self._dims is None:
+            # The dimensions are unknown
+            return False
         for dim in self.dims:
             if not isinstance(dim, int):
                 return True
