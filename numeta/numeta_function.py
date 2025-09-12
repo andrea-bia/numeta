@@ -141,7 +141,7 @@ class NumetaFunction:
             if self.namer is None:
                 name = f"{self.name}_{len(self.__signature_to_name)}"
             else:
-                name = self.namer(signature)
+                name = self.namer(*signature)
             self.__signature_to_name[signature] = name
         return self.__signature_to_name[signature]
 
