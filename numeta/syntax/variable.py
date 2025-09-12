@@ -38,6 +38,12 @@ class Variable(NamedEntity, ExpressionNode):
     def _shape(self):
         return self.__shape
 
+    def _set_shape(self, shape):
+        if not isinstance(shape, ArrayShape):
+            self.__shape = ArrayShape(shape, fortran_order=self._shape.fortran_order)
+        else:
+            self.__shape = shape
+
     def get_with_updated_variables(self, variables_couples):
         for old_variable, new_variable in variables_couples:
             if old_variable.name == self.name:
