@@ -12,6 +12,7 @@ from typing import Any
 import textwrap
 import inspect
 
+from .settings import settings
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
 from .syntax.expressions import ExpressionNode, GetAttr, GetItem
@@ -271,7 +272,7 @@ class NumetaFunction:
         runtime_args = []
         signature = [None] * self.n_positional_or_default_args
 
-        unused_kwargs = dict(kwargs)
+        unused_kwargs = kwargs
         pos_idx = 0
 
         for fi, param_idx in enumerate(self.fixed_param_indices):
@@ -312,7 +313,10 @@ class NumetaFunction:
                 runtime_args.append(arg)
 
         # catch the **kwargs variable keyword arguments
-        for name in sorted(unused_kwargs.keys()):
+        unused_kwargs_keys = (
+            unused_kwargs.keys() if not settings.reorder_kwargs else sorted(unused_kwargs.keys())
+        )
+        for name in unused_kwargs_keys:
             arg = unused_kwargs[name]
             signature.append(get_signature_from_arg(arg, name))
             runtime_args.append(arg)

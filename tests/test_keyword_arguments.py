@@ -251,3 +251,31 @@ def test_keyword_arguments_have_unique_signature():
         np.testing.assert_allclose(arg, float(i[3]))
 
     assert len(fill.get_symbolic_functions()) == 1
+
+
+def test_keyword_arguments_have_unique_signature_unordered():
+
+    from numeta.settings import settings
+
+    settings.unset_reorder_kwargs()
+
+    @nm.jit
+    def fill(**kwargs):
+        for i, arg in kwargs.items():
+            arg[:] = float(i[3])
+
+    args = {f"in_{i}": np.zeros(()) for i in range(3)}
+    fill(**args)
+
+    for i, arg in args.items():
+        np.testing.assert_allclose(arg, float(i[3]))
+
+    args = {f"in_{i}": np.zeros(()) for i in range(2, -1, -1)}
+    fill(**args)
+
+    for i, arg in args.items():
+        np.testing.assert_allclose(arg, float(i[3]))
+
+    assert len(fill.get_symbolic_functions()) == 2
+
+    settings.set_reorder_kwargs()
