@@ -3,7 +3,9 @@ from .syntax.settings import settings as syntax_settings
 
 class Settings:
 
-    def __init__(self, iso_C, use_numpy_allocator=True, reorder_kwargs=True):
+    def __init__(
+        self, iso_C, use_numpy_allocator=True, reorder_kwargs=True, add_shape_descriptors=True
+    ):
         """Initialize the settings.
         Parameters
         ----------
@@ -12,9 +14,16 @@ class Settings:
         use_numpy_allocator : bool
             Whether to use the NumPy memory allocator.
         reorder_kwargs : bool
-            Whether to reorder keyword arguments in the generated functions.
-            It permits the function to have a unique signature regardless of the order of the keyword arguments.
-            But it can be a nuisance if numeta is used as code generator.
+            If True, keyword arguments in the generated functions are reordered to ensure
+            a unique and deterministic function signature, independent of the order in
+            which keywords are passed. This is helpful for reproducibility but may be
+            inconvenient when using numeta as a code generator.
+        add_shape_descriptors : bool
+            If True, shape descriptors are added to array arguments in the generated
+            functions. Shape descriptors encode the dimensions of arrays, which is
+            typically required when using JIT compilation. However, this can be
+            undesirable if numeta is used purely as a code generator.
+
         """
         self.iso_C = iso_C
         if self.iso_C:
@@ -23,11 +32,7 @@ class Settings:
             self.unset_iso_C()
         self.use_numpy_allocator = use_numpy_allocator
         self.__reorder_kwargs = reorder_kwargs
-
-    @property
-    def reorder_kwargs(self):
-        """Return whether to reorder keyword arguments in the generated function."""
-        return self.__reorder_kwargs
+        self.__add_shape_descriptors = add_shape_descriptors
 
     def set_default_from_datatype(self, dtype, *, iso_c: bool = False):
         """Set the default Fortran type using a :class:`DataType` subclass."""
@@ -84,6 +89,11 @@ class Settings:
         """Unset the NumPy memory allocator."""
         self.use_numpy_allocator = False
 
+    @property
+    def reorder_kwargs(self):
+        """Return whether to reorder keyword arguments in the generated function."""
+        return self.__reorder_kwargs
+
     def set_reorder_kwargs(self):
         """Set whether to reorder keyword arguments in the generated function."""
         self.__reorder_kwargs = True
@@ -91,6 +101,19 @@ class Settings:
     def unset_reorder_kwargs(self):
         """Unset the reordering of keyword arguments in the generated function."""
         self.__reorder_kwargs = False
+
+    @property
+    def add_shape_descriptors(self):
+        """Return whether to add shape descriptors to array arguments in generated functions."""
+        return self.__add_shape_descriptors
+
+    def set_add_shape_descriptors(self):
+        """Set whether to add shape descriptors to array arguments in generated functions."""
+        self.__add_shape_descriptors = True
+
+    def unset_add_shape_descriptors(self):
+        """Unset the addition of shape descriptors to array arguments in generated functions."""
+        self.__add_shape_descriptors = False
 
 
 settings = Settings(iso_C=True, use_numpy_allocator=True)

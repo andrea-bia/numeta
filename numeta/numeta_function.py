@@ -197,7 +197,9 @@ class NumetaFunction:
                     )
             elif isinstance(arg, ArrayType):
                 to_execute = False
-                if arg.shape is UNKNOWN:
+                if arg.shape is UNKNOWN or (
+                    not settings.add_shape_descriptors and arg.shape.has_comptime_undefined_dims()
+                ):
                     # it is a pointer
                     arg_signature = (name, arg.dtype.get_numpy(), None, arg.shape.fortran_order)
                 elif arg.shape.has_comptime_undefined_dims():
@@ -429,10 +431,10 @@ class NumetaFunction:
 
             runtime_args = [check_node(arg) for arg in runtime_args]
 
-            # Should add the array descriptor for each array
+            # Optionally add the array descriptor for arrays with runtime-dependent dimensions
             full_runtime_args = []
             for arg in runtime_args:
-                if arg._shape.has_comptime_undefined_dims():
+                if settings.add_shape_descriptors and arg._shape.has_comptime_undefined_dims():
                     full_runtime_args.append(arg._get_shape_descriptor())
                 full_runtime_args.append(arg)
 
@@ -508,33 +510,36 @@ class NumetaFunction:
             """
             ftype = arg_spec.datatype.get_fortran()
             if arg_spec.rank == 0:
-                return Variable(arg_spec.name, ftype=ftype, shape=SCALAR, intent=arg.intent)
+                return Variable(arg_spec.name, ftype=ftype, shape=SCALAR, intent=arg_spec.intent)
             elif arg_spec.shape is UNKNOWN:
                 return Variable(
                     arg_spec.name,
                     ftype=ftype,
                     shape=UNKNOWN,
-                    intent=arg.intent,
+                    intent=arg_spec.intent,
                 )
             elif arg_spec.shape.has_comptime_undefined_dims():
-                # The shape will to be passed as a separate argument
-                dim_var = builder.generate_local_variables(
-                    f"fc_n",
-                    ftype=size_t.get_fortran(bind_c=True),
-                    shape=ArrayShape((arg_spec.rank,)),
-                    intent="in",
-                )
-                sub.add_variable(dim_var)
+                if settings.add_shape_descriptors:
+                    # The shape will to be passed as a separate argument
+                    dim_var = builder.generate_local_variables(
+                        f"fc_n",
+                        ftype=size_t.get_fortran(bind_c=True),
+                        shape=ArrayShape((arg_spec.rank,)),
+                        intent="in",
+                    )
+                    sub.add_variable(dim_var)
 
-                shape = ArrayShape(
-                    tuple([dim_var[i] for i in range(arg_spec.rank)]),
-                    fortran_order=arg_spec.shape.fortran_order,
-                )
+                    shape = ArrayShape(
+                        tuple([dim_var[i] for i in range(arg_spec.rank)]),
+                        fortran_order=arg_spec.shape.fortran_order,
+                    )
+                else:
+                    shape = UNKNOWN
                 return Variable(
                     arg_spec.name,
                     ftype=ftype,
                     shape=shape,
-                    intent=arg.intent,
+                    intent=arg_spec.intent,
                 )
             else:
                 # The dimension is fixed
@@ -542,7 +547,7 @@ class NumetaFunction:
                     arg_spec.name,
                     ftype=ftype,
                     shape=arg_spec.shape,
-                    intent=arg.intent,
+                    intent=arg_spec.intent,
                 )
 
         symbolic_args = []

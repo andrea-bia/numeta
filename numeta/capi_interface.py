@@ -3,6 +3,8 @@ import subprocess as sp
 import sysconfig
 import numpy as np
 
+from .settings import settings
+
 
 class CAPIInterface:
     def __init__(
@@ -208,7 +210,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
 
         if variable.to_pass_by_value:
             return f"{variable.datatype.get_cnumpy()} {variable.name}"
-        elif variable.shape.has_comptime_undefined_dims():
+        elif settings.add_shape_descriptors and variable.shape.has_comptime_undefined_dims():
             return (
                 f"npy_intp* {variable.name}_dims, {variable.datatype.get_cnumpy()}* {variable.name}"
             )
@@ -228,7 +230,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
             return f"({variable.datatype.get_cnumpy()}){variable.name}"
         elif variable.rank == 0 and variable.datatype.is_struct():
             return f"({variable.datatype.get_cnumpy()}*){variable.name}"
-        elif variable.shape.has_comptime_undefined_dims():
+        elif settings.add_shape_descriptors and variable.shape.has_comptime_undefined_dims():
             return f"PyArray_DIMS({variable.name}), ({variable.datatype.get_cnumpy()}*)PyArray_DATA({variable.name})"
         else:
             return f"({variable.datatype.get_cnumpy()}*)PyArray_DATA({variable.name})"
