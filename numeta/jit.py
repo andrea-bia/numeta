@@ -8,6 +8,16 @@ from typing import (
 from .numeta_function import NumetaFunction
 
 
+def jitted_functions() -> list[NumetaFunction]:
+    """Return a list of all functions compiled via :func:`jit`."""
+    return NumetaFunction.registered_functions()
+
+
+def clear_jitted_functions() -> None:
+    """Clear the registry of jitted functions."""
+    NumetaFunction.clear_registered_functions()
+
+
 @overload
 def jit(func):
     """@jit used with no arguments."""

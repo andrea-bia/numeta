@@ -51,6 +51,23 @@ class ParameterInfo:
 
 
 class NumetaFunction:
+    """Representation of a JIT-compiled function.
+
+    All created instances are stored in a class-level registry.
+    """
+
+    _registry: list["NumetaFunction"] = []
+
+    @classmethod
+    def registered_functions(cls) -> list["NumetaFunction"]:
+        """Return a snapshot of all instantiated :class:`NumetaFunction` objects."""
+        return list(cls._registry)
+
+    @classmethod
+    def clear_registered_functions(cls) -> None:
+        """Clear the registry of instantiated :class:`NumetaFunction` objects."""
+        cls._registry.clear()
+
     def __init__(
         self,
         func,
@@ -99,6 +116,9 @@ class NumetaFunction:
             if p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
         ]
         self.n_positional_or_default_args = len(self.fixed_param_indices)
+
+        # Register this instance for later inspection via the class registry
+        type(self)._registry.append(self)
 
     def dump(self, directory):
         """

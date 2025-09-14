@@ -36,7 +36,7 @@ b1 = bool8
 
 from .external_modules import iso_c, omp
 
-from .jit import jit
+from .jit import jit, jitted_functions, clear_jitted_functions
 from .wrappers import *
 from .syntax import *
 from .settings import settings
