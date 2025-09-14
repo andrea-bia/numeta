@@ -521,8 +521,8 @@ class NumetaFunction:
             elif arg_spec.shape.has_comptime_undefined_dims():
                 if settings.add_shape_descriptors:
                     # The shape will to be passed as a separate argument
-                    dim_var = builder.generate_local_variables(
-                        f"fc_n",
+                    dim_var = Variable(
+                        f"shape_{arg_spec.name}",
                         ftype=size_t.get_fortran(bind_c=True),
                         shape=ArrayShape((arg_spec.rank,)),
                         intent="in",
@@ -566,6 +566,7 @@ class NumetaFunction:
                     symbolic_kwargs[arg.name] = var
                 else:
                     symbolic_args.append(var)
+
         return_signature = builder.build(*symbolic_args, **symbolic_kwargs)
         self.__symbolic_functions[signature] = sub
         self.return_signatures[signature] = return_signature
