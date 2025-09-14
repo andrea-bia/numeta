@@ -267,8 +267,10 @@ class NumetaFunction:
                             name,
                             dtype.get_numpy(),
                         )
-                elif arg._shape is UNKNOWN:
-                    arg_signature = (name, dtype.get_numpy(), 0, False, intent)
+                elif arg._shape is UNKNOWN or (
+                    not settings.add_shape_descriptors and arg._shape.has_comptime_undefined_dims()
+                ):
+                    arg_signature = (name, dtype.get_numpy(), None, False, intent)
                 elif arg._shape.has_comptime_undefined_dims():
                     arg_signature = (
                         name,
