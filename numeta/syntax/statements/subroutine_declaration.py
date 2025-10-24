@@ -50,7 +50,7 @@ class SubroutineDeclaration(StatementWithScope):
                     self.interfaces.append(var)
             else:
                 self.dependencies.append((dependency, var))
-            if dependency.external:
+            if hasattr(dependency, "external") and dependency.external:
                 self.external_dependencies[dependency.name] = dependency
 
     @property

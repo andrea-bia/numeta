@@ -65,7 +65,10 @@ class ArrayConstructor(ExpressionNode):
     def get_code_blocks(self):
         result = ["["]
         for element in self.elements:
-            result.extend(element.get_code_blocks())
+            if element is None:
+                result.append("None")
+            else:
+                result.extend(element.get_code_blocks())
             result.append(", ")
         if result[-1] == ", ":
             result.pop()
@@ -74,7 +77,8 @@ class ArrayConstructor(ExpressionNode):
 
     def extract_entities(self):
         for e in self.elements:
-            yield from e.extract_entities()
+            if e is not None:
+                yield from e.extract_entities()
 
     def get_with_updated_variables(self, variables_couples):
         new_elements = [e.get_with_updated_variables(variables_couples) for e in self.elements]

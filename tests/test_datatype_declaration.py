@@ -68,3 +68,23 @@ def test_array_call_3d(dtype):
 
     expected = np.full((2, 2, 3), 7, dtype=dtype)
     np.testing.assert_allclose(out, expected)
+
+
+def test_variable_declaration_syntax():
+
+    a = nm.float64(name="a")
+    from numeta.syntax.statements import VariableDeclaration
+
+    dec = VariableDeclaration(a)
+    assert dec.print_lines() == ["real(c_double) :: a\n"]
+
+    array = nm.int32[10, 20](name="array")
+    dec = VariableDeclaration(array)
+    assert dec.print_lines() == ["integer(c_int32_t), dimension(0:19, 0:9) :: array\n"]
+
+    array_unknown = nm.int32[None](name="array_unknown")
+    dec = VariableDeclaration(array_unknown)
+    print(dec.print_lines())
+
+
+test_variable_declaration_syntax()

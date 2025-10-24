@@ -64,6 +64,9 @@ class Subroutine(NamedEntity):
     def get_external_dependencies(self):
         return self.get_declaration().external_dependencies
 
+    def get_external_interfaces(self):
+        return self.get_declaration().interfaces
+
     def get_declaration(self):
         if self.declaration is None:
             self.declaration = SubroutineDeclaration(self)

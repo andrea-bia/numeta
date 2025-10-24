@@ -30,13 +30,18 @@ class BuilderHelper:
             self.allocate_array = self._allocate_array
             self.deallocate_array = self._deallocate_array
 
-    def generate_local_variables(self, prefix, allocate=False, **kwargs):
-        if prefix not in self.prefix_counter:
-            self.prefix_counter[prefix] = 0
-        self.prefix_counter[prefix] += 1
+    @classmethod
+    def generate_local_variables(cls, prefix, allocate=False, name=None, **kwargs):
+        if name is None:
+            builder = cls.get_current_builder()
+            if prefix not in builder.prefix_counter:
+                builder.prefix_counter[prefix] = 0
+            builder.prefix_counter[prefix] += 1
+            name = f"{prefix}{builder.prefix_counter[prefix]}"
         if allocate:
-            return self.allocate_array(f"{prefix}{self.prefix_counter[prefix]}", **kwargs)
-        return Variable(f"{prefix}{self.prefix_counter[prefix]}", **kwargs)
+            builder = cls.get_current_builder()
+            return builder.allocate_array(name, **kwargs)
+        return Variable(name, **kwargs)
 
     def _allocate_array(self, name, shape, **kwargs):
         from .syntax import Allocate, If, Allocated, Not
@@ -130,6 +135,7 @@ class BuilderHelper:
                     self.symbolic_function.add_variable(shape)
                     # add to the symbolic function
                     shape[:] = Shape(var)
+                    shape[:] = shape[rank - 1 : 1 : -1]  # reverse the shape for Fortran order
 
                     ptr = self.allocated_arrays.pop(var.name)
                     ptr.intent = "out"

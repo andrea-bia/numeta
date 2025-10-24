@@ -42,9 +42,10 @@ class DataTypeMeta(type):
     def __call__(cls, *args, **kwargs):
         # StructType overrides this behaviour and must be instantiated normally
         value = args[0] if args else kwargs.get("value", None)
+        name = kwargs.get("name", None)
         from .wrappers.scalar import scalar
 
-        return scalar(cls, value)
+        return scalar(cls, value, name=name)
 
 
 class DataType(metaclass=DataTypeMeta):
@@ -160,15 +161,14 @@ class ArrayType:
         return f"{self.dtype._name}[{dims}]"
 
     def __call__(self, *args, **kwargs):
-        if self.shape is UNKNOWN:
-            raise ValueError("Cannot create an array with unknown shape [None] has be used")
-
         value = args[0] if args else kwargs.get("value", None)
+        name = kwargs.get("name", None)
 
         from .wrappers.empty import empty
 
-        array = empty(self.shape.dims, dtype=self.dtype, order=kwargs.get("order", "C"))
-        array[:] = value
+        array = empty(self.shape, dtype=self.dtype, order=kwargs.get("order", "C"), name=name)
+        if value is not None:
+            array[:] = value
 
         return array
 

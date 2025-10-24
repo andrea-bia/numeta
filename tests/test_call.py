@@ -207,3 +207,24 @@ def test_nested_calls():
 
     expected = np.array([5, 6], dtype=np.int64)
     np.testing.assert_equal(arr, expected)
+
+
+def test_nested_calls_with_literals():
+    @nm.jit
+    def inner(n, arr):
+        arr[0] = n
+
+    @nm.jit
+    def middle(n, arr):
+        inner(2, arr)
+        arr[1] = n + 1
+
+    @nm.jit
+    def caller(arr):
+        middle(3, arr)
+
+    arr = np.zeros(2, dtype=np.int64)
+    caller(arr)
+
+    expected = np.array([2, 4], dtype=np.int64)
+    np.testing.assert_equal(arr, expected)

@@ -4,8 +4,7 @@ from numeta.datatype import DataType
 from numeta.syntax import FortranType
 
 
-def scalar(dtype: DataType | FortranType | np.generic, value=None):
-    builder = BuilderHelper.get_current_builder()
+def scalar(dtype: DataType | FortranType | np.generic, value=None, name=None):
     if isinstance(dtype, FortranType):
         ftype = dtype
     elif isinstance(dtype, type):
@@ -18,7 +17,7 @@ def scalar(dtype: DataType | FortranType | np.generic, value=None):
     else:
         raise TypeError(f"Expected a numpy or numeta dtype got {type(dtype).__name__}")
 
-    var = builder.generate_local_variables("fc_s", ftype=ftype)
+    var = BuilderHelper.generate_local_variables("fc_s", ftype=ftype, name=name)
     if value is not None:
         var[:] = value
     return var

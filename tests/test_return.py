@@ -73,3 +73,51 @@ def test_return_scalar(dtype):
         np.testing.assert_allclose(scalar, 42, atol=0)
     else:
         np.testing.assert_allclose(scalar, 42, rtol=10e2 * np.finfo(dtype).eps)
+
+
+# @pytest.mark.parametrize(
+#    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+# )
+# def test_return_1_ndarray_getitem(dtype):
+#    n = 100
+#    m = 50
+#
+#    @nm.jit
+#    def mul(a, b):
+#        c = nm.zeros((a.shape[0], b.shape[1]), dtype)
+#        for i in nm.range(a.shape[0]):
+#            for k in nm.range(b.shape[0]):
+#                c[i, :] += a[i, k] * b[k, :]
+#        return c[:10, :n//2]
+#
+#    a = np.random.rand(n, m).astype(dtype)
+#    b = np.random.rand(n, m).astype(dtype)
+#
+#    c = mul(a, b)
+#
+#    if np.issubdtype(dtype, np.integer):
+#        np.testing.assert_allclose(c, np.dot(a, b)[:10, :n//2], atol=0)
+#    else:
+#        np.testing.assert_allclose(c, np.dot(a, b)[:10, :n//2], rtol=10e2 * np.finfo(dtype).eps)
+#
+#
+# @pytest.mark.parametrize(
+#    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+# )
+# def test_return_1_ndarray_sum(dtype):
+#    n = 100
+#    m = 50
+#
+#    @nm.jit
+#    def return_1_ndarray_sum(a, b):
+#        return a + b
+#
+#    a = np.random.rand(n, m).astype(dtype)
+#    b = np.random.rand(n, m).astype(dtype)
+#
+#    c = return_1_ndarray_sum(a, b)
+#
+#    if np.issubdtype(dtype, np.integer):
+#        np.testing.assert_allclose(c, a + b, atol=0)
+#    else:
+#        np.testing.assert_allclose(c, a + b, rtol=10e2 * np.finfo(dtype).eps)

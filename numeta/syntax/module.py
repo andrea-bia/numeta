@@ -2,7 +2,7 @@ from .nodes import NamedEntity
 from .subroutine import Subroutine
 
 
-class Module:
+class Module(NamedEntity):
     __slots__ = (
         "name",
         "description",
@@ -15,7 +15,7 @@ class Module:
     )
 
     def __init__(self, name, description=None, hidden=False):
-        super().__init__()
+        super().__init__(name)
         self.name = name.lower()
         self.description = description
         self.hidden = hidden

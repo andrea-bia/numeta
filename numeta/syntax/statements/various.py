@@ -401,10 +401,14 @@ class PointerAssignment(Statement):
         self.target_shape = target_shape
 
         from numeta.syntax.variable import Variable
+        from numeta.syntax.expressions import GetItem
 
-        if not isinstance(self.target, Variable):
-            raise Exception("The target of a pointer must be a variable.")
-        self.target.target = True
+        if isinstance(self.target, Variable):
+            self.target.target = True
+        elif isinstance(self.target, GetItem):
+            self.target.variable.target = True
+        else:
+            raise Exception("The target of a pointer must be a variable or GetItem.")
 
         if not isinstance(self.pointer, Variable):
             raise Exception("The pointer must be a variable.")

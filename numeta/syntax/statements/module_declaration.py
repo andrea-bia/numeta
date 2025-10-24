@@ -10,6 +10,14 @@ class ModuleDeclaration(StatementWithScope):
     def __init__(self, module):
         self.module = module
 
+    @property
+    def children(self):
+        return []
+
+    def extract_entities(self):
+        # Assume nothing is visible outside the Subroutine (maybe not okay?)
+        yield self.module
+
     def get_statements(self):
         if self.module.description is not None:
             for line in self.module.description.split("\n"):

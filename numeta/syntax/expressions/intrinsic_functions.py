@@ -81,6 +81,11 @@ class All(UnaryIntrinsicFunction):
 class Shape(UnaryIntrinsicFunction):
     token = "shape"
 
+    def __init__(self, argument):
+        if argument._shape is SCALAR:
+            raise ValueError("The shape intrinsic function cannot be applied to a scalar.")
+        super().__init__(argument)
+
     @property
     def _ftype(self):
         return self.arguments[0]._ftype

@@ -1,7 +1,7 @@
 from .expression_node import ExpressionNode
 from numeta.syntax.settings import settings
 from numeta.syntax.nodes import Node
-from numeta.array_shape import ArrayShape
+from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
 
 
 class GetItem(ExpressionNode):
@@ -27,10 +27,17 @@ class GetItem(ExpressionNode):
                 raise NotImplementedError("Step slicing not implemented for shape extraction")
             if stop is None:
                 return None
-            return stop - start
+            return stop - start + settings.array_lower_bound
 
         dims = []
-        if isinstance(self.sliced, tuple):
+        if self.variable._shape is UNKNOWN:
+            if isinstance(self.sliced, slice):
+                dims.append(get_dim_slice(self.sliced, None))
+            else:
+                dims.append(1)
+        elif self.variable._shape is SCALAR:
+            dims.append(1)
+        elif isinstance(self.sliced, tuple):
             for i, element in enumerate(self.sliced):
                 if isinstance(element, slice):
                     dims.append(get_dim_slice(element, self.variable._shape.dims[i]))
