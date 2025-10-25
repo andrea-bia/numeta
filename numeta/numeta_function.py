@@ -74,16 +74,21 @@ class NumetaCompilationTarget(ExternalLibrary):
         self,
         name,
         symbolic_function,
-        directory: Path,
         *,
-        do_checks,
-        compile_flags,
+        directory: None | Path = None,
+        do_checks=False,
+        compile_flags="-O3 -march=native",
     ):
         super().__init__(name, to_link=False)
         self.symbolic_function = symbolic_function
-        self.directory = directory
+        if directory is None:
+            directory = tempfile.mkdtemp()
+        self.directory = Path(directory).absolute()
         self.do_checks = do_checks
-        self.compile_flags = compile_flags
+        if isinstance(compile_flags, str):
+            self.compile_flags = compile_flags.split()
+        else:
+            self.compile_flags = compile_flags
 
         self._obj_files = None
         self.compiled_with_capi_file = None
@@ -93,19 +98,28 @@ class NumetaCompilationTarget(ExternalLibrary):
         type(self)._registry.append(self)
 
         # Object files of all the NumetaCompilationTarget needed by this one
+        # Because to link (capi part) we need all the obj files
         self._nested_obj_files = None
+
+        # Fortunately we dont need nested mod files to compile
 
     @property
     def obj_files(self):
         if self._obj_files is None:
-            self._obj_files = self.compile_fortran()
-        return self._obj_files
+            self._obj_files, self._include = self.compile_fortran()
+        return [self._obj_files]
+
+    @property
+    def include(self):
+        if self._obj_files is None:
+            self._obj_files, self._include = self.compile_fortran()
+        return [self._include]
 
     def copy(self, directory):
         result = NumetaCompilationTarget(
             self.name,
             self.symbolic_function,
-            directory,
+            directory=directory,
             do_checks=self.do_checks,
             compile_flags=self.compile_flags,
         )
@@ -164,7 +178,7 @@ class NumetaCompilationTarget(ExternalLibrary):
         fortran_src = self.directory / f"{self.name}_src.f90"
         fortran_src.write_text(self.symbolic_function.get_code())
 
-        output = self.directory / f"{self.name}_fortran.o"
+        obj_file = self.directory / f"{self.name}_fortran.o"
 
         include_dirs = []
         additional_flags = []
@@ -173,7 +187,7 @@ class NumetaCompilationTarget(ExternalLibrary):
         for lib in dependencies:
 
             if lib.include is not None:
-                include_dirs.append(lib.include)
+                include_dirs.extend(lib.include)
             if lib.additional_flags is not None:
                 if isinstance(lib.additional_flags, str):
                     additional_flags.extend(lib.additional_flags.split())
@@ -183,14 +197,18 @@ class NumetaCompilationTarget(ExternalLibrary):
         command = ["gfortran"]
         command.extend(["-fopenmp"])
         command.extend(self.compile_flags)
-        command.extend(["-fPIC", "-c", "-o", str(output)])
+        command.extend(["-fPIC", "-c", "-o", str(obj_file)])
         command.append(str(fortran_src))
         command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
         command.extend(additional_flags)
 
         self._run_command(command, cwd=self.directory)
 
-        return [output]
+        mod_file = None
+        if (self.directory / f"{self.name}.mod").is_file():
+            mod_file = str(self.directory / f"{self.name}.mod")
+
+        return obj_file, str(self.directory)
 
     def compile_with_capi_interface(
         self,
@@ -295,7 +313,7 @@ class NumetaFunction:
         self.directory = Path(directory).absolute()
         self.directory.mkdir(exist_ok=True)
         self.do_checks = do_checks
-        self.compile_flags = compile_flags.split()
+        self.compile_flags = compile_flags
 
         self.namer = namer
         self.inline = inline

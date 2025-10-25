@@ -35,6 +35,11 @@ class Variable(NamedEntity, ExpressionNode):
         self.bind_c = bind_c
         self.common_block = common_block
 
+        from .module import Module
+
+        if isinstance(self.parent, Module):
+            self.parent.add_variable(self)
+
     @property
     def _ftype(self):
         return self.__ftype

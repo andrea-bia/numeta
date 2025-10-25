@@ -23,7 +23,10 @@ class CAPIInterface:
         self.args_details = args_details
         self.return_specs = return_specs
         self.directory = directory
-        self.compile_flags = compile_flags
+        if isinstance(compile_flags, str):
+            self.compile_flags = compile_flags.split()
+        else:
+            self.compile_flags = compile_flags
         self.do_checks = do_checks
         self.compiler = compiler
 

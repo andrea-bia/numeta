@@ -23,7 +23,7 @@ class ExternalLibrary:
         self.hidden = True
         self.external = True
         self.directory = directory
-        self.include = include
+        self._include = include
         self._obj_files = obj_files
         self.additional_flags = additional_flags
         self.to_link = to_link
@@ -35,3 +35,7 @@ class ExternalLibrary:
     @property
     def obj_files(self):
         return self._obj_files
+
+    @property
+    def include(self):
+        return self._include

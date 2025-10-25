@@ -8,3 +8,4 @@ from .empty import empty
 from .zeros import zeros
 from .reshape import reshape
 from .external_library import ExternalLibraryWrapper
+from .declare_global_constant import declare_global_constant
