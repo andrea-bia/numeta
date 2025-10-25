@@ -84,6 +84,7 @@ class NumetaCompilationTarget(ExternalLibrary):
         if directory is None:
             directory = tempfile.mkdtemp()
         self.directory = Path(directory).absolute()
+        self.directory.mkdir(exist_ok=True)
         self.do_checks = do_checks
         if isinstance(compile_flags, str):
             self.compile_flags = compile_flags.split()
@@ -227,10 +228,7 @@ class NumetaCompilationTarget(ExternalLibrary):
         """
         self.capi_name = capi_name
 
-        local_dir = self.directory / self.name
-        local_dir.mkdir(exist_ok=True)
-
-        self.compiled_with_capi_file = local_dir / f"lib{self.name}_module.so"
+        self.compiled_with_capi_file = self.directory / f"lib{self.name}_module.so"
 
         libraries = [
             "gfortran",
@@ -271,7 +269,7 @@ class NumetaCompilationTarget(ExternalLibrary):
 
         sp_run = sp.run(
             command,
-            cwd=local_dir,
+            cwd=self.directory,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
         )
@@ -788,7 +786,7 @@ class NumetaFunction:
         self._compiled_targets[signature] = NumetaCompilationTarget(
             self.get_name(signature),
             sub,
-            directory=self.directory,
+            directory=self.directory / self.get_name(signature),
             do_checks=self.do_checks,
             compile_flags=self.compile_flags,
         )
@@ -805,7 +803,7 @@ class NumetaFunction:
             module_name=capi_name,
             args_details=self._convert_signature_to_argument_specs(signature),
             return_specs=self.return_signatures[signature],
-            directory=self.directory,
+            directory=self.directory / self.get_name(signature),
             compile_flags=self.compile_flags,
             do_checks=self.do_checks,
         )
