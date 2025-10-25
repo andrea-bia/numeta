@@ -13,7 +13,7 @@ class SubroutineDeclaration(StatementWithScope):
         # First check the arguments dependencies
         entities = list(self.subroutine.arguments.values())
         dependencies, declarations = get_nested_dependencies_or_declarations(
-            entities, self.subroutine.module
+            entities, self.subroutine.parent
         )
         (
             self.variables_dec,
@@ -29,7 +29,7 @@ class SubroutineDeclaration(StatementWithScope):
                 if var not in entities:
                     entities.append(var)
         body_dependencies, body_declarations = get_nested_dependencies_or_declarations(
-            entities, self.subroutine.module
+            entities, self.subroutine.parent
         )
         dependencies.update(body_dependencies)
 
@@ -42,16 +42,24 @@ class SubroutineDeclaration(StatementWithScope):
         self.derived_types_dec.update(body_derived_types_dec)
         self.interfaces.extend(dec.subroutine for dec in body_subroutine_decs.values())
 
-        self.external_dependencies = {}
-        self.dependencies = []
+        self.dependencies = {}
+        self.modules_to_import = []
+
+        from numeta.syntax.module import Module
+
         for dependency, var in dependencies:
-            if dependency.hidden:
-                if hasattr(var, "get_interface_declaration"):
+            if hasattr(var, "get_interface_declaration"):
+                # Should we add the interface?
+                # Only if it is not contained in a module, if not the module will take care
+                if not isinstance(dependency, Module) or dependency.hidden:
                     self.interfaces.append(var)
+            if isinstance(dependency, Module):
+                if not dependency.hidden:
+                    self.modules_to_import.append((dependency, var))
+                if dependency.parent is not None:
+                    self.dependencies[dependency.parent.name] = dependency.parent
             else:
-                self.dependencies.append((dependency, var))
-            if hasattr(dependency, "external") and dependency.external:
-                self.external_dependencies[dependency.name] = dependency
+                self.dependencies[dependency.name] = dependency
 
     @property
     def children(self):
@@ -66,7 +74,7 @@ class SubroutineDeclaration(StatementWithScope):
             for line in self.subroutine.description.split("\n"):
                 yield Comment(line, add_to_scope=False)
 
-        for dependency, var in self.dependencies:
+        for dependency, var in self.modules_to_import:
             yield Use(dependency, only=var, add_to_scope=False)
 
         yield Implicit(implicit_type="none", add_to_scope=False)
@@ -132,7 +140,7 @@ class InterfaceDeclaration(StatementWithScope):
         # First check the arguments dependencies
         entities = list(self.subroutine.arguments.values())
         dependencies, declarations = get_nested_dependencies_or_declarations(
-            entities, self.subroutine.module
+            entities, self.subroutine.parent
         )
         variables_dec, derived_types_dec, _ = divide_variables_and_derived_types(declarations)
 

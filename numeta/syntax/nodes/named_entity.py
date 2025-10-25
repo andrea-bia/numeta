@@ -10,8 +10,8 @@ class NamedEntity(Node, ABC):
     ----------
     name : str
         The name of the entity.
-    module : Module
-        The module containing the entity.
+    parent : None | Module | ExternalLibrary
+        If the entity is local the parent is None, if it is a module variable it is a module, lastly if it ca be a library.
 
     Methods
     -------
@@ -21,9 +21,9 @@ class NamedEntity(Node, ABC):
         Return the code blocks representing the entity.
     """
 
-    def __init__(self, name, module=None) -> None:
+    def __init__(self, name, parent=None) -> None:
         self.name = name
-        self.module = module
+        self.parent = parent
 
     def __hash__(self):
         return hash(self.name)

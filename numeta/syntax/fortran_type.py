@@ -6,7 +6,7 @@ class FortranType(Node):
         super().__init__()
         self.type = type_
         self.kind = kind
-        self.module = None
+        self.parent = None
 
     def get_code_blocks(self):
         return [self.type, "(", self.get_kind_str(), ")"]

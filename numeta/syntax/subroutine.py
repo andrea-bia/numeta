@@ -27,12 +27,10 @@ class Subroutine(NamedEntity):
         pure=False,
         elemental=False,
         to_print=True,
-        module=None,
+        parent=None,
         bind_c=None,
     ):
-        super().__init__(name, module=module)
-        if self.module is not None:
-            self.module.add_subroutine(self)
+        super().__init__(name, parent=parent)
         self.description = description
         self.pure = pure
         self.elemental = elemental
@@ -41,6 +39,11 @@ class Subroutine(NamedEntity):
         self.scope = Scope()
         self.bind_c = settings.subroutine_bind_c if bind_c is None else bind_c
         self.declaration = None
+
+        from .module import Module
+
+        if isinstance(self.parent, Module):
+            self.parent.add_subroutine(self)
 
     def add_variable(self, *variables, with_intent=None):
         """
@@ -61,8 +64,8 @@ class Subroutine(NamedEntity):
     def add_to_description(self, value):
         self.description += value
 
-    def get_external_dependencies(self):
-        return self.get_declaration().external_dependencies
+    def get_dependencies(self):
+        return self.get_declaration().dependencies
 
     def get_external_interfaces(self):
         return self.get_declaration().interfaces

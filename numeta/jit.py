@@ -5,17 +5,17 @@ from typing import (
     overload,
 )
 
-from .numeta_function import NumetaFunction
+from .numeta_function import NumetaFunction, NumetaCompilationTarget
 
 
-def jitted_functions() -> list[NumetaFunction]:
+def jitted_functions() -> list[NumetaCompilationTarget]:
     """Return a list of all functions compiled via :func:`jit`."""
-    return NumetaFunction.registered_functions()
+    return NumetaCompilationTarget.registered_functions()
 
 
 def clear_jitted_functions() -> None:
     """Clear the registry of jitted functions."""
-    NumetaFunction.clear_registered_functions()
+    NumetaCompilationTarget.clear_registered_functions()
 
 
 @overload

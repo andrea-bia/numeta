@@ -1,5 +1,6 @@
 from .nodes import NamedEntity
 from .subroutine import Subroutine
+from .expressions import Function
 
 
 class Module(NamedEntity):
@@ -18,6 +19,7 @@ class Module(NamedEntity):
         super().__init__(name)
         self.name = name.lower()
         self.description = description
+        # hidden define if it is should be a true fortran module or just a container
         self.hidden = hidden
 
         self.dependencies = {}
@@ -39,17 +41,17 @@ class Module(NamedEntity):
     def add_derived_type(self, *derived_types):
         for derived_type in derived_types:
             self.derived_types[derived_type.name] = derived_type
-            derived_type.module = self
+            derived_type.parent = self
 
     def add_subroutine(self, *subroutines):
         for subroutine in subroutines:
             self.subroutines[subroutine.name] = subroutine
-            subroutine.module = self
+            subroutine.parent = self
 
     def add_variable(self, *variables):
         for variable in variables:
             self.variables[variable.name] = variable
-            variable.module = self
+            variable.parent = self
 
     def add_interface(self, *subroutines):
         for subroutine in subroutines:
@@ -66,26 +68,54 @@ class Module(NamedEntity):
     def get_code(self):
         return "".join(self.print_lines())
 
+    def get_dependencies(self):
+        return self.get_declaration().dependencies
+
 
 builtins_module = Module(
     "builtins", "The builtins module, to contain built-in functions or subroutines"
 )
 
 
-class ModuleCollection:
-    def __init__(self):
-        self.subroutines_dictionary = {}
-        self.modules_dictionary = {}
+class ExternalModule(Module):
+    """
+    **Note**: Only to add support for methods (for external modules).
+    When methods will be properly implemented this should be removed
+    """
 
-    def get_modules(self):
-        return [m for m in self.modules_dictionary.values()]
+    def __init__(self, name, hidden=False):
+        super().__init__(name, hidden=hidden)
 
-    def get_or_construct(self, *key):
-        if key in self.subroutines_dictionary:
-            return self.subroutines_dictionary[key]
+    def add_method(self, name, arguments, result_=None, bind_c=False):
+        """
+        Because currently only subroutines are supported, Modules can only have subroutines.
+        But ExternalModule should be able to have functions as well.
+        """
+        module = self
 
-        self.subroutines_dictionary[key] = self.construct(key)
-        return self.subroutines_dictionary[key]
+        if result_ is None:
+            # It's a subroutine
+            method = Subroutine(name, parent=module, bind_c=bind_c)
+            for arg in arguments:
+                method.add_variable(arg)
+            self.add_subroutine(method)
 
-    def construct(self, key):
-        raise NotImplementedError
+        else:
+            # TODO: Arguments are not used but it could be used to check if the arguments are correct
+            def __init__(self, *args):
+                from .tools import check_node
+
+                self.name = name
+                self.arguments = [check_node(arg) for arg in args]
+                self.parent = module
+
+            method = type(
+                name,
+                (Function,),
+                {
+                    "__init__": __init__,
+                    "_ftype": property(lambda self: result_),
+                    "_shape": property(lambda self: SCALAR),
+                },
+            )
+            self.subroutines[name] = method

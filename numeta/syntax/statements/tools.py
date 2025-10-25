@@ -139,20 +139,23 @@ def get_nested_dependencies_or_declarations(entities, curr_module, for_module=Fa
 
     # revese to preserve the order of the entities
     for entity in entities[::-1]:
-        if entity.module is builtins_module:
+        if entity.parent is builtins_module:
+            # No need to declare
             continue
         if not for_module:
-            if entity.module is None:
+            if entity.parent is None:
+                # It is a local variable, so we need to declare
                 declarations[entity.name] = entity.get_declaration()
-            elif entity.module is curr_module:
+            elif entity.parent is curr_module:
+                # It is in the current module
                 continue
             else:
-                dependencies.add((entity.module, entity))
+                dependencies.add((entity.parent, entity))
         else:
-            if entity.module is None or entity.module is curr_module:
+            if entity.parent is None or entity.parent is curr_module:
                 declarations[entity.name] = entity.get_declaration()
             else:
-                dependencies.add((entity.module, entity))
+                dependencies.add((entity.parent, entity))
 
     new_declarations = declarations.copy()
     while new_declarations:
@@ -167,21 +170,21 @@ def get_nested_dependencies_or_declarations(entities, curr_module, for_module=Fa
         # Now we can add the dependencies or define the local variables
         new_declarations = {}
         for entity in new_entities:
-            if entity.module is builtins_module:
+            if entity.parent is builtins_module:
                 continue
             if not for_module:
-                if entity.module is None:
+                if entity.parent is None:
                     if entity.name not in declarations:
                         new_declarations[entity.name] = entity.get_declaration()
-                elif entity.module is curr_module:
+                elif entity.parent is curr_module:
                     continue
                 else:
-                    dependencies.add((entity.module, entity))
+                    dependencies.add((entity.parent, entity))
             else:
-                if entity.module is None or entity.module is curr_module:
+                if entity.parent is None or entity.parent is curr_module:
                     declarations[entity.name] = entity.get_declaration()
                 else:
-                    dependencies.add((entity.module, entity))
+                    dependencies.add((entity.parent, entity))
 
         declarations.update(new_declarations)
 

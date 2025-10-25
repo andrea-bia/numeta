@@ -291,7 +291,9 @@ def test_inline_jit_threshold_inline():
 
     expected = np.full(5, 2, dtype=np.int64)
     np.testing.assert_equal(arr, expected)
-    assert caller._NumetaFunction__dependencies == {}
+
+    signature = caller.get_signature(arr)
+    assert len(caller._compiled_targets[signature].get_nested_obj_files()) == 0
 
 
 def test_inline_jit_threshold_call():
@@ -309,7 +311,9 @@ def test_inline_jit_threshold_call():
 
     expected = np.full(5, 2, dtype=np.int64)
     np.testing.assert_equal(arr, expected)
-    assert caller._NumetaFunction__dependencies != {}
+
+    signature = caller.get_signature(arr)
+    assert len(caller._compiled_targets[signature].get_nested_obj_files()) != 0
 
 
 def test_inline_jit_threshold_loop_inline():
@@ -328,7 +332,9 @@ def test_inline_jit_threshold_loop_inline():
 
     expected = np.ones((3, 3), dtype=np.int64)
     np.testing.assert_equal(arr, expected)
-    assert caller._NumetaFunction__dependencies == {}
+
+    signature = caller.get_signature(3, arr)
+    assert len(caller._compiled_targets[signature].get_nested_obj_files()) == 0
 
 
 def test_inline_jit_threshold_loop_call():
@@ -347,7 +353,9 @@ def test_inline_jit_threshold_loop_call():
 
     expected = np.ones((3, 3), dtype=np.int64)
     np.testing.assert_equal(arr, expected)
-    assert caller._NumetaFunction__dependencies != {}
+
+    signature = caller.get_signature(3, arr)
+    assert len(caller._compiled_targets[signature].get_nested_obj_files()) != 0
 
 
 def test_inline_jit_threshold_if_inline():
@@ -368,7 +376,9 @@ def test_inline_jit_threshold_if_inline():
 
     expected = np.array([0, 1, -2, -3, -4], dtype=np.int64)
     np.testing.assert_equal(arr, expected)
-    assert caller._NumetaFunction__dependencies == {}
+
+    signature = caller.get_signature(5, arr)
+    assert len(caller._compiled_targets[signature].get_nested_obj_files()) == 0
 
 
 def test_inline_jit_threshold_if_call():
@@ -389,4 +399,6 @@ def test_inline_jit_threshold_if_call():
 
     expected = np.array([0, 1, -2, -3, -4], dtype=np.int64)
     np.testing.assert_equal(arr, expected)
-    assert caller._NumetaFunction__dependencies != {}
+
+    signature = caller.get_signature(5, arr)
+    assert len(caller._compiled_targets[signature].get_nested_obj_files()) != 0

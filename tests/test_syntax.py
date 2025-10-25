@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 
 import numeta as nm
 from numeta.array_shape import ArrayShape, SCALAR
@@ -237,6 +238,36 @@ def test_variable_declaration_intent():
     assert dec.print_lines() == ["real(c_double), intent(in), value :: v\n"]
 
 
+def test_variable_declaration_bind_c():
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    v = Variable("v", syntax_settings.DEFAULT_REAL, bind_c=True)
+    dec = VariableDeclaration(v)
+    assert dec.print_lines() == ["real(c_double), bind(C, name='v') :: v\n"]
+
+
+def test_variable_declaration_common_block():
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    v = Variable("v", syntax_settings.DEFAULT_REAL, common_block=True)
+    dec = VariableDeclaration(v)
+    assert dec.print_lines() == ["real(c_double) :: v; common /v/ v; save /v/\n"]
+
+
+def test_variable_declaration_assign_scalar():
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    v = Variable("v", syntax_settings.DEFAULT_REAL, assign=5.0)
+    dec = VariableDeclaration(v)
+    assert dec.print_lines() == ["real(c_double) :: v; data v / 5.0_c_double /\n"]
+
+
+def test_variable_declaration_assign_array():
+    settings.set_default_from_datatype(nm.float64, iso_c=True)
+    v = Variable("v", syntax_settings.DEFAULT_REAL, shape=(2, 1), assign=np.array([3.0, 5.0]))
+    dec = VariableDeclaration(v)
+    assert dec.print_lines() == [
+        "real(c_double), dimension(0:1, 0:0) :: v; data v / 3.0_c_double, 5.0_c_double /\n"
+    ]
+
+
 def test_subroutine_print_lines():
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
@@ -261,7 +292,7 @@ def test_module_print_code():
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
     mod = Module("mymod")
-    sub = Subroutine("mysub", module=mod)
+    sub = Subroutine("mysub", parent=mod)
     sub.add_variable(x)
     expected = [
         "module mymod\n",
@@ -628,9 +659,9 @@ def test_call():
         assert l1 == l2
 
 
-def test_call_external_library():
+def test_call_external_module():
     settings.set_default_from_datatype(nm.int64, iso_c=True)
-    lib = nm.syntax.external_module.ExternalLibrary("lib")
+    lib = nm.syntax.module.ExternalModule("module", hidden=True)
     lib.add_method("foo", [Variable("a", syntax_settings.DEFAULT_INTEGER)], None)
     foo = lib.foo
     sub = Subroutine("mysub")

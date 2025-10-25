@@ -19,8 +19,7 @@ def test_jitted_functions_registry():
     add_two(array)
     assert all(array == 3)
 
-    names = [f.name for f in nm.jitted_functions()]
-    assert set(names) == {"add_one", "add_two"}
+    assert len(nm.jitted_functions()) == 2
 
 
 def test_jitted_functions_registry_clear():
@@ -30,8 +29,6 @@ def test_jitted_functions_registry_clear():
     def add_one(a):
         a[:] += 1
 
-    nm.clear_jitted_functions()
-
     @nm.jit
     def add_two(a):
         a[:] += 2
@@ -39,8 +36,9 @@ def test_jitted_functions_registry_clear():
     array = np.zeros(10, dtype=np.int64)
     add_one(array)
     assert all(array == 1)
+    nm.clear_jitted_functions()
+
     add_two(array)
     assert all(array == 3)
 
-    names = [f.name for f in nm.jitted_functions()]
-    assert set(names) == {"add_two"}
+    assert len(nm.jitted_functions()) == 1

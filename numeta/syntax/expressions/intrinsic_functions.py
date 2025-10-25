@@ -10,7 +10,7 @@ class IntrinsicFunction(Function):
     def __init__(self, *arguments):
         from numeta.syntax.module import builtins_module
 
-        super().__init__(self.token, [check_node(arg) for arg in arguments], module=builtins_module)
+        super().__init__(self.token, [check_node(arg) for arg in arguments], parent=builtins_module)
 
     def get_with_updated_variables(self, variables_couples):
         new_args = [arg.get_with_updated_variables(variables_couples) for arg in self.arguments]

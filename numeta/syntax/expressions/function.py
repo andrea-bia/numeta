@@ -6,8 +6,8 @@ from numeta.syntax.tools import check_node
 class Function(NamedEntity, ExpressionNode):
     __slots__ = ["name", "arguments"]
 
-    def __init__(self, name, arguments, module=None):
-        super().__init__(name, module=module)
+    def __init__(self, name, arguments, parent=None):
+        super().__init__(name, parent=parent)
         self.arguments = [check_node(arg) for arg in arguments]
 
     def get_code_blocks(self):
@@ -30,4 +30,4 @@ class Function(NamedEntity, ExpressionNode):
 
     def get_with_updated_variables(self, variables_couples):
         new_args = [arg.get_with_updated_variables(variables_couples) for arg in self.arguments]
-        return type(self)(self.name, new_args, module=self.module)
+        return type(self)(self.name, new_args, parent=self.parent)

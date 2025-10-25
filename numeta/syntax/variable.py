@@ -15,9 +15,11 @@ class Variable(NamedEntity, ExpressionNode):
         allocatable=False,
         parameter=False,
         assign=None,
-        module=None,
+        parent=None,
+        bind_c=False,
+        common_block=False,
     ):
-        super().__init__(name, module=module)
+        super().__init__(name, parent=parent)
         self.__ftype = ftype
         if not isinstance(shape, ArrayShape):
             self.__shape = ArrayShape(shape, fortran_order=True)
@@ -29,6 +31,9 @@ class Variable(NamedEntity, ExpressionNode):
         self.intent = intent
         self.pointer = pointer
         self.target = target
+        # Note that bind c make the variable global
+        self.bind_c = bind_c
+        self.common_block = common_block
 
     @property
     def _ftype(self):
@@ -128,5 +133,5 @@ class Variable(NamedEntity, ExpressionNode):
             allocatable=self.allocatable,
             parameter=self.parameter,
             assign=self.assign,
-            module=self.module,
+            parent=self.parent,
         )

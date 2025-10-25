@@ -1,3 +1,5 @@
+import numpy as np
+
 from .statement import Statement
 from numeta.syntax.nodes import Node
 from numeta.syntax.settings import settings
@@ -61,97 +63,36 @@ class VariableDeclaration(Statement):
             else:
                 result += [", ", "target"]
 
-        assign_str = None
+        if self.variable.bind_c:
+            result += [", ", "bind", "(", "C", ", ", "name=", "'", self.variable.name, "'", ")"]
+
+        result += [" :: ", self.variable.name]
+
+        if self.variable.common_block:
+            result += [";", " common", " /", self.variable.name, "/ ", self.variable.name]
+            result += [";", " save", " /", self.variable.name, "/"]
 
         if self.variable.assign is not None:
-            # TODO this is horrible
+
             from numeta.syntax.expressions import LiteralNode
 
-            if not isinstance(self.variable.assign, list):
-                to_assign = self.variable.assign
+            if isinstance(self.variable.assign, (int, float, complex, bool, str)):
+                values = LiteralNode(self.variable.assign).get_code_blocks()
+            elif isinstance(self.variable.assign, np.ndarray):
+                values = []
+                for v in self.variable.assign.ravel():
+                    values += LiteralNode(v).get_code_blocks()
+                    values.append(", ")
+                values.pop()
             else:
-                # find the dimensions/shape of assign
-                dim_assign = []
-                dim_assign.append(len(self.variable.assign))
-
-                if isinstance(self.variable.assign[0], list):
-                    dim_assign.append(len(self.variable.assign[0]))
-
-                    if isinstance(self.variable.assign[0][0], list):
-                        dim_assign.append(len(self.variable.assign[0][0]))
-
-                        if isinstance(self.variable.assign[0][0][0], list):
-                            error_str = "Only assignmets with max rank 3"
-                            if self.variable.subroutine is not None:
-                                error_str += (
-                                    f"\nName of the subroutine: {self.variable.subroutine.name}"
-                                )
-                            error_str += f"\nName of the self.variable: {self.variable.name}"
-                            error_str += (
-                                f"\nDimension of the self.variable: {self.variable._shape.dims}"
-                            )
-                            error_str += f"\nDimension of the assignment: {tuple(dim_assign[::-1])}"
-                            raise Warning(error_str)
-
-                elements_to_assign = []
-
-                if len(dim_assign) == 1:
-                    for element_1 in self.variable.assign:
-                        if isinstance(element_1, (int, float, complex)):
-                            elements_to_assign.append(LiteralNode(element_1))
-                        else:
-                            elements_to_assign.append(element_1)
-
-                elif len(dim_assign) == 2:
-                    for element_1 in self.variable.assign:
-                        for element_2 in element_1:
-                            if isinstance(element_1, (int, float, complex)):
-                                elements_to_assign.append(LiteralNode(element_2))
-                            else:
-                                elements_to_assign.append(element_2)
-
-                elif len(dim_assign) == 3:
-                    for element_1 in self.variable.assign:
-                        for element_2 in element_1:
-                            for element_3 in element_2:
-                                if isinstance(element_1, (int, float, complex)):
-                                    elements_to_assign.append(LiteralNode(element_3))
-                                else:
-                                    elements_to_assign.append(element_3)
-
-                to_assign = ["["]
-                for element in elements_to_assign:
-                    if hasattr(element, "get_code_blocks"):
-                        to_assign += element.get_code_blocks()
-                    else:
-                        to_assign.append(str(element))
-                    to_assign.append(", ")
-                to_assign[-1] = "]"
+                raise ValueError("Can only assign scalars or numpy ndarrays")
 
             if self.variable._shape is UNKNOWN:
                 raise ValueError(
                     "Cannot assign to a variable with unknown shape. "
                     "Please specify the shape of the variable."
                 )
-            elif self.variable._shape is SCALAR:
-                assign_str = [" = ", to_assign]
-            elif not isinstance(self.variable._shape.dims, tuple):
-                assign_str = [" = ", *to_assign]
-            elif len(self.variable._shape.dims) == 1:
-                assign_str = [" = ", *to_assign]
             else:
-                assign_str = [" = ", "reshape", "("]
-                assign_str += to_assign
-                assign_str.append(", ")
-                assign_str.append("[")
-                for dim in self.variable._shape.dims:
-                    assign_str += [str(dim), ", "]
-                assign_str[-1] = "]"
-                assign_str.append(")")
-
-        result += [" :: ", self.variable.name]
-
-        if assign_str is not None:
-            result += assign_str
+                result += [";", " data ", self.variable.name, " / ", *values, " /"]
 
         return result

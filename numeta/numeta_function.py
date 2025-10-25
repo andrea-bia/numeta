@@ -12,6 +12,8 @@ from typing import Any
 import textwrap
 import inspect
 
+from numeta.external_library import ExternalLibrary
+
 from .settings import settings
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
@@ -50,23 +52,232 @@ class ParameterInfo:
     is_comptime: bool = False
 
 
-class NumetaFunction:
-    """Representation of a JIT-compiled function.
-
-    All created instances are stored in a class-level registry.
+class NumetaCompilationTarget(ExternalLibrary):
+    """
+    To link NumetaFunctions when called by other NumetaFunctions
     """
 
-    _registry: list["NumetaFunction"] = []
+    _registry: list["NumetaCompilationTarget"] = []
 
     @classmethod
-    def registered_functions(cls) -> list["NumetaFunction"]:
+    def registered_functions(cls) -> list["NumetaCompilationTarget"]:
         """Return a snapshot of all instantiated :class:`NumetaFunction` objects."""
         return list(cls._registry)
 
     @classmethod
     def clear_registered_functions(cls) -> None:
         """Clear the registry of instantiated :class:`NumetaFunction` objects."""
+        print("clearing")
         cls._registry.clear()
+
+    def __init__(
+        self,
+        name,
+        symbolic_function,
+        directory: Path,
+        *,
+        do_checks,
+        compile_flags,
+    ):
+        super().__init__(name, to_link=False)
+        self.symbolic_function = symbolic_function
+        self.directory = directory
+        self.do_checks = do_checks
+        self.compile_flags = compile_flags
+
+        self._obj_files = None
+        self.compiled_with_capi_file = None
+        self.capi_name = None
+
+        # Register this instance for later inspection via the class registry
+        type(self)._registry.append(self)
+
+        # Object files of all the NumetaCompilationTarget needed by this one
+        self._nested_obj_files = None
+
+    @property
+    def obj_files(self):
+        if self._obj_files is None:
+            self._obj_files = self.compile_fortran()
+        return self._obj_files
+
+    def copy(self, directory):
+        result = NumetaCompilationTarget(
+            self.name,
+            self.symbolic_function,
+            directory,
+            do_checks=self.do_checks,
+            compile_flags=self.compile_flags,
+        )
+
+        new_dir = directory / self.name
+        new_dir.mkdir(exist_ok=True)
+        if self._obj_files is not None:
+            new_obj_file = new_dir / self.obj_files[0].name
+            shutil.copy(self.obj_files[0], new_obj_file)
+            result._obj_files = [new_obj_file]
+        if self.compiled_with_capi_file is not None:
+            new_lib_file = new_dir / self.compiled_with_capi_file.name
+            shutil.copy(self.compiled_with_capi_file, new_lib_file)
+            result.compiled_with_capi_file = new_lib_file
+            result.capi_name = self.capi_name
+        if len(self.get_nested_obj_files()) != 0:
+            raise NotImplementedError("Dumping of nested numeta calls not implemented yet")
+
+        return result
+
+    def get_nested_obj_files(self):
+        obj_files = set()
+        queue = self.symbolic_function.get_dependencies().values()
+        while queue:
+            new_queue = []
+            for lib in queue:
+                if isinstance(lib, NumetaCompilationTarget):
+                    new_obj = lib.obj_files[0]
+                    if new_obj not in obj_files:
+                        obj_files.add(new_obj)
+                        new_queue += lib.symbolic_function.get_dependencies().values()
+            queue = new_queue
+        return obj_files
+
+    def _run_command(self, command, cwd):
+        sp_run = sp.run(
+            command,
+            cwd=cwd,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+        )
+        if sp_run.returncode != 0:
+            error_message = "Error while compiling, the command was:\n"
+            error_message += " ".join(command) + "\n"
+            error_message += "The output was:\n"
+            error_message += textwrap.indent(sp_run.stdout.decode("utf-8"), "    ")
+            error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
+            raise Warning(error_message)
+        return sp_run
+
+    def compile_fortran(self):
+        """
+        Compile Fortran source files using gfortran and return the resulting object file.
+        """
+
+        fortran_src = self.directory / f"{self.name}_src.f90"
+        fortran_src.write_text(self.symbolic_function.get_code())
+
+        output = self.directory / f"{self.name}_fortran.o"
+
+        include_dirs = []
+        additional_flags = []
+        dependencies = self.symbolic_function.get_dependencies().values()
+
+        for lib in dependencies:
+
+            if lib.include is not None:
+                include_dirs.append(lib.include)
+            if lib.additional_flags is not None:
+                if isinstance(lib.additional_flags, str):
+                    additional_flags.extend(lib.additional_flags.split())
+                else:
+                    additional_flags.append(lib.additional_flags)
+
+        command = ["gfortran"]
+        command.extend(["-fopenmp"])
+        command.extend(self.compile_flags)
+        command.extend(["-fPIC", "-c", "-o", str(output)])
+        command.append(str(fortran_src))
+        command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
+        command.extend(additional_flags)
+
+        self._run_command(command, cwd=self.directory)
+
+        return [output]
+
+    def compile_with_capi_interface(
+        self,
+        capi_name,
+        capi_obj,
+    ):
+        """
+        Compiles Fortran code and constructs a C API interface,
+        then compiles them into a shared library and loads the module.
+
+        Parameters:
+            *args: Arguments to pass to compile_fortran_function.
+
+        Returns:
+            tuple: (compiled function, subroutine)
+        """
+        self.capi_name = capi_name
+
+        local_dir = self.directory / self.name
+        local_dir.mkdir(exist_ok=True)
+
+        self.compiled_with_capi_file = local_dir / f"lib{self.name}_module.so"
+
+        libraries = [
+            "gfortran",
+            f"python{sys.version_info.major}.{sys.version_info.minor}",
+        ]
+        libraries_dirs = []
+        include_dirs = [sysconfig.get_paths()["include"], np.get_include()]
+        extra_objects = self.get_nested_obj_files()
+        additional_flags = []
+
+        for lib in self.symbolic_function.get_dependencies().values():
+
+            if lib.obj_files is not None:
+                extra_objects |= set(lib.obj_files)
+
+            if lib.to_link:
+                libraries.append(lib.name)
+                if lib.directory is not None:
+                    libraries_dirs.append(lib.directory)
+                if lib.include is not None:
+                    include_dirs.append(lib.include)
+                if lib.additional_flags is not None:
+                    if isinstance(lib.additional_flags, str):
+                        additional_flags.extend(lib.additional_flags.split())
+                    else:
+                        additional_flags.append(lib.additional_flags)
+
+        command = ["gcc"]
+        command.extend(self.compile_flags)
+        command.extend(["-fopenmp"])
+        command.extend(["-fPIC", "-shared", "-o", str(self.compiled_with_capi_file)])
+        command.extend([str(*self.obj_files), str(capi_obj)])
+        command.extend([str(obj) for obj in extra_objects])
+        command.extend([f"-l{lib}" for lib in libraries])
+        command.extend([f"-L{lib_dir}" for lib_dir in libraries_dirs])
+        command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
+        command.extend(additional_flags)
+
+        sp_run = sp.run(
+            command,
+            cwd=local_dir,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+        )
+        if sp_run.returncode != 0:
+            error_message = "Error while compiling, the command was:\n"
+            error_message += " ".join(command) + "\n"
+            error_message += "The output was:\n"
+            error_message += textwrap.indent(sp_run.stdout.decode("utf-8"), "    ")
+            error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
+            raise Warning(error_message)
+
+    def load_with_capi(self):
+        if self.capi_name is None:
+            raise ValueError("Function should be compiled before loading it")
+        spec = importlib.util.spec_from_file_location(self.capi_name, self.compiled_with_capi_file)
+        compiled_sub = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(compiled_sub)
+        return getattr(compiled_sub, self.name)
+
+
+class NumetaFunction:
+    """
+    Representation of a JIT-compiled function.
+    """
 
     def __init__(
         self,
@@ -77,6 +288,7 @@ class NumetaFunction:
         namer=None,
         inline: bool | int = False,
     ) -> None:
+        super().__init__()
         self.name = func.__name__
         if directory is None:
             directory = tempfile.mkdtemp()
@@ -84,19 +296,12 @@ class NumetaFunction:
         self.directory.mkdir(exist_ok=True)
         self.do_checks = do_checks
         self.compile_flags = compile_flags.split()
+
         self.namer = namer
         self.inline = inline
-
-        self.__func = func
-        self.__signature_to_name = {}
-        self.__symbolic_functions = {}
-        self.__libraries = {}
-        self.__loaded_functions = {}
-        self.return_signatures = {}
+        self._func = func
 
         # To store the dependencies of the compiled functions to other numeta generated functions.
-        self.__dependencies = {}
-
         self._py_signature = inspect.signature(func)
 
         self.params = []
@@ -117,8 +322,11 @@ class NumetaFunction:
         ]
         self.n_positional_or_default_args = len(self.fixed_param_indices)
 
-        # Register this instance for later inspection via the class registry
-        type(self)._registry.append(self)
+        # Variables to populate
+        self._signature_to_name = {}
+        self.return_signatures = {}  # Only needed if i create symbolic and after compile
+        self._compiled_targets = {}
+        self._fast_call = {}
 
     def dump(self, directory):
         """
@@ -128,52 +336,43 @@ class NumetaFunction:
         directory.mkdir(exist_ok=True)
 
         # Copy the libraries to the new directory
-        new_libraries = {}
-        for signature, (lib_name, lib_obj, lib_file) in self.__libraries.items():
-            name = self.get_name(signature)
-            new_directory = directory / name
-            new_directory.mkdir(exist_ok=True)
-            new_lib_obj = new_directory / lib_obj.name
-            new_lib_file = new_directory / lib_file.name
-            shutil.copy(lib_obj, new_lib_obj)
-            shutil.copy(lib_file, new_lib_file)
-            new_libraries[signature] = (lib_name, new_lib_obj, new_lib_file)
+        new_compiled_target = {}
+        for signature, compiled_target in self._compiled_targets.items():
+            new_compiled_target[signature] = compiled_target.copy(directory)
 
         with open(directory / f"{self.name}.pkl", "wb") as f:
-            pickle.dump(self.__signature_to_name, f)
-            pickle.dump(self.__symbolic_functions, f)
-            pickle.dump(new_libraries, f)
-
-        if self.__dependencies:
-            raise NotImplementedError("Dependencies are not yet supported in dump method")
+            pickle.dump(self._signature_to_name, f)
+            pickle.dump(self.return_signatures, f)
+            pickle.dump(new_compiled_target, f)
 
     def load(self, directory):
         """
         Loads the compiled function from a file.
         """
-        self.__loaded_functions = {}
+        self._fast_call = {}
         with open(Path(directory) / f"{self.name}.pkl", "rb") as f:
-            self.__signature_to_name = pickle.load(f)
-            self.__symbolic_functions = pickle.load(f)
-            self.__libraries = pickle.load(f)
+            self._signature_to_name = pickle.load(f)
+            self._return_signatures = pickle.load(f)
+            self._compiled_targets = pickle.load(f)
+        self.return_signatures = {}
 
     def get_name(self, signature):
-        if signature not in self.__signature_to_name:
+        if signature not in self._signature_to_name:
             if self.namer is None:
-                name = f"{self.name}_{len(self.__signature_to_name)}"
+                name = f"{self.name}_{len(self._signature_to_name)}"
             else:
                 name = self.namer(*signature)
-            self.__signature_to_name[signature] = name
-        return self.__signature_to_name[signature]
+            self._signature_to_name[signature] = name
+        return self._signature_to_name[signature]
 
     def get_signature_idx(self, func):
         return
 
     def get_symbolic_functions(self):
-        return list(self.__symbolic_functions.values())
+        return [v.symbolic_function for v in self._compiled_targets.values()]
 
     def run_symbolic(self, *args, **kwargs):
-        return self.__func(*args, **kwargs)
+        return self._func(*args, **kwargs)
 
     def _get_signature_and_runtime_args_from_args(self, args, kwargs):
         """
@@ -347,6 +546,10 @@ class NumetaFunction:
 
         return to_execute, tuple(signature), runtime_args
 
+    def get_signature(self, *args, **kwargs):
+        _, signature, _ = self._get_signature_and_runtime_args_from_args(args, kwargs)
+        return signature
+
     def _convert_signature_to_argument_specs(self, signature):
         """
         Converts a signature tuple into a list of ArgumentSpec objects.
@@ -471,37 +674,9 @@ class NumetaFunction:
                 from .syntax.inline import inline as inline_call
 
                 inline_call(symbolic_fun, *full_runtime_args)
-
-                # Add nested dependencies
-                caller = BuilderHelper.get_current_builder().numeta_function
-                caller_identifier = BuilderHelper.get_current_builder().signature
-                for dep, dep_signature in self.__dependencies.get(signature, {}).values():
-                    if caller_identifier not in caller.__dependencies:
-                        caller.__dependencies[caller_identifier] = {}
-                    caller.__dependencies[caller_identifier][dep.name, dep_signature] = (
-                        dep,
-                        dep_signature,
-                    )
             else:
                 # This add a Call statement to the current builder
                 symbolic_fun(*full_runtime_args)
-
-                # Add this function to the dependencies of the current builder
-                caller = BuilderHelper.get_current_builder().numeta_function
-                caller_identifier = BuilderHelper.get_current_builder().signature
-                if caller_identifier not in caller.__dependencies:
-                    caller.__dependencies[caller_identifier] = {}
-                caller.__dependencies[caller_identifier][self.name, signature] = (
-                    self,
-                    signature,
-                )
-                # Add nested dependencies
-                for dep, dep_signature in self.__dependencies.get(signature, {}).values():
-                    caller.__dependencies[caller_identifier][dep.name, dep_signature] = (
-                        dep,
-                        dep_signature,
-                    )
-
         else:
 
             # TODO: probably overhead, to do in C?
@@ -515,9 +690,9 @@ class NumetaFunction:
             return self.execute_function(signature, runtime_args)
 
     def get_symbolic_function(self, signature):
-        if signature not in self.__symbolic_functions:
+        if signature not in self._compiled_targets:
             self.construct_symbolic_function(signature)
-        return self.__symbolic_functions[signature]
+        return self._compiled_targets[signature].symbolic_function
 
     def construct_symbolic_function(self, signature):
         name = self.get_name(signature)
@@ -590,191 +765,42 @@ class NumetaFunction:
                     symbolic_args.append(var)
 
         return_signature = builder.build(*symbolic_args, **symbolic_kwargs)
-        self.__symbolic_functions[signature] = sub
         self.return_signatures[signature] = return_signature
 
-    def compile_function(
-        self,
-        signature,
-    ):
-        """
-        Compiles Fortran code and constructs a C API interface,
-        then compiles them into a shared library and loads the module.
+        self._compiled_targets[signature] = NumetaCompilationTarget(
+            self.get_name(signature),
+            sub,
+            directory=self.directory,
+            do_checks=self.do_checks,
+            compile_flags=self.compile_flags,
+        )
 
-        Parameters:
-            *args: Arguments to pass to compile_fortran_function.
+        sub.parent = self._compiled_targets[signature]
 
-        Returns:
-            tuple: (compiled function, subroutine)
-        """
-        name = self.get_name(signature)
+    def compile_function(self, signature):
+        if signature not in self._compiled_targets:
+            self.construct_symbolic_function(signature)
 
-        local_dir = self.directory / name
-        local_dir.mkdir(exist_ok=True)
-
-        symbolic_function = self.get_symbolic_function(signature)
-        fortran_obj = self.compile_fortran(name, symbolic_function, local_dir)
-
-        capi_name = f"{name}_capi"
-        argument_specs = self._convert_signature_to_argument_specs(signature)
-        return_specs = self.return_signatures[signature]
+        capi_name = f"{self.name}_capi"
         capi_interface = CAPIInterface(
-            name,
-            capi_name,
-            argument_specs,
-            return_specs,
-            local_dir,
-            self.compile_flags,
-            self.do_checks,
+            self.get_name(signature),
+            module_name=capi_name,
+            args_details=self._convert_signature_to_argument_specs(signature),
+            return_specs=self.return_signatures[signature],
+            directory=self.directory,
+            compile_flags=self.compile_flags,
+            do_checks=self.do_checks,
         )
         capi_obj = capi_interface.generate()
 
-        compiled_library_file = local_dir / f"lib{name}_module.so"
-
-        libraries = [
-            "gfortran",
-            f"python{sys.version_info.major}.{sys.version_info.minor}",
-        ]
-        libraries_dirs = []
-        include_dirs = [sysconfig.get_paths()["include"], np.get_include()]
-        extra_objects = []
-        additional_flags = []
-
-        if signature in self.__dependencies:
-            for dep, dep_signature in self.__dependencies[signature].values():
-                if dep_signature not in dep.__libraries:
-                    dep.compile_function(dep_signature)
-                _, dep_obj, _ = dep.__libraries[dep_signature]
-                extra_objects.append(dep_obj)
-
-        for external_dep in symbolic_function.get_external_dependencies().values():
-            lib = None
-            if hasattr(external_dep, "library"):
-                if external_dep.library is not None:
-                    lib = external_dep.library
-            else:
-                lib = external_dep
-
-            if lib is not None and lib.to_link:
-                libraries.append(lib.name)
-                if lib.directory is not None:
-                    libraries_dirs.append(lib.directory)
-                if lib.include is not None:
-                    include_dirs.append(lib.include)
-                if lib.additional_flags is not None:
-                    if isinstance(lib.additional_flags, str):
-                        additional_flags.extend(lib.additional_flags.split())
-                    else:
-                        additional_flags.append(lib.additional_flags)
-
-        command = ["gcc"]
-        command.extend(self.compile_flags)
-        command.extend(["-fopenmp"])
-        command.extend(["-fPIC", "-shared", "-o", str(compiled_library_file)])
-        command.extend([str(fortran_obj), str(capi_obj)])
-        command.extend([str(obj) for obj in extra_objects])
-        command.extend([f"-l{lib}" for lib in libraries])
-        command.extend([f"-L{lib_dir}" for lib_dir in libraries_dirs])
-        command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
-        command.extend(additional_flags)
-
-        sp_run = sp.run(
-            command,
-            cwd=local_dir,
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
-        )
-        if sp_run.returncode != 0:
-            error_message = "Error while compiling, the command was:\n"
-            error_message += " ".join(command) + "\n"
-            error_message += "The output was:\n"
-            error_message += textwrap.indent(sp_run.stdout.decode("utf-8"), "    ")
-            error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
-            raise Warning(error_message)
-
-        self.__libraries[signature] = (capi_name, fortran_obj, compiled_library_file)
-
-    def compile_fortran(self, name, fortran_function, directory):
-        """
-        Compiles Fortran source files using gfortran.
-
-        Parameters:
-            name (str): Base name for the output object file.
-            fortran_sources (list): List of Fortran source file paths.
-        Returns:
-            Path: Path to the compiled object file.
-        """
-
-        fortran_src = directory / f"{name}_src.f90"
-        fortran_src.write_text(fortran_function.get_code())
-
-        output = directory / f"{name}_fortran.o"
-
-        libraries = []
-        libraries_dirs = []
-        include_dirs = []
-        additional_flags = []
-        for external_dep in fortran_function.get_external_dependencies().values():
-            lib = None
-            if hasattr(external_dep, "library"):
-                if external_dep.library is not None:
-                    lib = external_dep.library
-            else:
-                lib = external_dep
-
-            if lib is not None:
-                libraries.append(lib.name)
-                if lib.directory is not None:
-                    libraries_dirs.append(lib.directory)
-                if lib.include is not None:
-                    include_dirs.append(lib.include)
-                if lib.additional_flags is not None:
-                    if isinstance(lib.additional_flags, str):
-                        additional_flags.extend(lib.additional_flags.split())
-                    else:
-                        additional_flags.append(lib.additional_flags)
-
-        command = ["gfortran"]
-        command.extend(["-fopenmp"])
-        command.extend(self.compile_flags)
-        command.extend(["-fPIC", "-c", "-o", str(output)])
-        command.append(str(fortran_src))
-        command.extend([f"-l{lib}" for lib in libraries])
-        command.extend([f"-L{lib_dir}" for lib_dir in libraries_dirs])
-        command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
-        command.extend(additional_flags)
-
-        sp_run = sp.run(
-            command,
-            cwd=directory,
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
-        )
-
-        if sp_run.returncode != 0:
-            error_message = "Error while compiling:\n"
-            error_message += textwrap.indent(sp_run.stdout.decode("utf-8"), "    ")
-            error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
-            raise Warning(error_message)
-
-        return output
+        self._compiled_targets[signature].compile_with_capi_interface(capi_name, capi_obj)
 
     def load_function(self, signature):
-        if signature in self.__loaded_functions:
-            return
-
-        if signature not in self.__libraries:
+        if signature not in self._compiled_targets:
             self.compile_function(signature)
-
-        capi_name, _, compiled_library_file = self.__libraries[signature]
-        spec = importlib.util.spec_from_file_location(capi_name, compiled_library_file)
-        compiled_sub = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(compiled_sub)
-
-        name = self.get_name(signature)
-        self.__loaded_functions[signature] = getattr(compiled_sub, name)
+        self._fast_call[signature] = self._compiled_targets[signature].load_with_capi()
 
     def execute_function(self, signature, runtime_args):
-        if signature not in self.__loaded_functions:
+        if signature not in self._fast_call:
             self.load_function(signature)
-        return self.__loaded_functions[signature](*runtime_args)
+        return self._fast_call[signature](*runtime_args)

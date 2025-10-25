@@ -21,7 +21,7 @@ class DerivedType(NamedEntity):
                 raise ValueError(
                     f"Derived type '{name}' cannot have compile-time undefined dimensions."
                 )
-        self.module = None
+        self.parent = None
 
     def get_declaration(self):
         from .statements import DerivedTypeDeclaration
