@@ -17,7 +17,6 @@ class Variable(NamedEntity, ExpressionNode):
         assign=None,
         parent=None,
         bind_c=False,
-        common_block=False,
     ):
         super().__init__(name, parent=parent)
         self.__ftype = ftype
@@ -33,7 +32,6 @@ class Variable(NamedEntity, ExpressionNode):
         self.target = target
         # Note that bind c make the variable global
         self.bind_c = bind_c
-        self.common_block = common_block
 
         from .module import Module
 

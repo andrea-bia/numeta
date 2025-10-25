@@ -68,10 +68,6 @@ class VariableDeclaration(Statement):
 
         result += [" :: ", self.variable.name]
 
-        if self.variable.common_block:
-            result += [";", " common", " /", self.variable.name, "/ ", self.variable.name]
-            result += [";", " save", " /", self.variable.name, "/"]
-
         if self.variable.assign is not None:
 
             from numeta.syntax.expressions import LiteralNode

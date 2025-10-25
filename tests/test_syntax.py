@@ -245,13 +245,6 @@ def test_variable_declaration_bind_c():
     assert dec.print_lines() == ["real(c_double), bind(C, name='v') :: v\n"]
 
 
-def test_variable_declaration_common_block():
-    settings.set_default_from_datatype(nm.float64, iso_c=True)
-    v = Variable("v", syntax_settings.DEFAULT_REAL, common_block=True)
-    dec = VariableDeclaration(v)
-    assert dec.print_lines() == ["real(c_double) :: v; common /v/ v; save /v/\n"]
-
-
 def test_variable_declaration_assign_scalar():
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, assign=5.0)
