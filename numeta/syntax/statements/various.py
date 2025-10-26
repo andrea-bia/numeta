@@ -99,8 +99,8 @@ class Return(SimpleStatement):
 
 
 class Print(Statement):
-    def __init__(self, *children):
-        super().__init__()
+    def __init__(self, *children, add_to_scope=True):
+        super().__init__(add_to_scope=add_to_scope)
         self.to_print = [check_node(child) for child in children]
 
     @property
@@ -168,8 +168,8 @@ class Allocate(Statement):
 
 
 class Deallocate(Statement):
-    def __init__(self, array):
-        super().__init__()
+    def __init__(self, array, add_to_scope=True):
+        super().__init__(add_to_scope=add_to_scope)
         self.array = check_node(array)
 
     @property
@@ -315,8 +315,8 @@ class Else(StatementWithScope):
 
 
 class SelectCase(StatementWithScope):
-    def __init__(self, value):
-        super().__init__()
+    def __init__(self, value, add_to_scope=True):
+        super().__init__(add_to_scope=add_to_scope)
         self.value = check_node(value)
 
     @property
@@ -331,8 +331,8 @@ class SelectCase(StatementWithScope):
 
 
 class Case(StatementWithScope):
-    def __init__(self, value):
-        super().__init__()
+    def __init__(self, value, add_to_scope=True):
+        super().__init__(add_to_scope=add_to_scope)
         self.value = check_node(value)
 
     @property
@@ -384,8 +384,8 @@ class Interface(StatementWithScope):
 
 
 class PointerAssignment(Statement):
-    def __init__(self, pointer, pointer_shape, target, target_shape=None):
-        super().__init__()
+    def __init__(self, pointer, pointer_shape, target, target_shape=None, add_to_scope=True):
+        super().__init__(add_to_scope=add_to_scope)
         self.pointer = check_node(pointer)
         self.pointer_shape = []
         # should specify bounds for the pointer
