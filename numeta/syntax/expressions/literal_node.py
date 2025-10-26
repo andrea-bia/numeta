@@ -44,12 +44,8 @@ class LiteralNode(ExpressionNode):
         if self._ftype.type == "type":
             return [f"{self.value}"]
         elif self._ftype.type == "integer":
-            if self.value < 0:
-                return ["(", f"{int(self.value)}_{kind}", ")"]
             return [f"{int(self.value)}_{kind}"]
         elif self._ftype.type == "real":
-            if self.value < 0.0:
-                return ["(", f"{float(self.value)}_{kind}", ")"]
             return [f"{float(self.value)}_{kind}"]
         elif self._ftype.type == "complex":
             return [

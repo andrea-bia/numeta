@@ -5,7 +5,7 @@ import numeta as nm
 def test_declare_global_constant():
 
     global_constant_var = nm.declare_global_constant(
-        (2, 1), np.float64, value=np.array([2.0, 1.0]), name="global_constant_var"
+        (2, 1), np.float64, value=np.array([2.0, -1.0]), name="global_constant_var"
     )
 
     @nm.jit
@@ -16,13 +16,13 @@ def test_declare_global_constant():
     a = np.empty(2, dtype=np.float64)
     get_global_constant(a)
 
-    np.testing.assert_allclose(a, np.array([2.0, 1.0]))
+    np.testing.assert_allclose(a, np.array([2.0, -1.0]))
 
 
 def test_declare_global_constant_nested():
 
     global_constant_var = nm.declare_global_constant(
-        (2, 1), np.float64, value=np.array([2.0, 1.0]), name="global_constant_var"
+        (2, 1), np.float64, value=np.array([2.0, -1.0]), name="global_constant_var"
     )
 
     @nm.jit
@@ -37,4 +37,4 @@ def test_declare_global_constant_nested():
     a = np.empty(2, dtype=np.float64)
     get_global_constant(a)
 
-    np.testing.assert_allclose(a, np.array([2.0, 1.0]))
+    np.testing.assert_allclose(a, np.array([2.0, -1.0]))
