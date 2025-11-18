@@ -1,3 +1,5 @@
+import sys
+
 from .nodes import NamedEntity
 from .subroutine import Subroutine
 from .expressions import Function
@@ -109,13 +111,24 @@ class ExternalModule(Module):
                 self.arguments = [check_node(arg) for arg in args]
                 self.parent = module
 
+            # to make method pickable
+            python_module_name = type(self).__module__
+            python_module = sys.modules.get(python_module_name)
+
             method = type(
                 name,
                 (Function,),
                 {
+                    # to make method pickable
+                    "__module__": python_module_name,
                     "__init__": __init__,
                     "_ftype": property(lambda self: result_),
                     "_shape": property(lambda self: SCALAR),
                 },
             )
+
+            # to make method pickable
+            if python_module is not None:
+                setattr(python_module, name, method)
+
             self.subroutines[name] = method

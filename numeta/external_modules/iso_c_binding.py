@@ -44,7 +44,7 @@ class IsoCBinding(ExternalModule):
             [
                 Variable("x", ftype=None),
             ],
-            result_=self.c_ptr,
+            result_=FortranType("type", self.c_ptr),
             bind_c=False,
         )
 
