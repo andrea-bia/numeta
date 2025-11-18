@@ -1,3 +1,5 @@
+import numpy as np
+
 from .expression_node import ExpressionNode
 from numeta.syntax.settings import settings
 from numeta.array_shape import SCALAR
@@ -8,20 +10,20 @@ class LiteralNode(ExpressionNode):
 
     def __init__(self, value):
         self.value = value
-        if isinstance(value, bool):
+        if isinstance(value, (bool, np.bool_)):
             # IMPORTANT before int because bool is a subclass of int
             self.__ftype = settings.DEFAULT_LOGICAL
-        elif isinstance(value, int):
+        elif isinstance(value, (int, np.int32, np.int64)):
             self.__ftype = settings.DEFAULT_INTEGER
-        elif isinstance(value, float):
+        elif isinstance(value, (float, np.float64, np.float32)):
             self.__ftype = settings.DEFAULT_REAL
-        elif isinstance(value, complex):
+        elif isinstance(value, (complex, np.complex64, np.complex128)):
             self.__ftype = settings.DEFAULT_COMPLEX
         elif isinstance(value, str):
             self.__ftype = settings.DEFAULT_CHARACTER
         else:
             raise ValueError(
-                f"Unknown kind for LiteralNode: {value.__class__.__name__} value: {value}"
+                f"Type {value.__class__.__name__} is unsupported for LiteralNode,\n value: {value}"
             )
 
     @property

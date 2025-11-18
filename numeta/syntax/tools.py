@@ -1,3 +1,7 @@
+import numpy as np
+import numbers
+
+
 def extract_entities(element):
     if hasattr(element, "extract_entities"):
         yield from element.extract_entities()
@@ -11,7 +15,7 @@ def extract_entities(element):
 
 
 def check_node(node):
-    if isinstance(node, (int, float, complex, bool, str)):
+    if isinstance(node, (numbers.Number, np.generic, bool, str)):
         from .expressions import LiteralNode
 
         return LiteralNode(node)
