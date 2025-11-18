@@ -34,8 +34,9 @@ class VariableDeclaration(Statement):
             result += ["("] + [":", ","] * (len(self.variable._shape.dims) - 1) + [":", ")"]
         elif self.variable.pointer:
             result += [", ", "pointer"]
-            result += [", ", "dimension"]
-            result += ["("] + [":", ","] * (len(self.variable._shape.dims) - 1) + [":", ")"]
+            if self.variable._shape is not SCALAR:
+                result += [", ", "dimension"]
+                result += ["("] + [":", ","] * (len(self.variable._shape.dims) - 1) + [":", ")"]
         elif self.variable._shape is UNKNOWN:
             # if is a pointer
             result += [", ", "dimension"]

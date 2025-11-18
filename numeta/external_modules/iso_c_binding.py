@@ -35,8 +35,16 @@ class IsoCBinding(ExternalModule):
             [
                 Variable("cptr", self.c_ptr),
                 Variable("fptr", ftype=None),
-                Variable("shape", self.c_size_t, shape=UNKNOWN),
             ],
+            bind_c=False,
+        )
+
+        self.add_method(
+            "c_loc",
+            [
+                Variable("x", ftype=None),
+            ],
+            result_=self.c_ptr,
             bind_c=False,
         )
 

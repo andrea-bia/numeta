@@ -10,3 +10,4 @@ from .reshape import reshape
 from .external_library import ExternalLibraryWrapper
 from .declare_global_constant import declare_global_constant
 from .constant import constant
+from .cast import cast
