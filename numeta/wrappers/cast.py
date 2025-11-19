@@ -1,23 +1,16 @@
 import numpy as np
 
 from numeta.builder_helper import BuilderHelper
-from numeta.datatype import DataType, FortranType
+from numeta.datatype import DataType, FortranType, get_datatype
 from numeta.external_modules.iso_c_binding import iso_c
 
 
-def cast(variable, dtype):
+def cast(variable, dtype: DataType | FortranType | np.generic):
 
     if isinstance(dtype, FortranType):
         ftype = dtype
-    elif isinstance(dtype, type):
-        if issubclass(dtype, DataType):
-            ftype = dtype.get_fortran()
-        elif issubclass(dtype, np.generic):
-            ftype = DataType.from_np_dtype(dtype).get_fortran()
-        else:
-            raise TypeError(f"Unsupported dtype class: {dtype}")
     else:
-        raise TypeError(f"Expected a numpy or numeta dtype got {type(dtype).__name__}")
+        ftype = get_datatype(dtype).get_fortran()
 
     builder = BuilderHelper.get_current_builder()
     pointer = builder.generate_local_variables(
