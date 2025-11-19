@@ -1,6 +1,6 @@
 import numpy as np
 from numeta.syntax import Variable, Module
-from numeta.datatype import DataType, float64, FortranType
+from numeta.datatype import DataType, float64, FortranType, get_datatype
 from numeta.array_shape import ArrayShape
 from numeta.numeta_function import NumetaCompilationTarget
 
@@ -26,15 +26,8 @@ def declare_global_constant(
 
     if isinstance(dtype, FortranType):
         ftype = dtype
-    elif isinstance(dtype, type):
-        if issubclass(dtype, DataType):
-            ftype = dtype.get_fortran()
-        elif issubclass(dtype, np.generic):
-            ftype = DataType.from_np_dtype(dtype).get_fortran()
-        else:
-            raise TypeError(f"Unsupported dtype class: {dtype}")
     else:
-        raise TypeError(f"Expected a numpy or numeta dtype got {type(dtype).__name__}")
+        ftype = get_datatype(dtype).get_fortran()
 
     if name is None:
         global _n_global_constant

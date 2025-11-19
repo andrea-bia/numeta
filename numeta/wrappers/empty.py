@@ -1,6 +1,6 @@
 import numpy as np
 from numeta.builder_helper import BuilderHelper
-from numeta.datatype import DataType, float64, FortranType
+from numeta.datatype import DataType, float64, FortranType, get_datatype
 from numeta.array_shape import ArrayShape
 
 
@@ -16,15 +16,8 @@ def empty(shape, dtype: DataType | FortranType | np.generic = float64, order="C"
 
     if isinstance(dtype, FortranType):
         ftype = dtype
-    elif isinstance(dtype, type):
-        if issubclass(dtype, DataType):
-            ftype = dtype.get_fortran()
-        elif issubclass(dtype, np.generic):
-            ftype = DataType.from_np_dtype(dtype).get_fortran()
-        else:
-            raise TypeError(f"Unsupported dtype class: {dtype}")
     else:
-        raise TypeError(f"Expected a numpy or numeta dtype got {type(dtype).__name__}")
+        ftype = get_datatype(dtype).get_fortran()
 
     allocate = shape.has_comptime_undefined_dims()
     array = BuilderHelper.generate_local_variables(

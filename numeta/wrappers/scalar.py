@@ -1,21 +1,13 @@
 import numpy as np
 from numeta.builder_helper import BuilderHelper
-from numeta.datatype import DataType
-from numeta.syntax import FortranType
+from numeta.datatype import DataType, FortranType, get_datatype
 
 
 def scalar(dtype: DataType | FortranType | np.generic, value=None, name=None):
     if isinstance(dtype, FortranType):
         ftype = dtype
-    elif isinstance(dtype, type):
-        if issubclass(dtype, DataType):
-            ftype = dtype.get_fortran()
-        elif issubclass(dtype, np.generic):
-            ftype = DataType.from_np_dtype(dtype).get_fortran()
-        else:
-            raise TypeError(f"Unsupported dtype class: {dtype}")
     else:
-        raise TypeError(f"Expected a numpy or numeta dtype got {type(dtype).__name__}")
+        ftype = get_datatype(dtype).get_fortran()
 
     var = BuilderHelper.generate_local_variables("fc_s", ftype=ftype, name=name)
     if value is not None:
