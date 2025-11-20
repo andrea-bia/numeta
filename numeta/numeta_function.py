@@ -232,6 +232,7 @@ class NumetaCompilationTarget(ExternalLibrary):
 
         libraries = [
             "gfortran",
+            "mvec",  # link math vectorized version
             f"python{sys.version_info.major}.{sys.version_info.minor}",
         ]
         libraries_dirs = []
