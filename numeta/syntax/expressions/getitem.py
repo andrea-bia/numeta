@@ -11,6 +11,14 @@ class GetItem(ExpressionNode):
         self.sliced = slice_
 
     @property
+    def target(self):
+        return self.variable.target
+
+    @target.setter
+    def target(self, value):
+        self.variable.target = value
+
+    @property
     def _ftype(self):
         return self.variable._ftype
 
