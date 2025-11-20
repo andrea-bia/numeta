@@ -75,49 +75,98 @@ def test_return_scalar(dtype):
         np.testing.assert_allclose(scalar, 42, rtol=10e2 * np.finfo(dtype).eps)
 
 
-# @pytest.mark.parametrize(
-#    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-# )
-# def test_return_1_ndarray_getitem(dtype):
-#    n = 100
-#    m = 50
-#
-#    @nm.jit
-#    def mul(a, b):
-#        c = nm.zeros((a.shape[0], b.shape[1]), dtype)
-#        for i in nm.range(a.shape[0]):
-#            for k in nm.range(b.shape[0]):
-#                c[i, :] += a[i, k] * b[k, :]
-#        return c[:10, :n//2]
-#
-#    a = np.random.rand(n, m).astype(dtype)
-#    b = np.random.rand(n, m).astype(dtype)
-#
-#    c = mul(a, b)
-#
-#    if np.issubdtype(dtype, np.integer):
-#        np.testing.assert_allclose(c, np.dot(a, b)[:10, :n//2], atol=0)
-#    else:
-#        np.testing.assert_allclose(c, np.dot(a, b)[:10, :n//2], rtol=10e2 * np.finfo(dtype).eps)
-#
-#
-# @pytest.mark.parametrize(
-#    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-# )
-# def test_return_1_ndarray_sum(dtype):
-#    n = 100
-#    m = 50
-#
-#    @nm.jit
-#    def return_1_ndarray_sum(a, b):
-#        return a + b
-#
-#    a = np.random.rand(n, m).astype(dtype)
-#    b = np.random.rand(n, m).astype(dtype)
-#
-#    c = return_1_ndarray_sum(a, b)
-#
-#    if np.issubdtype(dtype, np.integer):
-#        np.testing.assert_allclose(c, a + b, atol=0)
-#    else:
-#        np.testing.assert_allclose(c, a + b, rtol=10e2 * np.finfo(dtype).eps)
+@pytest.mark.parametrize(
+    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+)
+def test_return_1_ndarray_getitem(dtype):
+    n = 100
+    m = 50
+
+    @nm.jit
+    def mul(a, b):
+        c = nm.zeros((a.shape[0], b.shape[1]), dtype)
+        for i in nm.range(a.shape[0]):
+            for k in nm.range(b.shape[0]):
+                c[i, :] += a[i, k] * b[k, :]
+        return c[:10, : n // 2]
+
+    a = np.random.rand(n, m).astype(dtype)
+    b = np.random.rand(m, n).astype(dtype)
+
+    c = mul(a, b)
+
+    if np.issubdtype(dtype, np.integer):
+        np.testing.assert_allclose(c, np.dot(a, b)[:10, : n // 2], atol=0)
+    else:
+        np.testing.assert_allclose(c, np.dot(a, b)[:10, : n // 2], rtol=10e2 * np.finfo(dtype).eps)
+
+
+@pytest.mark.parametrize(
+    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+)
+def test_return_1_ndarray_sum(dtype):
+    n = 100
+    m = 50
+
+    @nm.jit
+    def return_1_ndarray_sum(a, b):
+        return a + b
+
+    a = np.random.rand(n, m).astype(dtype)
+    b = np.random.rand(n, m).astype(dtype)
+
+    c = return_1_ndarray_sum(a, b)
+
+    if np.issubdtype(dtype, np.integer):
+        np.testing.assert_allclose(c, a + b, atol=0)
+    else:
+        np.testing.assert_allclose(c, a + b, rtol=10e2 * np.finfo(dtype).eps)
+
+
+@pytest.mark.parametrize(
+    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+)
+def test_return_1_ndarray_transpose(dtype):
+    shape = (18, 7)
+
+    @nm.jit
+    def transpose_expr(a):
+        return nm.transpose(a)
+
+    a = np.random.random(shape).astype(dtype)
+
+    out = transpose_expr(a)
+    expected = np.transpose(a)
+
+    if np.issubdtype(dtype, np.integer):
+        np.testing.assert_array_equal(out, expected)
+    else:
+        np.testing.assert_allclose(out, expected, rtol=10e2 * np.finfo(dtype).eps)
+
+
+@pytest.mark.parametrize(
+    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+)
+def test_return_1_ndarray_mixed_expression(dtype):
+    shape = (24, 16)
+
+    @nm.jit
+    def combined_expression(a, b):
+        rows = a.shape[0] // 2
+        cols = a.shape[1] // 2
+        left = a[:rows, :cols] + b[:rows, :cols]
+        right = a[:rows, :cols] - b[:rows, :cols]
+        return left * right
+
+    a = np.random.random(shape).astype(dtype)
+    b = np.random.random(shape).astype(dtype)
+
+    out = combined_expression(a, b)
+    rows = shape[0] // 2
+    cols = shape[1] // 2
+    expected = (a[:rows, :cols] + b[:rows, :cols]) * (a[:rows, :cols] - b[:rows, :cols])
+
+    if np.issubdtype(dtype, np.integer):
+        np.testing.assert_array_equal(out, expected)
+    else:
+        np.testing.assert_allclose(out, expected, rtol=10e2 * np.finfo(dtype).eps)

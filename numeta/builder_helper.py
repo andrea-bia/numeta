@@ -116,12 +116,13 @@ class BuilderHelper:
         elif not isinstance(return_variables, (list, tuple)):
             return_variables = [return_variables]
 
-        from .array_shape import ArrayShape, SCALAR
+        from .array_shape import ArrayShape, SCALAR, UNKNOWN
         from .syntax import Shape
         from .datatype import DataType, size_t
 
         ret = []
         for i, var in enumerate(return_variables):
+            expr = None
             if isinstance(var, Variable):
                 if var.name in self.allocated_arrays:
 
@@ -149,13 +150,35 @@ class BuilderHelper:
 
                     ret.append((DataType.from_ftype(var._ftype), 0))
                 else:
-                    raise NotImplementedError(
-                        f"Variable {var.name} is not allocated, cannot return it."
-                    )
+                    if var._shape is SCALAR:
+                        tmp = BuilderHelper.generate_local_variables("fc_s", ftype=var._ftype)
+                        tmp[:] = var
+                        tmp.intent = "out"
+                        self.symbolic_function.add_variable(tmp)
+                        ret.append((DataType.from_ftype(var._ftype), 0))
+                        continue
+                    expr = var
             else:
                 # it is an expression
+                expr = var
+
+            if expr is not None:
                 # We have to copy the expression in a new array
-                rank = var._shape.rank
+                expr_shape = expr._shape
+                if expr_shape is SCALAR:
+                    tmp = BuilderHelper.generate_local_variables("fc_s", ftype=expr._ftype)
+                    tmp[:] = expr
+                    tmp.intent = "out"
+                    self.symbolic_function.add_variable(tmp)
+                    ret.append((DataType.from_ftype(expr._ftype), 0))
+                    continue
+
+                if expr_shape is UNKNOWN:
+                    raise NotImplementedError(
+                        "Returning arrays with unknown shape is not supported yet."
+                    )
+
+                rank = expr_shape.rank
                 shape = Variable(
                     f"fc_out_shape_{i}",
                     ftype=size_t.get_fortran(bind_c=True),
@@ -163,23 +186,42 @@ class BuilderHelper:
                     intent="out",
                 )
                 self.symbolic_function.add_variable(shape)
-                # add to the symbolic function
-                shape[:] = Shape(var)
+
+                # Cache the expression shape in a local array so we can reuse it
+                # both for allocating the temporary buffer and to report the
+                # extents back through the C API.
+                tmp_shape = Variable(
+                    f"fc_out_shape_{i}_tmp",
+                    ftype=size_t.get_fortran(bind_c=True),
+                    shape=ArrayShape((rank,)),
+                )
+                self.symbolic_function.add_variable(tmp_shape)
+                tmp_shape[:] = Shape(expr)
 
                 from .wrappers import empty
 
+                alloc_dims = [tmp_shape[i] for i in range(rank)]
+                if not expr_shape.fortran_order:
+                    alloc_dims = alloc_dims[::-1]
+
                 tmp = empty(
-                    [shape[i] for i in range(rank)],
-                    dtype=var._ftype,
-                    order="F" if var._shape.fortran_order else "C",
+                    alloc_dims,
+                    dtype=expr._ftype,
+                    order="F" if expr_shape.fortran_order else "C",
                 )
-                tmp[:] = var
+
+                shape[:] = tmp_shape
+                # Reverse the shape for the C interface after materializing the
+                # temporary buffer so the allocation happens with the original
+                # extents.
+                shape[:] = shape[rank - 1 : 1 : -1]
+                tmp[:] = expr
 
                 ptr = self.allocated_arrays.pop(tmp.name)
                 ptr.intent = "out"
                 self.symbolic_function.add_variable(ptr)
 
-                ret.append((DataType.from_ftype(var._ftype), rank))
+                ret.append((DataType.from_ftype(expr._ftype), rank))
 
         for array in self.allocated_arrays.values():
             self.deallocate_array(array)
