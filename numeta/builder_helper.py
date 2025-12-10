@@ -195,7 +195,6 @@ class BuilderHelper:
                     ftype=size_t.get_fortran(bind_c=True),
                     shape=ArrayShape((rank,)),
                 )
-                self.symbolic_function.add_variable(tmp_shape)
                 tmp_shape[:] = Shape(expr)
 
                 from .wrappers import empty
