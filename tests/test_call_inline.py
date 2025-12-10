@@ -402,3 +402,43 @@ def test_inline_jit_threshold_if_call():
 
     signature = caller.get_signature(5, arr)
     assert len(caller._compiled_targets[signature].get_nested_obj_files()) != 0
+
+
+def test_inline_tmp_scalar():
+
+    @nm.jit(inline=True)
+    def callee(n, a):
+        i = nm.int64(5)
+        a[:] = n + i
+
+    @nm.jit
+    def caller(a):
+        n = nm.int64(1, name="n")
+        callee(n, a)
+
+    a = np.zeros((), dtype=np.int64)
+    caller(a)
+
+    expected = np.zeros((), dtype=np.int64)
+    expected[...] = 6
+    np.testing.assert_equal(a, expected)
+
+
+def test_inline_tmp():
+
+    @nm.jit(inline=True)
+    def callee(n, a):
+        f = nm.float64(5.0)
+        a[n] = f
+
+    @nm.jit
+    def caller(a):
+        n = nm.int32(6, name="n")
+        callee(n, a)
+
+    a = np.zeros(10, dtype=np.int64)
+    caller(a)
+
+    expected = np.zeros(10, dtype=np.int64)
+    expected[6] = 5.0
+    np.testing.assert_equal(a, expected)
