@@ -4,7 +4,12 @@ from .syntax.settings import settings as syntax_settings
 class Settings:
 
     def __init__(
-        self, iso_C, use_numpy_allocator=True, reorder_kwargs=True, add_shape_descriptors=True
+        self,
+        iso_C,
+        use_numpy_allocator=True,
+        reorder_kwargs=True,
+        add_shape_descriptors=True,
+        ignore_fixed_shape_in_nested_calls=False,
     ):
         """Initialize the settings.
         Parameters
@@ -23,7 +28,10 @@ class Settings:
             functions. Shape descriptors encode the dimensions of arrays, which is
             typically required when using JIT compilation. However, this can be
             undesirable if numeta is used purely as a code generator.
-
+        ignore_fixed_shape_in_nested_calls : bool
+            If True, instead of passing array in a nested call as fixed shape,
+            they are passed with undefined dimensions.
+            This can help limiting the number of generated functions if they have no dependence on the fixed shape.
         """
         self.iso_C = iso_C
         if self.iso_C:
@@ -33,6 +41,7 @@ class Settings:
         self.use_numpy_allocator = use_numpy_allocator
         self.__reorder_kwargs = reorder_kwargs
         self.__add_shape_descriptors = add_shape_descriptors
+        self.__ignore_fixed_shape_in_nested_calls = ignore_fixed_shape_in_nested_calls
 
     def set_default_from_datatype(self, dtype, *, iso_c: bool = False):
         """Set the default Fortran type using a :class:`DataType` subclass."""
@@ -114,6 +123,14 @@ class Settings:
     def unset_add_shape_descriptors(self):
         """Unset the addition of shape descriptors to array arguments in generated functions."""
         self.__add_shape_descriptors = False
+
+    @property
+    def ignore_fixed_shape_in_nested_calls(self):
+        return self.__ignore_fixed_shape_in_nested_calls
+
+    @ignore_fixed_shape_in_nested_calls.setter
+    def ignore_fixed_shape_in_nested_calls(self, value):
+        self.__ignore_fixed_shape_in_nested_calls = value
 
 
 settings = Settings(iso_C=True, use_numpy_allocator=True)

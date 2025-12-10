@@ -496,14 +496,17 @@ class NumetaFunction:
                         intent,
                     )
                 else:
-                    arg_signature = (
-                        name,
-                        dtype.get_numpy(),
-                        arg._shape.rank,
-                        arg._shape.fortran_order,
-                        intent,
-                        arg._shape.dims,
-                    )
+                    if not settings.ignore_fixed_shape_in_nested_calls:
+                        arg_signature = (
+                            name,
+                            dtype.get_numpy(),
+                            arg._shape.rank,
+                            arg._shape.fortran_order,
+                            intent,
+                            arg._shape.dims,
+                        )
+                    else:
+                        arg_signature = (name, dtype.get_numpy(), None, False, intent)
             else:
                 raise ValueError(f"Argument {name} of type {type(arg)} is not supported")
 
