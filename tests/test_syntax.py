@@ -654,7 +654,7 @@ def test_call():
 
 def test_call_external_module():
     settings.set_default_from_datatype(nm.int64, iso_c=True)
-    lib = nm.syntax.module.ExternalModule("module", hidden=True)
+    lib = nm.syntax.module.ExternalModule("module", None, hidden=True)
     lib.add_method("foo", [Variable("a", syntax_settings.DEFAULT_INTEGER)], None)
     foo = lib.foo
     sub = Subroutine("mysub")
