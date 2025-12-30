@@ -222,36 +222,6 @@ def test_call_returning_function_array_rank1(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_call_returning_function_array_rank1_no_numpy_allocator(dtype):
-
-    size = 40
-
-    nm.settings.unset_numpy_allocator()
-
-    @nm.jit
-    def return_array_rank1():
-        a = nm.zeros(size, dtype)
-        return a
-
-    @nm.jit
-    def caller():
-        return return_array_rank1()
-
-    array = caller()
-
-    nm.settings.set_numpy_allocator()
-
-    if np.issubdtype(dtype, np.integer):
-        np.testing.assert_allclose(array, np.zeros(size, dtype=dtype), atol=0)
-    else:
-        np.testing.assert_allclose(
-            array, np.zeros(size, dtype=dtype), rtol=10e2 * np.finfo(dtype).eps
-        )
-
-
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
 def test_call_returning_function_array_rank2(dtype):
 
     @nm.jit
@@ -292,6 +262,37 @@ def test_nested_return_array_rank1(dtype):
 
     array = np.ones(size, dtype=dtype)
     caller(array)
+
+    if np.issubdtype(dtype, np.integer):
+        np.testing.assert_allclose(array, np.zeros(size, dtype=dtype), atol=0)
+    else:
+        np.testing.assert_allclose(
+            array, np.zeros(size, dtype=dtype), rtol=10e2 * np.finfo(dtype).eps
+        )
+
+
+@pytest.mark.parametrize(
+    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+)
+def test_nested_return_array_rank1_no_numpy_allocator(dtype):
+
+    size = 40
+
+    nm.settings.unset_numpy_allocator()
+
+    @nm.jit
+    def return_array_rank1():
+        a = nm.zeros(size, dtype)
+        return a
+
+    @nm.jit
+    def caller(b):
+        b[:] = return_array_rank1()
+
+    array = np.ones(size, dtype=dtype)
+    caller(array)
+
+    nm.settings.set_numpy_allocator()
 
     if np.issubdtype(dtype, np.integer):
         np.testing.assert_allclose(array, np.zeros(size, dtype=dtype), atol=0)
