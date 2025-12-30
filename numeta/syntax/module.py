@@ -8,6 +8,7 @@ from .expressions import Function
 class Module(NamedEntity):
     __slots__ = (
         "name",
+        "parent",
         "description",
         "hidden",
         "dependencies",
@@ -17,8 +18,8 @@ class Module(NamedEntity):
         "subroutines",
     )
 
-    def __init__(self, name, description=None, hidden=False):
-        super().__init__(name)
+    def __init__(self, name, description=None, hidden=False, parent=None):
+        super().__init__(name, parent=parent)
         self.name = name.lower()
         self.description = description
         # hidden define if it is should be a true fortran module or just a container
@@ -85,8 +86,8 @@ class ExternalModule(Module):
     When methods will be properly implemented this should be removed
     """
 
-    def __init__(self, name, hidden=False):
-        super().__init__(name, hidden=hidden)
+    def __init__(self, name, parent, hidden=False):
+        super().__init__(name, hidden=hidden, parent=parent)
 
     def add_method(self, name, arguments, result_=None, bind_c=False):
         """

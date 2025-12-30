@@ -4,7 +4,7 @@ from numeta.array_shape import UNKNOWN
 
 class IsoCBinding(ExternalModule):
     def __init__(self):
-        super().__init__("iso_c_binding")
+        super().__init__("iso_c_binding", None)
 
         self.c_int32 = Variable("c_int32_t", ftype=None)
         self.c_int64 = Variable("c_int64_t", ftype=None)
