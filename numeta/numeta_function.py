@@ -302,7 +302,8 @@ class NumetaFunction:
         Calling it is another story and not implemented yet.
         """
 
-        if BuilderHelper.current_builder is not None:
+        builder = BuilderHelper.current_builder
+        if builder is not None:
             # We are already contructing a symbolic function
 
             _, signature, runtime_args = get_signature_and_runtime_args(
@@ -343,7 +344,7 @@ class NumetaFunction:
             if return_specs:
                 for dtype, rank in return_specs:
                     if rank == 0:
-                        out_var = BuilderHelper.generate_local_variables(
+                        out_var = builder.generate_local_variables(
                             "fc_r",
                             ftype=dtype.get_fortran(),
                         )
@@ -351,7 +352,7 @@ class NumetaFunction:
                         return_values.append(out_var)
                         continue
 
-                    shape_var = BuilderHelper.generate_local_variables(
+                    shape_var = builder.generate_local_variables(
                         "fc_out_shape",
                         ftype=size_t.get_fortran(bind_c=True),
                         shape=ArrayShape((rank,)),
@@ -363,13 +364,13 @@ class NumetaFunction:
                     if settings.use_numpy_allocator:
                         from numeta.external_modules.iso_c_binding import FPointer_c, iso_c
 
-                        out_ptr = BuilderHelper.generate_local_variables(
+                        out_ptr = builder.generate_local_variables(
                             "fc_out_ptr",
                             ftype=FPointer_c,
                         )
                         return_arguments.append(out_ptr)
 
-                        out_array = BuilderHelper.generate_local_variables(
+                        out_array = builder.generate_local_variables(
                             "fc_r",
                             ftype=dtype.get_fortran(),
                             shape=array_shape,
@@ -378,7 +379,7 @@ class NumetaFunction:
                         return_pointers.append((out_ptr, out_array, shape_var, rank))
                         return_values.append(out_array)
                     else:
-                        out_array = BuilderHelper.generate_local_variables(
+                        out_array = builder.generate_local_variables(
                             "fc_r",
                             ftype=dtype.get_fortran(),
                             shape=array_shape,
@@ -388,9 +389,7 @@ class NumetaFunction:
                         return_values.append(out_array)
 
             if do_inline:
-                from .syntax.inline import inline as inline_call
-
-                inline_call(symbolic_fun, *full_runtime_args, *return_arguments)
+                builder.inline(symbolic_fun, *full_runtime_args, *return_arguments)
             else:
                 # This add a Call statement to the current builder
                 symbolic_fun(*full_runtime_args, *return_arguments)
