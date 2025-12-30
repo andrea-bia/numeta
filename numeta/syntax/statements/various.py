@@ -418,6 +418,45 @@ class PointerAssignment(Statement):
     def children(self):
         return [self.target, self.pointer]
 
+    def get_with_updated_variables(self, variables_couples):
+        def update_variables(element):
+            if isinstance(element, tuple):
+                return tuple(update_variables(e) for e in element)
+            if isinstance(element, slice):
+                return slice(
+                    update_variables(element.start),
+                    update_variables(element.stop),
+                    update_variables(element.step),
+                )
+            from numeta.array_shape import ArrayShape
+
+            if isinstance(element, ArrayShape):
+                return ArrayShape(
+                    tuple(update_variables(dim) for dim in element.dims),
+                    fortran_order=element.fortran_order,
+                )
+            from numeta.syntax.nodes.base_node import Node
+
+            if isinstance(element, Node):
+                return element.get_with_updated_variables(variables_couples)
+            return element
+
+        new_pointer = self.pointer.get_with_updated_variables(variables_couples)
+        new_target = self.target.get_with_updated_variables(variables_couples)
+        from numeta.array_shape import ArrayShape
+
+        new_pointer_shape = ArrayShape(update_variables(self.pointer_shape), fortran_order=True)
+        new_target_shape = (
+            update_variables(self.target_shape) if self.target_shape is not None else None
+        )
+        return type(self)(
+            new_pointer,
+            new_pointer_shape,
+            new_target,
+            new_target_shape,
+            add_to_scope=False,
+        )
+
     def get_code_blocks(self):
         return [
             *self.pointer.get_code_blocks(),

@@ -1,6 +1,5 @@
 from .expression_node import ExpressionNode
 from numeta.syntax.settings import settings
-from numeta.syntax.nodes import Node
 from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
 
 
@@ -133,19 +132,7 @@ class GetItem(ExpressionNode):
 
     def get_with_updated_variables(self, variables_couples):
 
-        def update_variables(element, variables_couples):
-            """Recursively replace variables in ``element`` according to ``variables_couples``."""
-            if isinstance(element, tuple):
-                return tuple(update_variables(e, variables_couples) for e in element)
-            if isinstance(element, slice):
-                return slice(
-                    update_variables(element.start, variables_couples),
-                    update_variables(element.stop, variables_couples),
-                    update_variables(element.step, variables_couples),
-                )
-            if isinstance(element, Node):
-                return element.get_with_updated_variables(variables_couples)
-            return element
+        from numeta.syntax.tools import update_variables
 
         new_var = self.variable.get_with_updated_variables(variables_couples)
         new_slice = update_variables(self.sliced, variables_couples)

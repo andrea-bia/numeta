@@ -337,10 +337,6 @@ class NumetaFunction:
                 if symbolic_fun.count_statements() <= self.inline:
                     do_inline = True
 
-            if return_specs:
-                if do_inline:
-                    raise NotImplementedError("Can't inline a function that returns")
-
             return_arguments = []
             return_values = []
             return_pointers = []

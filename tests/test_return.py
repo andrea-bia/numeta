@@ -300,3 +300,51 @@ def test_nested_return_array_rank1_no_numpy_allocator(dtype):
         np.testing.assert_allclose(
             array, np.zeros(size, dtype=dtype), rtol=10e2 * np.finfo(dtype).eps
         )
+
+
+@pytest.mark.parametrize(
+    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+)
+def test_inline_returning_function_scalar(dtype):
+    @nm.jit(inline=True)
+    def return_scalar_inline():
+        return nm.scalar(dtype, 7)
+
+    @nm.jit
+    def caller_scalar():
+        return return_scalar_inline()
+
+    scalar = caller_scalar()
+
+    expected_scalar = dtype(7)
+
+    if np.issubdtype(dtype, np.integer):
+        np.testing.assert_allclose(scalar, expected_scalar, atol=0)
+    else:
+        np.testing.assert_allclose(scalar, expected_scalar, rtol=10e2 * np.finfo(dtype).eps)
+
+
+@pytest.mark.parametrize(
+    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+)
+def test_inline_returning_function_array(dtype):
+    size = 8
+
+    @nm.jit(inline=True)
+    def return_array_inline(n):
+        out = nm.zeros(n, dtype)
+        out[:] = nm.scalar(dtype, 3)
+        return out
+
+    @nm.jit
+    def caller_array(n):
+        return return_array_inline(n)
+
+    array = caller_array(size)
+
+    expected_array = np.full(size, dtype(3), dtype=dtype)
+
+    if np.issubdtype(dtype, np.integer):
+        np.testing.assert_allclose(array, expected_array, atol=0)
+    else:
+        np.testing.assert_allclose(array, expected_array, rtol=10e2 * np.finfo(dtype).eps)

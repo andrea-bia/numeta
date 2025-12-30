@@ -1,10 +1,10 @@
 # TODO
 
 ## feat
-- Support inlining `return` statements in calls to a `NumetaFunction`.
 
 ## refactor
 - Do not return the array shape in `return` statements if the shape is known at compile time.
+- Improve efficiency of nested function returns by avoiding unnecessary allocations. 
 
 ## fix
 - Fix name conflicts when inlining a function that creates temporary variables and the caller also creates temporary variables. This happens because `BuilderHelper` starts counting from zero.
