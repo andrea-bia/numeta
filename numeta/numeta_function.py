@@ -1,5 +1,4 @@
 import numpy as np
-import subprocess as sp
 from pathlib import Path
 import tempfile
 import importlib.util
@@ -9,11 +8,12 @@ import pickle
 import shutil
 from dataclasses import dataclass
 from typing import Any
-import textwrap
 import inspect
 
 from numeta.external_library import ExternalLibrary
 
+from .compiler import FortranCompiler
+from .registry import register_compilation_target
 from .settings import settings
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
@@ -57,19 +57,6 @@ class NumetaCompilationTarget(ExternalLibrary):
     To link NumetaFunctions when called by other NumetaFunctions
     """
 
-    _registry: list["NumetaCompilationTarget"] = []
-
-    @classmethod
-    def registered_functions(cls) -> list["NumetaCompilationTarget"]:
-        """Return a snapshot of all instantiated :class:`NumetaFunction` objects."""
-        return list(cls._registry)
-
-    @classmethod
-    def clear_registered_functions(cls) -> None:
-        """Clear the registry of instantiated :class:`NumetaFunction` objects."""
-        print("clearing")
-        cls._registry.clear()
-
     def __init__(
         self,
         name,
@@ -96,7 +83,7 @@ class NumetaCompilationTarget(ExternalLibrary):
         self.capi_name = None
 
         # Register this instance for later inspection via the class registry
-        type(self)._registry.append(self)
+        register_compilation_target(self)
 
         # Object files of all the NumetaCompilationTarget needed by this one
         # Because to link (capi part) we need all the obj files
@@ -155,61 +142,17 @@ class NumetaCompilationTarget(ExternalLibrary):
             queue = new_queue
         return obj_files
 
-    def _run_command(self, command, cwd):
-        sp_run = sp.run(
-            command,
-            cwd=cwd,
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
-        )
-        if sp_run.returncode != 0:
-            error_message = "Error while compiling, the command was:\n"
-            error_message += " ".join(command) + "\n"
-            error_message += "The output was:\n"
-            error_message += textwrap.indent(sp_run.stdout.decode("utf-8"), "    ")
-            error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
-            raise Warning(error_message)
-        return sp_run
-
     def compile_fortran(self):
         """
         Compile Fortran source files using gfortran and return the resulting object file.
         """
-
-        fortran_src = self.directory / f"{self.name}_src.f90"
-        fortran_src.write_text(self.symbolic_function.get_code())
-
-        obj_file = self.directory / f"{self.name}_fortran.o"
-
-        include_dirs = []
-        additional_flags = []
-        dependencies = self.symbolic_function.get_dependencies().values()
-
-        for lib in dependencies:
-
-            if lib.include is not None:
-                include_dirs.extend(lib.include)
-            if lib.additional_flags is not None:
-                if isinstance(lib.additional_flags, str):
-                    additional_flags.extend(lib.additional_flags.split())
-                else:
-                    additional_flags.append(lib.additional_flags)
-
-        command = ["gfortran"]
-        command.extend(["-fopenmp"])
-        command.extend(self.compile_flags)
-        command.extend(["-fPIC", "-c", "-o", str(obj_file)])
-        command.append(str(fortran_src))
-        command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
-        command.extend(additional_flags)
-
-        self._run_command(command, cwd=self.directory)
-
-        mod_file = None
-        if (self.directory / f"{self.name}.mod").is_file():
-            mod_file = str(self.directory / f"{self.name}.mod")
-
-        return obj_file, str(self.directory)
+        compiler = FortranCompiler(self.compile_flags)
+        return compiler.compile_fortran(
+            name=self.name,
+            directory=self.directory,
+            source=self.symbolic_function.get_code(),
+            dependencies=self.symbolic_function.get_dependencies().values(),
+        )
 
     def compile_with_capi_interface(
         self,
@@ -268,19 +211,8 @@ class NumetaCompilationTarget(ExternalLibrary):
         command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
         command.extend(additional_flags)
 
-        sp_run = sp.run(
-            command,
-            cwd=self.directory,
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
-        )
-        if sp_run.returncode != 0:
-            error_message = "Error while compiling, the command was:\n"
-            error_message += " ".join(command) + "\n"
-            error_message += "The output was:\n"
-            error_message += textwrap.indent(sp_run.stdout.decode("utf-8"), "    ")
-            error_message += textwrap.indent(sp_run.stderr.decode("utf-8"), "    ")
-            raise Warning(error_message)
+        compiler = FortranCompiler(self.compile_flags)
+        compiler.run_command(command, cwd=self.directory)
 
     def load_with_capi(self):
         if self.capi_name is None:
