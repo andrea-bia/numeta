@@ -197,11 +197,11 @@ class BuilderHelper:
                 )
                 tmp_shape[:] = Shape(expr)
 
-                from .wrappers import empty
-
                 alloc_dims = [tmp_shape[i] for i in range(rank)]
                 if not expr_shape.fortran_order:
                     alloc_dims = alloc_dims[::-1]
+
+                from .wrappers import empty
 
                 tmp = empty(
                     alloc_dims,

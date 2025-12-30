@@ -669,6 +669,7 @@ class NumetaFunction:
             )
 
             symbolic_fun = self.get_symbolic_function(signature)
+            return_specs = self.return_signatures.get(signature, [])
 
             # first check the runtime arguments
             # they should be symbolic nodes
@@ -690,13 +691,81 @@ class NumetaFunction:
                 if symbolic_fun.count_statements() <= self.inline:
                     do_inline = True
 
+            if return_specs:
+                if do_inline:
+                    raise NotImplementedError("Can't inline a function that returns")
+
+            return_arguments = []
+            return_values = []
+            return_pointers = []
+            if return_specs:
+                for dtype, rank in return_specs:
+                    if rank == 0:
+                        out_var = BuilderHelper.generate_local_variables(
+                            "fc_r",
+                            ftype=dtype.get_fortran(),
+                        )
+                        return_arguments.append(out_var)
+                        return_values.append(out_var)
+                        continue
+
+                    shape_var = BuilderHelper.generate_local_variables(
+                        "fc_out_shape",
+                        ftype=size_t.get_fortran(bind_c=True),
+                        shape=ArrayShape((rank,)),
+                    )
+                    return_arguments.append(shape_var)
+
+                    array_shape = ArrayShape(tuple([None] * rank))
+
+                    if settings.use_numpy_allocator:
+                        from numeta.external_modules.iso_c_binding import FPointer_c, iso_c
+
+                        out_ptr = BuilderHelper.generate_local_variables(
+                            "fc_out_ptr",
+                            ftype=FPointer_c,
+                        )
+                        return_arguments.append(out_ptr)
+
+                        out_array = BuilderHelper.generate_local_variables(
+                            "fc_r",
+                            ftype=dtype.get_fortran(),
+                            shape=array_shape,
+                            pointer=True,
+                        )
+                        return_pointers.append((out_ptr, out_array, shape_var, rank))
+                        return_values.append(out_array)
+                    else:
+                        out_array = BuilderHelper.generate_local_variables(
+                            "fc_r",
+                            ftype=dtype.get_fortran(),
+                            shape=array_shape,
+                            allocatable=True,
+                        )
+                        return_arguments.append(out_array)
+                        return_values.append(out_array)
+
             if do_inline:
                 from .syntax.inline import inline as inline_call
 
-                inline_call(symbolic_fun, *full_runtime_args)
+                inline_call(symbolic_fun, *full_runtime_args, *return_arguments)
             else:
                 # This add a Call statement to the current builder
-                symbolic_fun(*full_runtime_args)
+                symbolic_fun(*full_runtime_args, *return_arguments)
+
+            for out_ptr, out_array, shape_var, rank in return_pointers:
+                if rank == 1:
+                    shape_fortran = shape_var
+                else:
+                    shape_fortran = shape_var[rank - 1 : 1 : -1]
+                from numeta.external_modules.iso_c_binding import iso_c
+
+                iso_c.c_f_pointer(out_ptr, out_array, shape_fortran)
+
+            if return_specs:
+                if len(return_values) == 1:
+                    return return_values[0]
+                return tuple(return_values)
         else:
 
             # TODO: probably overhead, to do in C?

@@ -1,7 +1,7 @@
 # TODO
 
 ## feat
-- Support `return` statements in calls to a `NumetaFunction`.
+- Support inlining `return` statements in calls to a `NumetaFunction`.
 
 ## refactor
 - Do not return the array shape in `return` statements if the shape is known at compile time.
