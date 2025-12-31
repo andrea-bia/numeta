@@ -424,16 +424,19 @@ def test_inline_tmp_scalar():
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_tmp():
+def test_inline_name_mangling():
+    """
+    To test if the local variables are properly renamed.
+    """
 
     @nm.jit(inline=True)
     def callee(n, a):
         f = nm.float64(5.0)
         a[n] = f
 
-    @nm.jit
+    @nm.jit(directory="build")
     def caller(a):
-        n = nm.int32(6, name="n")
+        n = nm.int32(6)
         callee(n, a)
 
     a = np.zeros(10, dtype=np.int64)
@@ -442,3 +445,60 @@ def test_inline_tmp():
     expected = np.zeros(10, dtype=np.int64)
     expected[6] = 5.0
     np.testing.assert_equal(a, expected)
+
+
+def test_inline_slice_composition():
+
+    @nm.jit(inline=True)
+    def callee(arr):
+        arr[:4] = 1.0
+        arr[4:6] = 2.0
+        arr[6:] = 3.0
+        arr[2] = 4.0
+
+    @nm.jit
+    def caller(a, b, c, d):
+        callee(a[3:10])
+        callee(b)
+        callee(c[5:])
+        callee(d[:10])
+
+    a = np.zeros(12)
+    b = np.zeros(12)
+    c = np.zeros(12)
+    d = np.zeros(12)
+    caller(a, b, c, d)
+
+    expected_a = np.zeros(12)
+    expected_a[3:7] = 1.0
+    expected_a[7:9] = 2.0
+    expected_a[9:10] = 3.0
+    expected_a[5] = 4.0
+    np.testing.assert_allclose(a, expected_a)
+
+    expected_b = np.zeros(12)
+    expected_b[:7] = 1.0
+    expected_b[4:6] = 2.0
+    expected_b[6:] = 3.0
+    expected_b[2] = 4.0
+    np.testing.assert_allclose(b, expected_b)
+
+    expected_c = np.zeros(12)
+    expected_c[5:12] = 1.0
+    expected_c[9:11] = 2.0
+    expected_c[11:] = 3.0
+    expected_c[7] = 4.0
+    np.testing.assert_allclose(c, expected_c)
+    expected_c = np.zeros(12)
+    expected_c[5:12] = 1.0
+    expected_c[9:11] = 2.0
+    expected_c[11:] = 3.0
+    expected_c[7] = 4.0
+    np.testing.assert_allclose(c, expected_c)
+
+    expected_d = np.zeros(12)
+    expected_d[:7] = 1.0
+    expected_d[4:6] = 2.0
+    expected_d[6:10] = 3.0
+    expected_d[2] = 4.0
+    np.testing.assert_allclose(d, expected_d)

@@ -38,6 +38,11 @@ class SubroutineDeclaration(StatementWithScope):
             body_derived_types_dec,
             body_subroutine_decs,
         ) = divide_variables_and_derived_types(body_declarations)
+        self.local_variables = {
+            name: dec.variable
+            for name, dec in body_variables_dec.items()
+            if name not in self.variables_dec
+        }
         self.variables_dec.update(body_variables_dec)
         self.derived_types_dec.update(body_derived_types_dec)
         self.interfaces.extend(dec.subroutine for dec in body_subroutine_decs.values())

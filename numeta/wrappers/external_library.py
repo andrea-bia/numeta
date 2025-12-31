@@ -12,11 +12,11 @@ class ExternalLibraryWrapper(ExternalLibrary):
 
     def __init__(self, name, directory=None, include=None, additional_flags=None, to_link=True):
         super().__init__(name, directory, include, additional_flags, to_link=to_link)
-        self.methods = ExternalModule(name, hidden=True)
+        self.methods = ExternalModule(name, self, hidden=True)
         self.modules = {}
 
     def add_module(self, name, hidden=False):
-        self.modules[name] = ExternalModule(name, hidden=False)
+        self.modules[name] = ExternalModule(name, self, hidden=False)
 
     def add_method(self, name, argtypes, restype, bind_c=True):
         symbolic_arguments = [

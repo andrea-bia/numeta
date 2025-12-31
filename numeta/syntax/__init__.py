@@ -5,7 +5,6 @@ from .subroutine import Subroutine
 from .module import Module, ExternalModule
 from .scope import Scope
 from .settings import settings
-from .inline import inline
 
 from .expressions import LiteralNode
 

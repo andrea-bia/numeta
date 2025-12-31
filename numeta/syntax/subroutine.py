@@ -67,6 +67,9 @@ class Subroutine(NamedEntity):
     def get_dependencies(self):
         return self.get_declaration().dependencies
 
+    def get_local_variables(self):
+        return self.get_declaration().local_variables
+
     def get_external_interfaces(self):
         return self.get_declaration().interfaces
 

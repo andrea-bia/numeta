@@ -1,4 +1,4 @@
-from .syntax import Variable, Scope
+from .syntax import Variable, Scope, Subroutine
 from .settings import settings
 
 
@@ -32,6 +32,13 @@ class BuilderHelper:
 
     @classmethod
     def generate_local_variables(cls, prefix, allocate=False, name=None, **kwargs):
+        """
+        TODO:
+        TO DEPRECATE in some way, use:
+        builder = BuilderHelper.get_current_builder()
+        bilder.generate_local_variable(...)
+        problem: sometimes is not required to have a builder (i.e. fixed name) so maybe set a default one (?).
+        """
         if name is None:
             builder = cls.get_current_builder()
             if prefix not in builder.prefix_counter:
@@ -42,6 +49,11 @@ class BuilderHelper:
             builder = cls.get_current_builder()
             return builder.allocate_array(name, **kwargs)
         return Variable(name, **kwargs)
+
+    def generate_local_variable(self, prefix, allocate=False, name=None, **kwargs):
+        return BuilderHelper.generate_local_variables(
+            prefix, allocate=allocate, name=name, **kwargs
+        )
 
     def _allocate_array(self, name, shape, **kwargs):
         from .syntax import Allocate, If, Allocated, Not
@@ -197,11 +209,11 @@ class BuilderHelper:
                 )
                 tmp_shape[:] = Shape(expr)
 
-                from .wrappers import empty
-
                 alloc_dims = [tmp_shape[i] for i in range(rank)]
                 if not expr_shape.fortran_order:
                     alloc_dims = alloc_dims[::-1]
+
+                from .wrappers import empty
 
                 tmp = empty(
                     alloc_dims,
@@ -231,3 +243,33 @@ class BuilderHelper:
         self.set_current_builder(old_builder)
 
         return ret
+
+    def inline(self, function, *arguments):
+        """Inline ``function`` with the given ``arguments`` into the current scope."""
+        # Avoid heavy imports at module load time
+        if not isinstance(function, Subroutine):
+            raise TypeError("Unsupported function type for inline call")
+
+        from .syntax.tools import check_node
+
+        args = [check_node(arg) for arg in arguments]
+        if len(args) != len(function.arguments):
+            raise ValueError("Incorrect number of arguments for inlined subroutine")
+        variables_couples = list(zip(function.arguments.values(), args))
+        for local_variable in function.get_local_variables().values():
+            new_local_variable = self.generate_local_variables(
+                "nm_inline_",
+                ftype=local_variable._ftype,
+                shape=local_variable._shape,
+                intent=local_variable.intent,
+                pointer=local_variable.pointer,
+                target=local_variable.target,
+                allocatable=local_variable.allocatable,
+                parameter=local_variable.parameter,
+                assign=local_variable.assign,
+                bind_c=local_variable.bind_c,
+            )
+            variables_couples.append((local_variable, new_local_variable))
+
+        for stmt in function.scope.get_statements():
+            Scope.add_to_current_scope(stmt.get_with_updated_variables(variables_couples))

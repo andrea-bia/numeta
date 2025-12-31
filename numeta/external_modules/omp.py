@@ -4,7 +4,7 @@ from numeta.syntax.settings import settings as syntax_settings
 
 class OmpModule(ExternalModule):
     def __init__(self):
-        super().__init__("omp_lib")
+        super().__init__("omp_lib", None)
         self.add_method("omp_get_thread_num", arguments=[], result_=syntax_settings.DEFAULT_INTEGER)
         self.add_method(
             "omp_get_max_threads", arguments=[], result_=syntax_settings.DEFAULT_INTEGER
