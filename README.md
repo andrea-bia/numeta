@@ -1,14 +1,16 @@
 # Numeta
 
-Numeta is a simple Just-In-Time (JIT) compiler for Python, focused on metaprogramming. It works like [Numba](https://github.com/numba/numba), but it's much simpler, and the focus is metaprogramming . Although numeta is still in the alpha stage and a personal side project developed in my free time, it aims to create a powerful metaprogramming tool for generating code. For example, I encountered a similar challenge when working on integral evaluations over Gaussian basis functions in computational chemistry.
 
-The focus has been on simplicity, avoiding complex parsing of code, AST, or bytecode, and instead using type hints to differentiate between compiled variables and compile-time variables.
+Numeta is a small transpiler for Python with a metaprogramming focus. It works like [Numba](https://github.com/numba/numba), but keeps the feature set intentionally narrow so it is easy to reason about. Although Numeta is still alpha and a personal side project, it aims to provide a practical metaprogramming tool for generating numeric code. I encountered a similar need while working on integral evaluations over Gaussian basis functions in computational chemistry.
 
-Currently, the code generates Fortran code that is compiled and executed. The obvious reason is that [real programmers want to write FORTRAN programs in any language](https://en.wikipedia.org/wiki/Real_Programmers_Don%27t_Use_Pascal). Additional reasons are discussed in the [Why Fortran Backend](#why-fortran-backend) section.
+The focus has been on simplicity, avoiding complex parsing of code, AST, or bytecode, and instead using type hints to differentiate between compiled variables and compile-time variables. Numeta translates a restricted Python + NumPy-like subset into Fortran, then compiles and runs the generated code.
+
+Currently, the code generates Fortran that is compiled and executed. The obvious reason is that [real programmers want to write FORTRAN programs in any language](https://en.wikipedia.org/wiki/Real_Programmers_Don%27t_Use_Pascal). Additional reasons are discussed in the [Why Fortran Backend](#why-fortran-backend) section.
 
 ## Table of Contents
 
 - [Features](#features)
+- [How it Works](#how-it-works)
 - [Limitations](#limitations)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -16,7 +18,7 @@ Currently, the code generates Fortran code that is compiled and executed. The ob
   - [Type Hints](#type-hints)
   - [Compile-Time Variables](#compile-time-variables)
   - [Parallelizing Loops](#parallelizing-loops)
-  - [comptime Example](#comptime-example)
+  - [Compile-Time Example](#compile-time-example)
 - [Examples](#examples)
   - [First For Loop](#first-for-loop)
   - [Conditional Statements](#conditional-statements)
@@ -30,12 +32,20 @@ Currently, the code generates Fortran code that is compiled and executed. The ob
 ## Features
 
 - **Metaprogramming Focus**: Leverages metaprogramming for flexible code generation.
-- **Simplified Approach**: Does not rely on parsing AST or bytecode, making it straightforward.
+- **Simple Compiler Pipeline**: Avoids heavy AST/bytecode parsing by working from type hints and runtime objects.
 - **Type Annotations**: Uses Python's type hints to differentiate between compiled and compile-time variables.
+
+## How it Works
+
+1. **Annotate** compile-time values using `nm.comptime` and write kernels with `@nm.jit`.
+2. **Transpile** the supported Python + NumPy-like subset into Fortran.
+3. **Compile** the generated Fortran into a shared library.
+4. **Execute** the compiled routine from Python.
 
 ## Limitations
 
-Numeta is still experimental. JIT-compiled functions currently cannot return values; they must modify arrays or objects passed as arguments.
+Numeta is still experimental. Compiled functions can return scalars or NumPy arrays, but not arbitrary Python objects.
+Not all Python or NumPy features are supported yet.
 
 ## Installation
 
@@ -46,6 +56,8 @@ git clone https://gitlab.com/andrea_bianchi/numeta
 cd numeta
 pip install .
 ```
+
+You will need a Fortran compiler (only `gfortran` is currently supported) available on your `PATH` to compile generated code.
 
 ## Quick Start
 
@@ -91,9 +103,9 @@ Note that the indices are reversed because Fortran arrays are column-major, mean
 
 ### Type Hints
 
-In numeta, to differentiate compile-time variables and runtime variables, you should use type hints. This allows for a clear separation between the two and enables metaprogramming capabilities.
-Variable with the `nm.comptime` type hint are considered compile-time variables, while those with other type hints are treated as runtime variables.
-Runtime variables should be compatible with numeta, in particular, they should be numpy types (structured arrays are supported).
+In Numeta, to differentiate compile-time variables and runtime variables, you should use type hints. This allows for a clear separation between the two and enables metaprogramming capabilities.
+Variables with the `nm.comptime` type hint are considered compile-time variables, while those with other type hints are treated as runtime variables.
+Runtime variables should be compatible with Numeta; in particular, they should be NumPy types (structured arrays are supported).
 
 ## Examples
 
@@ -148,7 +160,7 @@ def conditional_example(n, array) -> None:
         nm.endif()
 ```
 
-Note: You need to use `nm.endif()` at the end of the conditional block, though I'm working on improving this syntax to make it more intuitive. 
+Note: You need to use `nm.endif()` at the end of the conditional block, though I'm working on improving this syntax to make it more intuitive.
 It is currently difficult to maintain Python-like syntax for generated conditional code because some branches may never be taken, which complicates the code generation and obligates to read the AST.
 
 Alternatively, you can use:
@@ -266,7 +278,7 @@ result = np.zeros((1,), dtype=array.dtype)
 sum_first_n(4, array, result)
 ```
 
-When `sum_first_n` is compiled, the loop is unrolled because `length` is knownat compile time.
+When `sum_first_n` is compiled, the loop is unrolled because `length` is known at compile time.
 
 ### Custom Naming of Compiled Functions
 
