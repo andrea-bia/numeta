@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "numeta"
-version = "0.3.2"
+version = "0.3.3"
 description = "Numeta is a small transpiler for Python with a metaprogramming focus."
 authors = [
     { name = "Andrea Bianchi", email = "andrea_bianchi@outlook.com" }
