@@ -20,5 +20,6 @@ deploy_pypi:
     - pip install build twine
     - python -m build
     - twine upload --verbose --non-interactive --username __token__ --password "$PYPI_API_TOKEN" dist/*
+  when: manual
   only:
     - tags
