@@ -84,7 +84,4 @@ def test_variable_declaration_syntax():
 
     array_unknown = nm.int32[None](name="array_unknown")
     dec = VariableDeclaration(array_unknown)
-    print(dec.print_lines())
-
-
-test_variable_declaration_syntax()
+    assert dec.print_lines() == ["integer(c_int32_t), dimension(0:*) :: array_unknown\n"]
