@@ -65,9 +65,6 @@ def test_cast_struct():
     check["a"] = 9.0
     check["b"] = 9
 
-    print(a.view(dtype)["a"][0], check["a"])
-    print(a.view(dtype)["b"][0], check["b"])
-
     # cannot use rtol
     np.testing.assert_allclose(a.view(dtype)["a"][0], check["a"], atol=0)
     np.testing.assert_allclose(a.view(dtype)["b"][0], check["b"], atol=0)
