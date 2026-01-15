@@ -2,6 +2,11 @@ import numpy as np
 import numeta as nm
 
 
+def assert_inline_dependency(caller, caller_signature, *, expected):
+    dependencies = caller.get_symbolic_function(caller_signature).get_dependencies()
+    assert (len(dependencies) > 0) is expected
+
+
 def test_inline_array_scalar():
 
     @nm.jit(inline=True)
@@ -293,7 +298,7 @@ def test_inline_jit_threshold_inline():
     np.testing.assert_equal(arr, expected)
 
     signature = caller.get_signature(arr)
-    assert len(caller._compiled_targets[signature].get_nested_obj_files()) == 0
+    assert_inline_dependency(caller, signature, expected=False)
 
 
 def test_inline_jit_threshold_call():
@@ -313,7 +318,7 @@ def test_inline_jit_threshold_call():
     np.testing.assert_equal(arr, expected)
 
     signature = caller.get_signature(arr)
-    assert len(caller._compiled_targets[signature].get_nested_obj_files()) != 0
+    assert_inline_dependency(caller, signature, expected=True)
 
 
 def test_inline_jit_threshold_loop_inline():
@@ -334,7 +339,7 @@ def test_inline_jit_threshold_loop_inline():
     np.testing.assert_equal(arr, expected)
 
     signature = caller.get_signature(3, arr)
-    assert len(caller._compiled_targets[signature].get_nested_obj_files()) == 0
+    assert_inline_dependency(caller, signature, expected=False)
 
 
 def test_inline_jit_threshold_loop_call():
@@ -355,7 +360,7 @@ def test_inline_jit_threshold_loop_call():
     np.testing.assert_equal(arr, expected)
 
     signature = caller.get_signature(3, arr)
-    assert len(caller._compiled_targets[signature].get_nested_obj_files()) != 0
+    assert_inline_dependency(caller, signature, expected=True)
 
 
 def test_inline_jit_threshold_if_inline():
@@ -378,7 +383,8 @@ def test_inline_jit_threshold_if_inline():
     np.testing.assert_equal(arr, expected)
 
     signature = caller.get_signature(5, arr)
-    assert len(caller._compiled_targets[signature].get_nested_obj_files()) == 0
+    callee_signature = callee.get_signature(5, arr)
+    assert_inline_dependency(caller, signature, expected=False)
 
 
 def test_inline_jit_threshold_if_call():
@@ -401,7 +407,8 @@ def test_inline_jit_threshold_if_call():
     np.testing.assert_equal(arr, expected)
 
     signature = caller.get_signature(5, arr)
-    assert len(caller._compiled_targets[signature].get_nested_obj_files()) != 0
+    callee_signature = callee.get_signature(5, arr)
+    assert_inline_dependency(caller, signature, expected=True)
 
 
 def test_inline_tmp_scalar():
