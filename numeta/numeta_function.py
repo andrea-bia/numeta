@@ -117,7 +117,7 @@ class NumetaCompiledFunction(ExternalLibrary):
 
             # find dependencies
 
-            libraries = set()
+            libraries = {"gfortran", "mvec"}
             libraries_dirs = set()
             rpath_dirs = set()
             include_dirs = set()
@@ -481,8 +481,8 @@ class NumetaFunction:
 
             libraries = [
                 "gfortran",
-                f"python{sys.version_info.major}.{sys.version_info.minor}",
                 "mvec",  # link math vectorized version
+                f"python{sys.version_info.major}.{sys.version_info.minor}",
                 self._compiled_functions[signature].name,
             ]
             lib_dirs = []
