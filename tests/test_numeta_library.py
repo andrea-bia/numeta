@@ -103,6 +103,31 @@ def test_library_save_and_load_use_dep(tmp_path):
     assert all(array == -1)
 
 
+def test_library_global_variable_dep(tmp_path):
+    lib = nm.NumetaLibrary("global_variable_dep")
+
+    global_constant_var = nm.declare_global_constant(
+        (2, 1), np.float64, value=np.array([2.0, -1.0]), name="global_constant_var"
+    )
+
+    @nm.jit(library=lib)
+    def set(var):
+        var[0] = global_constant_var[0, 0]
+        var[1] = global_constant_var[1, 0]
+
+    a = np.empty(2, dtype=np.float64)
+    lib.set(a)
+    np.testing.assert_allclose(a, np.array([2.0, -1.0]))
+
+    lib.save(tmp_path, "")
+
+    lib_loaded = nm.NumetaLibrary.load("global_variable_dep", tmp_path)
+
+    a = np.empty(2, dtype=np.float64)
+    lib.set(a)
+    np.testing.assert_allclose(a, np.array([2.0, -1.0]))
+
+
 def test_library_name_conflict(tmp_path):
 
     lib = nm.NumetaLibrary("name_conflict")
