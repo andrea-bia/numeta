@@ -10,8 +10,12 @@ class ExternalLibraryWrapper(ExternalLibrary):
     Used to convert types hint to fortran symbolic variables
     """
 
-    def __init__(self, name, directory=None, include=None, additional_flags=None, to_link=True):
-        super().__init__(name, directory, include, additional_flags, to_link=to_link)
+    __slots__ = ["methods", "modules"]
+
+    def __init__(
+        self, name, directory=None, include=None, additional_flags=None, to_link=True, rpath=False
+    ):
+        super().__init__(name, directory, include, additional_flags, to_link=to_link, rpath=rpath)
         self.methods = ExternalModule(name, self, hidden=True)
         self.modules = {}
 
@@ -24,13 +28,15 @@ class ExternalLibraryWrapper(ExternalLibrary):
         ]
         return_type = None
         if restype is not None:
-            return_type = convert_argument("res0", restype, bind_c=bind_c)
+            return_type = convert_argument("res0", restype, bind_c=bind_c)._ftype
 
         self.methods.add_method(name, symbolic_arguments, return_type, bind_c=bind_c)
 
     def __getattr__(self, name):
         try:
-            if name in self.methods.subroutines:
+            if name in self.__slots__:
+                super().__getattr__(name)
+            elif name in self.methods.subroutines:
                 return self.methods.subroutines[name]
             elif name in self.modules:
                 return self.modules[name]

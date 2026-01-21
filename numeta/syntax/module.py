@@ -1,5 +1,7 @@
 import sys
 
+from numeta.array_shape import SCALAR
+
 from .nodes import NamedEntity
 from .subroutine import Subroutine
 from .expressions import Function

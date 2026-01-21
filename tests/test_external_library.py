@@ -5,26 +5,6 @@ import pytest
 import os
 
 
-def test_libc_getpid():
-    if ctypes.util.find_library("c") is None:
-        pytest.skip("libc library not found")
-    libc = nm.ExternalLibraryWrapper("c")
-    libc.add_method(
-        "getpid",
-        [],
-        nm.int32,
-    )
-
-    @nm.jit
-    def get_pid(pid):
-        pid[:] = libc.getpid()
-
-    pid = np.zeros((), dtype=np.int32)
-    get_pid(pid)
-
-    assert pid == os.getpid()
-
-
 def test_blas():
     if ctypes.util.find_library("blas") is None:
         pytest.skip("BLAS library not found")

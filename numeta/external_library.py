@@ -9,20 +9,22 @@ class ExternalLibrary:
     def __init__(
         self,
         name,
-        directory=None,
+        path=None,
         include=None,
         obj_files=None,
+        rpath=None,
         additional_flags=None,
         to_link=True,
     ):
         """
-        Directory is the path to the directory where the external library to link is located.
+        path is the path to the directory where the external library to link is located.
         Include is the path of the header file to include.
         """
         self.name = name
         self.hidden = True
         self.external = True
-        self.directory = directory
+        self._path = path
+        self._rpath = rpath
         self._include = include
         self._obj_files = obj_files
         self.additional_flags = additional_flags
@@ -39,3 +41,11 @@ class ExternalLibrary:
     @property
     def include(self):
         return self._include
+
+    @property
+    def path(self):
+        return self._path
+
+    @property
+    def rpath(self):
+        return self._rpath

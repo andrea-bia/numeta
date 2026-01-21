@@ -20,7 +20,7 @@ class SubroutineDeclaration(StatementWithScope):
             self.derived_types_dec,
             subroutine_decs,
         ) = divide_variables_and_derived_types(declarations)
-        self.interfaces = [dec.subroutine for dec in subroutine_decs.values()]
+        self.interfaces = {dec.subroutine.name: dec.subroutine for dec in subroutine_decs.values()}
 
         # Then check the dependencies in the body
         entities = []
@@ -45,7 +45,9 @@ class SubroutineDeclaration(StatementWithScope):
         }
         self.variables_dec.update(body_variables_dec)
         self.derived_types_dec.update(body_derived_types_dec)
-        self.interfaces.extend(dec.subroutine for dec in body_subroutine_decs.values())
+        self.interfaces |= {
+            dec.subroutine.name: dec.subroutine for dec in body_subroutine_decs.values()
+        }
 
         self.dependencies = {}
         self.modules_to_import = []
@@ -57,7 +59,7 @@ class SubroutineDeclaration(StatementWithScope):
                 # Should we add the interface?
                 # Only if it is not contained in a module, if not the module will take care
                 if not isinstance(dependency, Module) or dependency.hidden:
-                    self.interfaces.append(var)
+                    self.interfaces[var.name] = var
             if isinstance(dependency, Module):
                 if not dependency.hidden:
                     self.modules_to_import.append((dependency, var))
@@ -85,7 +87,7 @@ class SubroutineDeclaration(StatementWithScope):
         yield Implicit(implicit_type="none", add_to_scope=False)
 
         if self.interfaces:
-            yield Interface(self.interfaces)
+            yield Interface(self.interfaces.values())
 
         yield from self.derived_types_dec.values()
 

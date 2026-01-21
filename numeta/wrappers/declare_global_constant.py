@@ -2,7 +2,7 @@ import numpy as np
 from numeta.syntax import Variable, Module
 from numeta.datatype import DataType, float64, FortranType, get_datatype
 from numeta.array_shape import ArrayShape
-from numeta.numeta_function import NumetaCompilationTarget
+from numeta.numeta_function import NumetaCompiledFunction
 
 _n_global_constant = 0
 
@@ -48,10 +48,10 @@ def declare_global_constant(
     )
 
     # We have to compile the module when needed
-    module_library = NumetaCompilationTarget(
+    module_library = NumetaCompiledFunction(
         f"{name}_module",
         global_constant_var_module,
-        directory=directory,
+        path=directory,
     )
     global_constant_var_module.parent = module_library
     return var

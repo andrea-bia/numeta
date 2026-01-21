@@ -348,3 +348,22 @@ def test_inline_returning_function_array(dtype):
         np.testing.assert_allclose(array, expected_array, atol=0)
     else:
         np.testing.assert_allclose(array, expected_array, rtol=10e2 * np.finfo(dtype).eps)
+
+
+def test_return_external_function():
+    if ctypes.util.find_library("c") is None:
+        pytest.skip("libc library not found")
+    libc = nm.ExternalLibraryWrapper("c")
+    libc.add_method(
+        "getpid",
+        [],
+        nm.int32,
+    )
+
+    @nm.jit
+    def get_pid():
+        return libc.getpid()
+
+    result = get_pid()
+
+    assert result == os.getpid()

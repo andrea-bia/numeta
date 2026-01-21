@@ -5,18 +5,8 @@ from typing import (
     overload,
 )
 
-from .numeta_function import NumetaFunction, NumetaCompilationTarget
-from .registry import clear_registered_functions, registered_functions
-
-
-def jitted_functions() -> list[NumetaCompilationTarget]:
-    """Return a list of all functions compiled via :func:`jit`."""
-    return registered_functions()
-
-
-def clear_jitted_functions() -> None:
-    """Clear the registry of jitted functions."""
-    clear_registered_functions()
+from .numeta_function import NumetaFunction
+from .numeta_library import NumetaLibrary
 
 
 @overload
@@ -33,6 +23,7 @@ def jit(
     compile_flags: str = "-O3 -march=native",
     namer: Optional[Callable[..., str]] = None,
     inline: bool | int = False,
+    library: NumetaLibrary | None = None,
 ):
     """@jit(...) used with arguments."""
     ...
@@ -46,6 +37,7 @@ def jit(
     compile_flags: str = "-O3 -march=native",
     namer: Optional[Callable[..., str]] = None,
     inline: bool | int = False,
+    library: NumetaLibrary | None = None,
 ):
     """
     Compile a function with the Numeta JIT, either directly or via parameters.
@@ -71,6 +63,8 @@ def jit(
         Optional callable to name the JIT-generated symbols.
     inline
         Controls inlining behavior (bool or max-stmts int).
+    library
+        Optional library container used to group jitted functions.
 
     Returns
     -------
@@ -79,18 +73,35 @@ def jit(
     if func is None:
 
         def decorator_wrapper(f) -> NumetaFunction:
-            return NumetaFunction(
-                f,
-                directory=directory,
-                do_checks=do_checks,
-                compile_flags=compile_flags,
-                namer=namer,
-                inline=inline,
-            )
+            name = f.__name__
+            if name.startswith("_nm"):
+                raise ValueError("Cannot create functions that startwith '_nm'")
+            if library is not None and library._nm_get(name) is not None:
+                nm_func = library._nm_get(name)
+                if nm_func.do_checks != do_checks:
+                    print(
+                        f"[Warning] function {name} has been loaded with different do_checks value: {nm_func.do_checks}"
+                    )
+                if nm_func.compile_flags != compile_flags:
+                    print(
+                        f"[Warning] function {name} has been loaded with different compile_flags value: {nm_func.compile_flags}"
+                    )
+            else:
+                nm_func = NumetaFunction(
+                    f,
+                    directory=directory,
+                    do_checks=do_checks,
+                    compile_flags=compile_flags,
+                    namer=namer,
+                    inline=inline,
+                )
+                if library is not None:
+                    library._nm_add(nm_func)
+            return nm_func
 
         return decorator_wrapper
     else:
-        return NumetaFunction(
+        nm_func = NumetaFunction(
             func,
             directory=directory,
             do_checks=do_checks,
@@ -98,3 +109,4 @@ def jit(
             namer=namer,
             inline=inline,
         )
+        return nm_func

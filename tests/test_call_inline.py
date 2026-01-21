@@ -3,7 +3,7 @@ import numeta as nm
 
 
 def assert_inline_dependency(caller, caller_signature, *, expected):
-    dependencies = caller.get_symbolic_function(caller_signature).get_dependencies()
+    dependencies = caller._compiled_functions[caller_signature].symbolic_function.get_dependencies()
     assert (len(dependencies) > 0) is expected
 
 

@@ -6,8 +6,9 @@ import textwrap
 from typing import Iterable
 
 
-class FortranCompiler:
-    def __init__(self, compile_flags: str | Iterable[str]) -> None:
+class Compiler:
+    def __init__(self, compiler, compile_flags: str | Iterable[str]) -> None:
+        self.compiler = compiler
         self.compile_flags = self._normalize_flags(compile_flags)
 
     @staticmethod
@@ -15,23 +16,6 @@ class FortranCompiler:
         if isinstance(compile_flags, str):
             return compile_flags.split()
         return list(compile_flags)
-
-    def build_fortran_command(
-        self,
-        *,
-        obj_file: Path,
-        source_file: Path,
-        include_dirs: Iterable[str],
-        additional_flags: Iterable[str],
-    ) -> list[str]:
-        command = ["gfortran"]
-        command.extend(["-fopenmp"])
-        command.extend(self.compile_flags)
-        command.extend(["-fPIC", "-c", "-o", str(obj_file)])
-        command.append(str(source_file))
-        command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
-        command.extend(additional_flags)
-        return command
 
     def run_command(self, command: list[str], cwd: Path) -> sp.CompletedProcess[str]:
         sp_run = sp.run(
@@ -50,40 +34,69 @@ class FortranCompiler:
             raise Warning(error_message)
         return sp_run
 
-    def compile_fortran(
+    def build_obj_command(
+        self,
+        *,
+        obj_file: Path,
+        source_files: Path,
+        include_dirs: Iterable[str],
+        additional_flags: Iterable[str],
+    ) -> list[str]:
+        command = [self.compiler]
+        command.extend(["-fopenmp"])
+        command.extend(self.compile_flags)
+        command.extend(["-fPIC", "-c", "-o", str(obj_file)])
+        command.extend([f"{file}" for file in source_files])
+        command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
+        command.extend(additional_flags)
+        return command
+
+    def build_lib_command(
+        self,
+        *,
+        lib_file: Path,
+        obj_files: Iterable[Path],
+        include_dirs: Iterable[str],
+        additional_flags: Iterable[str],
+        libraries: Iterable[str],
+        libraries_dirs: Iterable[Path],
+        rpath_dirs: Iterable[Path],
+    ) -> list[str]:
+        command = [self.compiler]
+        command.extend(self.compile_flags)
+        command.extend(["-fopenmp"])
+        command.extend(["-fPIC", "-shared", "-o", str(lib_file)])
+        command.extend([str(obj) for obj in obj_files])
+        command.extend([f"-l{lib}" for lib in libraries])
+        command.extend([f"-L{lib_dir}" for lib_dir in libraries_dirs])
+        command.extend([f"-I{inc_dir}" for inc_dir in include_dirs])
+        if rpath_dirs:
+            command.extend([f"-L{lib_dir}" for lib_dir in rpath_dirs])
+            command.append("-Wl,--enable-new-dtags")
+            command.extend([f"-Wl,-rpath,{lib_dir}" for lib_dir in rpath_dirs])
+            # command.append("-L.")
+            # command.append("-Wl,--enable-new-dtags")
+            # command.append("-Wl,-rpath,'$ORIGIN'")
+        command.extend(additional_flags)
+        return command
+
+    def compile_to_obj(
         self,
         *,
         name: str,
         directory: Path,
-        source: str,
-        dependencies: Iterable[object],
+        sources: Iterable[Path],
+        include_dirs: Iterable[Path] = (),
+        additional_flags: Iterable[str] = (),
     ) -> tuple[Path, str]:
         """
         Compile Fortran source files using gfortran and return the resulting object file.
         """
-        fortran_src = directory / f"{name}_src.f90"
-        fortran_src.write_text(source)
-
         obj_file = directory / f"{name}_fortran.o"
 
-        include_dirs: list[str] = []
-        additional_flags: list[str] = []
-
-        for lib in dependencies:
-            if lib.include is not None:
-                if isinstance(lib.include, (list, tuple, set)):
-                    include_dirs.extend(lib.include)
-                else:
-                    include_dirs.append(lib.include)
-            if lib.additional_flags is not None:
-                if isinstance(lib.additional_flags, str):
-                    additional_flags.extend(lib.additional_flags.split())
-                else:
-                    additional_flags.append(lib.additional_flags)
-
-        command = self.build_fortran_command(
+        command = self.build_obj_command(
             obj_file=obj_file,
-            source_file=fortran_src,
+            source_files=sources,
             include_dirs=include_dirs,
             additional_flags=additional_flags,
         )
@@ -91,3 +104,33 @@ class FortranCompiler:
         self.run_command(command, cwd=directory)
 
         return obj_file, str(directory)
+
+    def compile_to_library(
+        self,
+        name: str,
+        src_files: Iterable[Path],
+        directory: Path,
+        include_dirs: Iterable[str] = (),
+        libraries: Iterable[str] = (),
+        libraries_dirs: Iterable[Path] = (),
+        rpath_dirs: Iterable[Path] = (),
+        additional_flags: Iterable[str] = (),
+    ) -> tuple[Path, str]:
+        """
+        Compile Fortran source files using gfortran and return the resulting object file.
+        """
+
+        lib_file = directory / f"lib{name}.so"
+        command = self.build_lib_command(
+            lib_file=lib_file,
+            obj_files=src_files,
+            include_dirs=include_dirs,
+            additional_flags=additional_flags,
+            libraries=libraries,
+            libraries_dirs=libraries_dirs,
+            rpath_dirs=rpath_dirs,
+        )
+
+        self.run_command(command, cwd=lib_file.parent)
+
+        return lib_file
