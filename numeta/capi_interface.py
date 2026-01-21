@@ -1,8 +1,7 @@
-from string import Template
-import subprocess as sp
-import sysconfig
-import sys
 import numpy as np
+
+from string import Template
+from pathlib import Path
 
 from .settings import settings
 from .compiler import Compiler
