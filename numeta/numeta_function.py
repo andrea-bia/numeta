@@ -4,8 +4,7 @@ import tempfile
 import importlib.util
 import sys
 import sysconfig
-import pickle
-import shutil
+import warnings
 
 from .compiler import Compiler
 from .settings import settings
@@ -37,10 +36,10 @@ class NumetaCompiledFunction(ExternalLibrary):
         Has to be linked at runtime
         """
         super().__init__(name, to_link=True)
-        self.name2 = name
         self.symbolic_function = symbolic_function
         if path is None:
             path = tempfile.mkdtemp()
+        self.func_name = name
         self._path = Path(path).absolute()
         self._path.mkdir(exist_ok=True)
         self._rpath = self._path
@@ -516,7 +515,7 @@ class NumetaFunction:
         compiled_sub = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(compiled_sub)
         self._fast_call[signature] = getattr(
-            compiled_sub, self._compiled_functions[signature].name2
+            compiled_sub, self._compiled_functions[signature].func_name
         )
 
     def execute(self, signature, runtime_args):
