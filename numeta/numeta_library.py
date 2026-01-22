@@ -1,9 +1,8 @@
+import numpy as np
+
 from pathlib import Path
 import pickle
-import sys
-import sysconfig
-import importlib.util
-import numpy as np
+import warnings
 
 from .numeta_function import NumetaFunction, NumetaCompiledFunction
 from .pyc_extension import PyCExtension
@@ -157,5 +156,41 @@ class NumetaLibrary:
         with open(Path(directory) / f"{name}.pkl", "rb") as handle:
             for func in pickle.load(handle):
                 result._entries[func.name] = func
+
+        #
+        #   Check collisions with already compiled function
+        #
+
+        loaded_names: set[str] = set()
+        for func in result._entries.values():
+            for compiled in func._compiled_functions.values():
+                loaded_names.add(compiled.func_name)
+
+        collisions = loaded_names & NumetaFunction.used_compiled_names
+        if collisions:
+            colliding_list = ", ".join(sorted(collisions))
+            warnings.warn(
+                f"Compiled function name collision while loading library '{name}'. "
+                f"Existing names: {colliding_list}. "
+                "Conflicting compiled entries will be dropped and rebuilt on demand.",
+                RuntimeWarning,
+            )
+            for func in result._entries.values():
+                signatures_to_drop = []
+                for signature, compiled in func._compiled_functions.items():
+                    if compiled.func_name in collisions:
+                        signatures_to_drop.append(signature)
+                for signature in signatures_to_drop:
+                    func._compiled_functions.pop(signature, None)
+                    func._pyc_extensions.pop(signature, None)
+                    func._fast_call.pop(signature, None)
+
+        loaded_names = set()
+        for func in result._entries.values():
+            for compiled in func._compiled_functions.values():
+                loaded_names.add(compiled.func_name)
+
+        if loaded_names:
+            NumetaFunction.used_compiled_names.update(loaded_names)
 
         return result

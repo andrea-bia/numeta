@@ -160,7 +160,7 @@ class NumetaFunction:
     Representation of a JIT-compiled function.
     """
 
-    n_libs = 0
+    used_compiled_names: set[str] = set()
 
     def __init__(
         self,
@@ -194,6 +194,14 @@ class NumetaFunction:
 
         # Variables to populate
         self.return_signatures = {}  # Only needed if i create symbolic and after compile
+        self._compiled_functions = {}
+        self._pyc_extensions = {}
+        self._fast_call = {}
+
+    def clear(self):
+        for compiled in self._compiled_functions.values():
+            NumetaFunction.used_compiled_names.remove(compiled.func_name)
+        self.return_signatures = {}
         self._compiled_functions = {}
         self._pyc_extensions = {}
         self._fast_call = {}
@@ -428,10 +436,27 @@ class NumetaFunction:
     def construct_compiled_target(self, signature):
 
         if self.namer is None:
-            name = f"{self.name}_{NumetaFunction.n_libs}"
+            suffix = len(NumetaFunction.used_compiled_names)
+            name = f"{self.name}_{suffix}"
+            if name in NumetaFunction.used_compiled_names:
+                warnings.warn(
+                    f"Compiled function name collision: '{name}' is already registered. "
+                    "Picking a new name automatically; consider providing a custom namer "
+                    "if you need stable names.",
+                    RuntimeWarning,
+                )
+                while name in NumetaFunction.used_compiled_names:
+                    suffix += 1
+                    name = f"{self.name}_{suffix}"
         else:
             name = self.namer(*signature)
-        NumetaFunction.n_libs += 1
+            if name in NumetaFunction.used_compiled_names:
+                raise ValueError(
+                    f"Custom namer produced duplicate compiled name '{name}'. "
+                    "This can happen when different functions resolve to the same name; "
+                    "use a more specific namer or load existing libraries before compiling."
+                )
+        NumetaFunction.used_compiled_names.add(name)
 
         symbolic_fun = self.get_symbolic_function(name, signature)
 

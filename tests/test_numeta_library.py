@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import numeta as nm
 
 
@@ -15,6 +16,8 @@ def test_library_save_and_load(tmp_path):
 
     lib.save(tmp_path)
 
+    # clear add otherwise cannot load it again
+    add.clear()
     lib_loaded = nm.NumetaLibrary.load("save_and_load", tmp_path)
 
     array = np.zeros(4, dtype=np.int64)
@@ -40,6 +43,8 @@ def test_library_save_and_load_with_dep(tmp_path):
     lib.save(tmp_path, "")
     assert len(lib._entries) == 2
 
+    set_zero.clear()
+    add.clear()
     lib_loaded = nm.NumetaLibrary.load("save_and_load_with_dep", tmp_path)
     assert len(lib_loaded._entries) == 2
 
@@ -66,6 +71,8 @@ def test_library_save_and_load_with_dep_2(tmp_path):
     assert len(lib._entries) == 1
     lib.save(tmp_path, "")
 
+    set_zero.clear()
+    add.clear()
     lib_loaded = nm.NumetaLibrary.load("save_and_load_with_dep_2", tmp_path)
     assert len(lib_loaded._entries) == 1
 
@@ -91,6 +98,8 @@ def test_library_save_and_load_use_dep(tmp_path):
     assert all(array == 1)
     lib.save(tmp_path, "")
 
+    set_zero.clear()
+    add.clear()
     lib_loaded = nm.NumetaLibrary.load("save_and_load_use_dep", tmp_path)
 
     @nm.jit
@@ -121,6 +130,7 @@ def test_library_global_variable_dep(tmp_path):
 
     lib.save(tmp_path, "")
 
+    set.clear()
     lib_loaded = nm.NumetaLibrary.load("global_variable_dep", tmp_path)
 
     a = np.empty(2, dtype=np.float64)
@@ -146,6 +156,8 @@ def test_library_name_conflict(tmp_path):
     assert all(array == 1)
     lib.save(tmp_path, "")
 
+    set_zero.clear()
+    add.clear()
     lib_loaded_1 = nm.NumetaLibrary.load("name_conflict", tmp_path)
     try:
         lib_loaded_2 = nm.NumetaLibrary.load("name_conflict", tmp_path)
@@ -216,7 +228,43 @@ def test_library_external_dep(tmp_path):
     np.testing.assert_allclose(c, np.dot(a, b))
     lib.save(tmp_path)
 
+    matmul.clear()
     lib_loaded = nm.NumetaLibrary.load("external_dep", tmp_path)
 
     lib_loaded.matmul(a, b, c)
     np.testing.assert_allclose(c, np.dot(a, b))
+
+
+def test_library_load_collision_warns(tmp_path):
+    from numeta.numeta_function import NumetaFunction
+
+    original_names = NumetaFunction.used_compiled_names.copy()
+    NumetaFunction.used_compiled_names.clear()
+    try:
+        lib_dir = tmp_path / "collision_lib"
+        lib_dir.mkdir()
+        lib = nm.NumetaLibrary("collision_lib")
+
+        @nm.jit(library=lib)
+        def add(a):
+            a[:] += 1
+
+        array = np.zeros(4, dtype=np.int64)
+        lib.add(array)
+        lib.save(lib_dir)
+
+        NumetaFunction.used_compiled_names.clear()
+
+        @nm.jit
+        def add(a):
+            a[:] += 1
+
+        array = np.zeros(4, dtype=np.int64)
+        add(array)
+
+        with pytest.warns(RuntimeWarning, match="collision"):
+            lib_loaded = nm.NumetaLibrary.load("collision_lib", lib_dir)
+
+    finally:
+        NumetaFunction.used_compiled_names.clear()
+        NumetaFunction.used_compiled_names.update(original_names)

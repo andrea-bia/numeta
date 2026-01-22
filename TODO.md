@@ -8,5 +8,5 @@
 - Improve efficiency of nested function returns by avoiding unnecessary allocations.
 
 ## fix
-- When loading a NumetaLibrary must fix name collisions of functions / structs / ? .
-- Create interface for functions to be to include function from external libraries that need interfaces.
+- Create interfaces so functions can include external-library functions that need interfaces.
+- Check collisions between NumetaLibrary and CompiledFunction libraries because they cannot be loaded at the same time (also PyCExtension).
