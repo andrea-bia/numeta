@@ -1,3 +1,5 @@
+import warnings
+
 from typing import (
     Any,
     Callable,
@@ -79,12 +81,14 @@ def jit(
             if library is not None and library._nm_get(name) is not None:
                 nm_func = library._nm_get(name)
                 if nm_func.do_checks != do_checks:
-                    print(
-                        f"[Warning] function {name} has been loaded with different do_checks value: {nm_func.do_checks}"
+                    warnings.warn(
+                        f"function {name} has been loaded with different do_checks value: {nm_func.do_checks}",
+                        stacklevel=2,
                     )
                 if nm_func.compile_flags != compile_flags:
-                    print(
-                        f"[Warning] function {name} has been loaded with different compile_flags value: {nm_func.compile_flags}"
+                    warnings.warn(
+                        f"function {name} has been loaded with different compile_flags value: {nm_func.compile_flags}",
+                        stacklevel=2,
                     )
             else:
                 nm_func = NumetaFunction(
