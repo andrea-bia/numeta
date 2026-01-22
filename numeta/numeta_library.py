@@ -1,4 +1,5 @@
 import numpy as np
+import sys
 
 from pathlib import Path
 import pickle
@@ -14,8 +15,28 @@ class NumetaLibrary:
     loaded = set()
 
     def __init__(self, name: str | None = None) -> None:
+        if name is not None:
+            self._nm_validate_name(name)
         self.name = name
         self._entries: dict = {}
+
+    @classmethod
+    def _nm_validate_name(cls, name: str) -> None:
+        if name == PyCExtension.SUFFIX or name.endswith(PyCExtension.SUFFIX):
+            raise ValueError(
+                f"Library name '{name}' is reserved because it ends with {PyCExtension.SUFFIX}."
+            )
+        if name in cls.loaded:
+            raise ValueError(f"Already using a library called {name}")
+        if name in NumetaFunction.used_compiled_names:
+            raise ValueError(
+                f"Library name '{name}' conflicts with a compiled function library name."
+            )
+        wrapper_module = f"{name}{PyCExtension.SUFFIX}"
+        if wrapper_module in sys.modules:
+            raise ValueError(
+                f"Library name '{name}' conflicts with an existing Numeta wrapper module."
+            )
 
     def _nm_add(self, function: NumetaFunction) -> None:
         self._entries[function.name] = function
@@ -147,12 +168,10 @@ class NumetaLibrary:
         name: str,
         directory: str | Path,
     ) -> None:
-
-        if name in NumetaLibrary.loaded:
-            raise ValueError(f"Already using a library called {name}")
-        NumetaLibrary.loaded.add(name)
+        cls._nm_validate_name(name)
 
         result = NumetaLibrary(name)
+
         with open(Path(directory) / f"{name}.pkl", "rb") as handle:
             for func in pickle.load(handle):
                 result._entries[func.name] = func
@@ -192,5 +211,6 @@ class NumetaLibrary:
 
         if loaded_names:
             NumetaFunction.used_compiled_names.update(loaded_names)
+        NumetaLibrary.loaded.add(name)
 
         return result

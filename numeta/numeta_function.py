@@ -456,6 +456,16 @@ class NumetaFunction:
                     "This can happen when different functions resolve to the same name; "
                     "use a more specific namer or load existing libraries before compiling."
                 )
+        if name.endswith(PyCExtension.SUFFIX):
+            raise ValueError(
+                f"Compiled function name '{name}' is reserved because it ends with {PyCExtension.SUFFIX}."
+            )
+        from .numeta_library import NumetaLibrary
+
+        if name in NumetaLibrary.loaded:
+            raise ValueError(
+                f"Compiled function name '{name}' conflicts with a loaded NumetaLibrary."
+            )
         NumetaFunction.used_compiled_names.add(name)
 
         symbolic_fun = self.get_symbolic_function(name, signature)

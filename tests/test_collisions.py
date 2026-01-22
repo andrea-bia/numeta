@@ -3,6 +3,8 @@ import pytest
 import numeta as nm
 
 from numeta.numeta_function import NumetaFunction
+from numeta.numeta_library import NumetaLibrary
+from numeta.pyc_extension import PyCExtension
 
 
 def test_compiled_name_collision_warns():
@@ -47,3 +49,45 @@ def test_custom_namer_collision_raises():
     finally:
         NumetaFunction.used_compiled_names.clear()
         NumetaFunction.used_compiled_names.update(original_names)
+
+
+def test_compiled_name_reserved_suffix_raises():
+    original_names = NumetaFunction.used_compiled_names.copy()
+    NumetaFunction.used_compiled_names.clear()
+    try:
+
+        def namer(*signature):
+            return f"fixed{PyCExtension.SUFFIX}"
+
+        @nm.jit(namer=namer)
+        def add(a):
+            a[:] += 1
+
+        array = np.zeros(4, dtype=np.int64)
+        with pytest.raises(ValueError, match="reserved"):
+            add(array)
+    finally:
+        NumetaFunction.used_compiled_names.clear()
+        NumetaFunction.used_compiled_names.update(original_names)
+
+
+def test_compiled_name_loaded_library_collision():
+    original_names = NumetaFunction.used_compiled_names.copy()
+    original_loaded = NumetaLibrary.loaded.copy()
+    NumetaFunction.used_compiled_names.clear()
+    NumetaLibrary.loaded.clear()
+    NumetaLibrary.loaded.add("add_0")
+    try:
+
+        @nm.jit
+        def add(a):
+            a[:] += 1
+
+        array = np.zeros(4, dtype=np.int64)
+        with pytest.raises(ValueError, match="NumetaLibrary"):
+            add(array)
+    finally:
+        NumetaFunction.used_compiled_names.clear()
+        NumetaFunction.used_compiled_names.update(original_names)
+        NumetaLibrary.loaded.clear()
+        NumetaLibrary.loaded.update(original_loaded)

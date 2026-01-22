@@ -1,6 +1,10 @@
 import numpy as np
+import sys
+
 import pytest
 import numeta as nm
+
+from numeta.pyc_extension import PyCExtension
 
 
 def test_library_save_and_load(tmp_path):
@@ -268,3 +272,21 @@ def test_library_load_collision_warns(tmp_path):
     finally:
         NumetaFunction.used_compiled_names.clear()
         NumetaFunction.used_compiled_names.update(original_names)
+
+
+def test_library_reserved_suffix_rejected(tmp_path):
+    reserved_name = f"bad{PyCExtension.SUFFIX}"
+    with pytest.raises(ValueError, match="reserved"):
+        nm.NumetaLibrary(reserved_name)
+    with pytest.raises(ValueError, match="reserved"):
+        nm.NumetaLibrary.load(reserved_name, tmp_path)
+
+
+def test_library_wrapper_module_collision():
+    wrapper_module = f"collision{PyCExtension.SUFFIX}"
+    sys.modules[wrapper_module] = object()
+    try:
+        with pytest.raises(ValueError, match="wrapper module"):
+            nm.NumetaLibrary("collision")
+    finally:
+        sys.modules.pop(wrapper_module, None)

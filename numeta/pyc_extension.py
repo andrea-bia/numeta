@@ -12,13 +12,15 @@ from .compiler import Compiler
 
 
 class PyCExtension:
+    SUFFIX = "__nm_pyext"
+
     def __init__(
         self,
         name,
         functions,
         do_checks=True,
     ):
-        self.name = f"{name}_pyapi"
+        self.name = f"{name}{self.SUFFIX}"
         self.functions = functions
         self.do_checks = do_checks
         self.lib_path = None

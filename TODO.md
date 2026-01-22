@@ -9,4 +9,3 @@
 
 ## fix
 - Create interfaces so functions can include external-library functions that need interfaces.
-- Check collisions between NumetaLibrary and CompiledFunction libraries because they cannot be loaded at the same time (also PyCExtension).
