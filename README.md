@@ -1,11 +1,19 @@
 # Numeta
 
 
-Numeta is a small transpiler for Python with a metaprogramming focus. It works like [Numba](https://github.com/numba/numba), but keeps the feature set intentionally narrow so it is easy to reason about. Although Numeta is still alpha and a personal side project, it aims to provide a practical metaprogramming tool for generating numeric code. I encountered a similar need while working on integral evaluations over Gaussian basis functions in computational chemistry.
+Numeta is a small Python transpiler with a metaprogramming focus. It is inspired by
+[Numba](https://github.com/numba/numba) but keeps the feature set intentionally
+narrow so it stays easy to reason about. It targets numeric kernels and grew out of
+my work on integral evaluations over Gaussian basis functions in computational chemistry.
 
-The focus has been on simplicity, avoiding complex parsing of code, AST, or bytecode, and instead using type hints to differentiate between compiled variables and compile-time variables. Numeta translates a restricted Python + NumPy-like subset into Fortran, then compiles and runs the generated code.
+The design favors simplicity: no AST or bytecode parsing, just type hints to
+separate compile-time values from runtime arrays. Numeta translates a restricted
+Python + NumPy-like subset into Fortran, then compiles and executes the generated
+code.
 
-Currently, the code generates Fortran that is compiled and executed. The obvious reason is that [real programmers want to write FORTRAN programs in any language](https://en.wikipedia.org/wiki/Real_Programmers_Don%27t_Use_Pascal). Additional reasons are discussed in the [Why Fortran Backend](#why-fortran-backend) section.
+The backend is Fortran, because, well, [real programmers want to write FORTRAN
+programs in any language](https://en.wikipedia.org/wiki/Real_Programmers_Don%27t_Use_Pascal).
+More rationale is in [Why Fortran Backend](#why-fortran-backend).
 
 ## Table of Contents
 
@@ -16,14 +24,14 @@ Currently, the code generates Fortran that is compiled and executed. The obvious
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [Type Hints](#type-hints)
-  - [Compile-Time Variables](#compile-time-variables)
   - [Parallelizing Loops](#parallelizing-loops)
-  - [Compile-Time Example](#compile-time-example)
+  - [Cache Compiled Code](#cache-compiled-code)
 - [Examples](#examples)
   - [First For Loop](#first-for-loop)
   - [Conditional Statements](#conditional-statements)
   - [How to Link an External Library](#how-to-link-an-external-library)
   - [Parallel Loop Example](#parallel-loop-example)
+  - [Compile-Time Example](#compile-time-example)
   - [Custom Naming of Compiled Functions](#custom-naming-of-compiled-functions)
 - [Why Fortran Backend?](#why-fortran-backend)
 - [Contributing](#contributing)
@@ -34,6 +42,7 @@ Currently, the code generates Fortran that is compiled and executed. The obvious
 - **Metaprogramming Focus**: Leverages metaprogramming for flexible code generation.
 - **Simple Compiler Pipeline**: Avoids heavy AST/bytecode parsing by working from type hints and runtime objects.
 - **Type Annotations**: Uses Python's type hints to differentiate between compiled and compile-time variables.
+- **Library-Based Persistence**: Organize jitted functions into reusable, saveable NumetaLibrary bundles.
 
 ## How it Works
 
@@ -44,8 +53,9 @@ Currently, the code generates Fortran that is compiled and executed. The obvious
 
 ## Limitations
 
-Numeta is still experimental. Compiled functions can return scalars or NumPy arrays, but not arbitrary Python objects.
-Not all Python or NumPy features are supported yet.
+Numeta is still experimental. Compiled functions can return scalars or NumPy arrays,
+but not arbitrary Python objects. Only a subset of Python and NumPy is currently
+supported.
 
 ## Installation
 
@@ -61,7 +71,7 @@ You will need a Fortran compiler (only `gfortran` is currently supported) availa
 
 ## Quick Start
 
-Here's a quick example demonstrating how numeta works:
+Here's a quick example demonstrating how Numeta works:
 
 ```python
 import numeta as nm
@@ -73,7 +83,9 @@ def mixed_loops(n: nm.comptime, array) -> None:
             array[j, i] = i + j
 ```
 
-This code runs as usual Python code. The first loop (`n`) is a compile-time variable and will be unrolled, while the second loop will be compiled and executed as Fortran code. The generated Fortran code looks like this:
+This runs as normal Python code. The first loop (`n`) is compile-time and will be
+unrolled, while the second loop is compiled and executed as Fortran. The generated
+Fortran code looks like this:
 
 ```fortran
 subroutine mixed_loops(array) bind(C)
@@ -96,22 +108,67 @@ subroutine mixed_loops(array) bind(C)
 end subroutine mixed_loops
 ```
 
-This is where one can appreciate the beauty of Fortran.
-Note that the indices are reversed because Fortran arrays are column-major, meaning the first index is the column and the second is the row.
+This is where one can appreciate the beauty of Fortran. Note that the indices are
+reversed because Fortran arrays are column-major, meaning the first index is the
+column and the second is the row.
 
 ## Usage
 
 ### Type Hints
 
-In Numeta, to differentiate compile-time variables and runtime variables, you should use type hints. This allows for a clear separation between the two and enables metaprogramming capabilities.
-Variables with the `nm.comptime` type hint are considered compile-time variables, while those with other type hints are treated as runtime variables.
-Runtime variables should be compatible with Numeta; in particular, they should be NumPy types (structured arrays are supported).
+Use type hints to separate compile-time values from runtime arrays. Variables with
+the `nm.comptime` type hint are compile-time, while other annotated values are
+treated as runtime variables. Runtime variables should be NumPy types; structured
+arrays are supported.
+
+### Parallelizing Loops
+
+Use `nm.prange` to parallelize loops with an OpenMP-style model. See the Parallel
+Loop Example section for shared variables and scheduling options.
+
+### Cache Compiled Code
+
+Use `NumetaLibrary` to group multiple jitted functions and save or load them as a
+unit. It keeps compiled code, dependencies, and wrappers together. Functions can be
+accessed as attributes or via indexing if the function name might conflict with a
+method name. Loading a library restores compiled code so you can cache across
+executions.
+
+```python
+import numeta as nm
+import numpy as np
+
+lib = nm.NumetaLibrary("demo")
+
+@nm.jit(library=lib)
+def add(a):
+    a[:] += 1
+
+array = np.zeros(4, dtype=np.int64)
+lib.add(array)
+lib["add"](array)
+
+lib.save("./build")
+```
+
+Load the saved library in another process to reuse compiled code:
+
+```python
+import numeta as nm
+import numpy as np
+
+lib_loaded = nm.NumetaLibrary.load("demo", "./build")
+
+array = np.zeros(4, dtype=np.int64)
+lib_loaded.add(array)
+lib_loaded["add"](array)
+```
 
 ## Examples
 
 ### First For Loop
 
-Below is a simple example of a for loop using numeta:
+Below is a simple example of a for loop using Numeta:
 
 ```python
 import numeta as nm
@@ -143,7 +200,7 @@ This approach uses `nm.do` to emulate the Fortran `do` loop style.
 
 ### Conditional Statements
 
-Below is an example of how to use conditional statements with numeta:
+Below is an example of how to use conditional statements with Numeta:
 
 ```python
 import numeta as nm
@@ -236,7 +293,10 @@ In this example:
 
 ### Parallel Loop Example
 
-numeta provides the capability to parallelize loops using `nm.prange`. This closely follows the OpenMP `parallel do` model, allowing for efficient parallel execution by leveraging shared and private variables. Note that this feature is still in alpha, and the syntax might change in the future.
+Numeta provides the capability to parallelize loops using `nm.prange`. This closely
+follows the OpenMP `parallel do` model, allowing for efficient parallel execution by
+leveraging shared and private variables. Note that this feature is still in alpha,
+and the syntax might change in the future.
 
 Below is an example of how to parallelize a loop using `nm.prange`:
 
