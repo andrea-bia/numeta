@@ -78,8 +78,8 @@ def jit(
             name = f.__name__
             if name.startswith("_nm"):
                 raise ValueError("Cannot create functions that startwith '_nm'")
-            if library is not None and library._nm_get(name) is not None:
-                nm_func = library._nm_get(name)
+            if library is not None and name in library:
+                nm_func = library[name]
                 if nm_func.do_checks != do_checks:
                     warnings.warn(
                         f"function {name} has been loaded with different do_checks value: {nm_func.do_checks}",
@@ -100,7 +100,7 @@ def jit(
                     inline=inline,
                 )
                 if library is not None:
-                    library._nm_add(nm_func)
+                    library.register(nm_func)
             return nm_func
 
         return decorator_wrapper

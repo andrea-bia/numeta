@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 import pickle
 import warnings
+from types import MappingProxyType
 
 from .numeta_function import NumetaFunction, NumetaCompiledFunction
 from .pyc_extension import PyCExtension
@@ -13,6 +14,22 @@ from .compiler import Compiler
 class NumetaLibrary:
     __slots__ = "name", "_entries"
     loaded = set()
+    _reserved_names = {
+        "name",
+        "functions",
+        "loaded",
+        "register",
+        "remove",
+        "list_functions",
+        "save",
+        "load",
+        "print_f90_files",
+        "__getitem__",
+        "__contains__",
+        "__iter__",
+        "__len__",
+        "__repr__",
+    }
 
     def __init__(self, name: str | None = None) -> None:
         if name is not None:
@@ -38,24 +55,60 @@ class NumetaLibrary:
                 f"Library name '{name}' conflicts with an existing Numeta wrapper module."
             )
 
-    def _nm_add(self, function: NumetaFunction) -> None:
+    def register(self, function: NumetaFunction) -> NumetaFunction:
+        if not isinstance(function, NumetaFunction):
+            raise TypeError("register expects a NumetaFunction")
+        if function.name in self._reserved_names:
+            raise ValueError(
+                f"Function name '{function.name}' is reserved by NumetaLibrary methods"
+            )
+        existing = self._entries.get(function.name)
+        if existing is not None and existing is not function:
+            raise ValueError(f"Function '{function.name}' already registered")
         self._entries[function.name] = function
+        return function
 
-    def _nm_get(self, name) -> NumetaFunction:
-        return self._entries.get(name)
+    def remove(self, name: str) -> NumetaFunction:
+        return self._entries.pop(name)
+
+    def list_functions(self) -> list[str]:
+        return list(self._entries)
+
+    @property
+    def functions(self) -> MappingProxyType:
+        return MappingProxyType(self._entries)
+
+    def __getitem__(self, name: str) -> NumetaFunction:
+        return self._entries[name]
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._entries
+
+    def __iter__(self):
+        return iter(self._entries.values())
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(name={self.name!r}, size={len(self)})"
 
     def __getattr__(self, name) -> NumetaFunction:
-        if name in self.__slots__:
-            super().__getattr__(name)
-        elif name in self._entries:
+        if name in self._entries:
             return self._entries[name]
-        else:
-            raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
 
-    def print_f90_files(self, directory: str | Path) -> None:
+    def _nm_add(self, function: NumetaFunction) -> None:
+        self.register(function)
+
+    def _nm_get(self, name) -> NumetaFunction | None:
+        return self._entries.get(name)
+
+    def write_code(self, directory: str | Path) -> None:
         directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
         for nm_function in self._entries.values():
-            for compiled_target in nm_function._compiled_targets.values():
+            for compiled_target in nm_function._compiled_functions.values():
                 fortran_src = directory / f"{compiled_target.name}_src.f90"
                 fortran_src.write_text(compiled_target.symbolic_function.get_code())
 
@@ -167,7 +220,7 @@ class NumetaLibrary:
         cls,
         name: str,
         directory: str | Path,
-    ) -> None:
+    ) -> "NumetaLibrary":
         cls._nm_validate_name(name)
 
         result = NumetaLibrary(name)

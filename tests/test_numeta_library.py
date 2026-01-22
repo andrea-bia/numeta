@@ -1,5 +1,6 @@
 import numpy as np
 import sys
+from pathlib import Path
 
 import pytest
 import numeta as nm
@@ -18,15 +19,35 @@ def test_library_save_and_load(tmp_path):
     add(array)
     assert all(array == 1)
 
-    lib.save(tmp_path)
 
-    # clear add otherwise cannot load it again
-    add.clear()
-    lib_loaded = nm.NumetaLibrary.load("save_and_load", tmp_path)
+def test_library_write_code(tmp_path):
+    lib = nm.NumetaLibrary("write_code")
 
-    array = np.zeros(4, dtype=np.int64)
-    lib_loaded.add(array)
-    assert all(array == 1)
+    @nm.jit(library=lib)
+    def add(a):
+        a[:] += 1
+
+    @nm.jit(library=lib)
+    def mul(a):
+        a[:] *= 2
+
+    array = np.ones(4, dtype=np.int64)
+    lib.add(array)
+    lib.mul(array)
+
+    lib.write_code(tmp_path)
+
+    compiled_names = []
+    for nm_function in lib._entries.values():
+        compiled_names.extend(
+            [compiled.name for compiled in nm_function._compiled_functions.values()]
+        )
+
+    for name in compiled_names:
+        src = Path(tmp_path) / f"{name}_src.f90"
+        assert src.exists()
+        code = src.read_text().lower()
+        assert f"subroutine {name}" in code
 
 
 def test_library_save_and_load_with_dep(tmp_path):
@@ -237,6 +258,36 @@ def test_library_external_dep(tmp_path):
 
     lib_loaded.matmul(a, b, c)
     np.testing.assert_allclose(c, np.dot(a, b))
+
+
+def test_library_public_api():
+    lib = nm.NumetaLibrary("public_api")
+
+    @nm.jit
+    def add(a):
+        a[:] += 1
+
+    registered = lib.register(add)
+    assert registered is add
+    assert "add" in lib
+    assert lib["add"] is add
+    assert lib.list_functions() == ["add"]
+    assert len(lib) == 1
+    assert list(lib)[0] is add
+
+    lib.remove("add")
+    assert "add" not in lib
+    assert len(lib) == 0
+
+
+def test_library_register_rejects_reserved_name():
+    lib = nm.NumetaLibrary("public_api_reserved")
+
+    with pytest.raises(ValueError, match="reserved"):
+
+        @nm.jit(library=lib)
+        def register(a):
+            a[:] += 1
 
 
 def test_library_load_collision_warns(tmp_path):
