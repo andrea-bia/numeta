@@ -6,7 +6,7 @@ import importlib.util
 import numpy as np
 
 from .numeta_function import NumetaFunction, NumetaCompiledFunction
-from .capi_interface import CAPIInterface
+from .pyc_extension import PyCExtension
 from .compiler import Compiler
 
 
@@ -55,10 +55,10 @@ class NumetaLibrary:
 
         procedures_infos = []
         for function in self._entries.values():
-            for wrapper in function._capi_interfaces.values():
+            for wrapper in function._pyc_extensions.values():
                 procedures_infos.extend(wrapper.functions)
 
-        capi_interface = CAPIInterface(
+        pyc_extension = PyCExtension(
             name=self.name,
             functions=procedures_infos,
         )
@@ -79,9 +79,7 @@ class NumetaLibrary:
                     state = obj.__dict__.copy()
                     state["_func"] = None  # It is not pickable
                     state["_fast_call"] = {}
-                    state["_capi_interfaces"] = {
-                        sig: capi_interface for sig in obj._capi_interfaces
-                    }
+                    state["_pyc_extensions"] = {sig: pyc_extension for sig in obj._pyc_extensions}
                     return (NumetaFunction.__new__, (NumetaFunction,), state)
 
                 elif isinstance(obj, NumetaCompiledFunction):

@@ -7,7 +7,7 @@ from .settings import settings
 from .compiler import Compiler
 
 
-class CAPIInterface:
+class PyCExtension:
     def __init__(
         self,
         name,
@@ -304,6 +304,6 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
             self.construct_module()
 
     def write(self, filename: Path):
-        capi_interface = self.construct_module()
+        extension_module = self.construct_module()
         filename.parent.mkdir(exist_ok=True)
-        filename.write_text(capi_interface)
+        filename.write_text(extension_module)

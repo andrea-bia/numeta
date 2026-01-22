@@ -11,7 +11,7 @@ from .settings import settings
 from .builder_helper import BuilderHelper
 from .syntax import Subroutine, Variable
 from .datatype import size_t
-from .capi_interface import CAPIInterface
+from .pyc_extension import PyCExtension
 from .array_shape import ArrayShape, SCALAR, UNKNOWN
 from .external_library import ExternalLibrary
 from .signature import (
@@ -198,7 +198,7 @@ class NumetaFunction:
         # Variables to populate
         self.return_signatures = {}  # Only needed if i create symbolic and after compile
         self._compiled_functions = {}
-        self._capi_interfaces = {}
+        self._pyc_extensions = {}
         self._fast_call = {}
 
     def get_symbolic_functions(self):
@@ -463,20 +463,20 @@ class NumetaFunction:
                 self.return_signatures[signature],
             )
         ]
-        self._capi_interfaces[signature] = CAPIInterface(
+        self._pyc_extensions[signature] = PyCExtension(
             name=name,
             functions=procedures_infos,
         )
 
-        return self._capi_interfaces[signature]
+        return self._pyc_extensions[signature]
 
     def compile(self, signature):
         if not self._compiled_functions[signature].compiled:
             self._compiled_functions[signature].compile()
 
-        if self._capi_interfaces[signature].lib_path is None:
-            wrapper_src = self.directory / f"{self._capi_interfaces[signature].name}.c"
-            self._capi_interfaces[signature].write(wrapper_src)
+        if self._pyc_extensions[signature].lib_path is None:
+            wrapper_src = self.directory / f"{self._pyc_extensions[signature].name}.c"
+            self._pyc_extensions[signature].write(wrapper_src)
 
             libraries = [
                 "gfortran",
@@ -491,7 +491,7 @@ class NumetaFunction:
 
             compiler = Compiler("gcc", self.compile_flags)
             lib = compiler.compile_to_library(
-                self._capi_interfaces[signature].name,
+                self._pyc_extensions[signature].name,
                 [wrapper_src],
                 directory=self.directory,
                 include_dirs=include_dirs,
@@ -500,17 +500,17 @@ class NumetaFunction:
                 rpath_dirs=rpath_dirs,
                 additional_flags=additional_flags,
             )
-            self._capi_interfaces[signature].set_lib_path(lib)
+            self._pyc_extensions[signature].set_lib_path(lib)
 
     def load(self, signature):
         if signature not in self._compiled_functions:
             self.construct_compiled_target(signature)
-        if signature not in self._capi_interfaces:
+        if signature not in self._pyc_extensions:
             self.construct_wrapper(signature)
-        if self._capi_interfaces[signature].lib_path is None:
+        if self._pyc_extensions[signature].lib_path is None:
             self.compile(signature)
         spec = importlib.util.spec_from_file_location(
-            self._capi_interfaces[signature].name, self._capi_interfaces[signature].lib_path
+            self._pyc_extensions[signature].name, self._pyc_extensions[signature].lib_path
         )
         compiled_sub = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(compiled_sub)
