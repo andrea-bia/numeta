@@ -1,9 +1,6 @@
 import numpy as np
 from pathlib import Path
 import tempfile
-import importlib.util
-import sys
-import sysconfig
 import warnings
 
 from .compiler import Compiler
@@ -475,32 +472,12 @@ class NumetaFunction:
             self._compiled_functions[signature].compile()
 
         if self._pyc_extensions[signature].lib_path is None:
-            wrapper_src = self.directory / f"{self._pyc_extensions[signature].name}.c"
-            self._pyc_extensions[signature].write(wrapper_src)
-
-            libraries = [
-                "gfortran",
-                "mvec",  # link math vectorized version
-                f"python{sys.version_info.major}.{sys.version_info.minor}",
-                self._compiled_functions[signature].name,
-            ]
-            lib_dirs = []
-            rpath_dirs = [self._compiled_functions[signature].path]
-            include_dirs = [sysconfig.get_paths()["include"], np.get_include()]
-            additional_flags = ["-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"]
-
-            compiler = Compiler("gcc", self.compile_flags)
-            lib = compiler.compile_to_library(
-                self._pyc_extensions[signature].name,
-                [wrapper_src],
+            self._pyc_extensions[signature].compile(
+                core_lib_name=self._compiled_functions[signature].name,
+                core_lib_path=self._compiled_functions[signature].path,
                 directory=self.directory,
-                include_dirs=include_dirs,
-                libraries=libraries,
-                libraries_dirs=[],
-                rpath_dirs=rpath_dirs,
-                additional_flags=additional_flags,
+                compile_flags=self.compile_flags,
             )
-            self._pyc_extensions[signature].set_lib_path(lib)
 
     def load(self, signature):
         if signature not in self._compiled_functions:
@@ -509,13 +486,8 @@ class NumetaFunction:
             self.construct_wrapper(signature)
         if self._pyc_extensions[signature].lib_path is None:
             self.compile(signature)
-        spec = importlib.util.spec_from_file_location(
-            self._pyc_extensions[signature].name, self._pyc_extensions[signature].lib_path
-        )
-        compiled_sub = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(compiled_sub)
-        self._fast_call[signature] = getattr(
-            compiled_sub, self._compiled_functions[signature].func_name
+        self._fast_call[signature] = self._pyc_extensions[signature].load(
+            self._compiled_functions[signature].func_name
         )
 
     def execute(self, signature, runtime_args):

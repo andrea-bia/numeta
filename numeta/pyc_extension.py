@@ -1,7 +1,11 @@
 import numpy as np
 
+import importlib.util
+import sys
+import sysconfig
 from string import Template
 from pathlib import Path
+
 
 from .settings import settings
 from .compiler import Compiler
@@ -21,6 +25,45 @@ class PyCExtension:
 
     def set_lib_path(self, path):
         self.lib_path = path
+
+    def compile(self, core_lib_name, core_lib_path, directory, compile_flags):
+        if self.lib_path is not None:
+            return self.lib_path
+
+        wrapper_src = Path(directory) / f"{self.name}.c"
+        self.write(wrapper_src)
+
+        libraries = [
+            "gfortran",
+            "mvec",
+            f"python{sys.version_info.major}.{sys.version_info.minor}",
+            core_lib_name,
+        ]
+        include_dirs = [sysconfig.get_paths()["include"], np.get_include()]
+        additional_flags = ["-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"]
+
+        compiler = Compiler("gcc", compile_flags)
+        lib = compiler.compile_to_library(
+            self.name,
+            [wrapper_src],
+            directory=directory,
+            include_dirs=include_dirs,
+            libraries=libraries,
+            libraries_dirs=[],
+            rpath_dirs=[core_lib_path],
+            additional_flags=additional_flags,
+        )
+        self.set_lib_path(lib)
+        return lib
+
+    def load(self, func_name):
+        if self.lib_path is None:
+            raise RuntimeError("PyCExtension is not compiled yet.")
+
+        spec = importlib.util.spec_from_file_location(self.name, self.lib_path)
+        compiled_sub = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(compiled_sub)
+        return getattr(compiled_sub, func_name)
 
     def construct_module(self):
         template = """
