@@ -4,7 +4,7 @@ from numeta.array_shape import SCALAR
 
 from .nodes import NamedEntity
 from .subroutine import Subroutine
-from .expressions import Function
+from .function import Function
 
 
 class Module(NamedEntity):
@@ -107,14 +107,6 @@ class ExternalModule(Module):
 
         else:
             # TODO: Arguments are not used but it could be used to check if the arguments are correct
-            def __init__(self, *args):
-                from .tools import check_node
-
-                self.name = name
-                self.arguments = [check_node(arg) for arg in args]
-                self.parent = module
-
-            # to make method pickable
             python_module_name = type(self).__module__
             python_module = sys.modules.get(python_module_name)
 
@@ -124,7 +116,6 @@ class ExternalModule(Module):
                 {
                     # to make method pickable
                     "__module__": python_module_name,
-                    "__init__": __init__,
                     "_ftype": property(lambda self: result_),
                     "_shape": property(lambda self: SCALAR),
                 },
@@ -134,4 +125,9 @@ class ExternalModule(Module):
             if python_module is not None:
                 setattr(python_module, name, method)
 
-            self.subroutines[name] = method
+            self.subroutines[name] = method(
+                name,
+                arguments,
+                parent=module,
+                bind_c=bind_c,
+            )

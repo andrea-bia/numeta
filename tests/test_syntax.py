@@ -4,7 +4,7 @@ import numpy as np
 import numeta as nm
 from numeta.array_shape import ArrayShape, SCALAR
 from numeta.syntax import Variable, Assignment, LiteralNode, DerivedType
-from numeta.syntax.expressions import GetAttr, Function
+from numeta.syntax.expressions import GetAttr
 from numeta.syntax import Do, DoWhile, If, ElseIf, Else
 from numeta.syntax.statements.tools import print_block
 from numeta.syntax.expressions import (

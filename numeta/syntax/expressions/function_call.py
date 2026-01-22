@@ -1,17 +1,25 @@
 from .expression_node import ExpressionNode
-from numeta.syntax.nodes import NamedEntity
 from numeta.syntax.tools import check_node
+from .expression_node import ExpressionNode
 
 
-class Function(NamedEntity, ExpressionNode):
-    __slots__ = ["name", "arguments"]
+class FunctionCall(ExpressionNode):
+    __slots__ = ["function", "arguments"]
 
-    def __init__(self, name, arguments, parent=None):
-        super().__init__(name, parent=parent)
+    def __init__(self, function, *arguments):
+        self.function = function
         self.arguments = [check_node(arg) for arg in arguments]
 
+    @property
+    def _ftype(self):
+        return self.function._ftype
+
+    @property
+    def _shape(self):
+        return self.function._shape
+
     def get_code_blocks(self):
-        result = [self.name, "("]
+        result = [self.function.name, "("]
         for argument in self.arguments:
             result.extend(argument.get_code_blocks())
             result.append(", ")
@@ -21,13 +29,10 @@ class Function(NamedEntity, ExpressionNode):
         return result
 
     def extract_entities(self):
-        yield self
+        yield self.function
         for arg in self.arguments:
             yield from arg.extract_entities()
 
-    def get_declaration(self):
-        raise NotImplementedError("Function declaration is not supported")
-
     def get_with_updated_variables(self, variables_couples):
         new_args = [arg.get_with_updated_variables(variables_couples) for arg in self.arguments]
-        return type(self)(self.name, new_args, parent=self.parent)
+        return FunctionCall(self.function, *new_args)

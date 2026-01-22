@@ -5,6 +5,26 @@ import pytest
 import os
 
 
+def test_libc_getpagesize():
+    if ctypes.util.find_library("c") is None:
+        pytest.skip("libc library not found")
+    libc = nm.ExternalLibraryWrapper("c")
+    libc.add_method(
+        "getpagesize",
+        [],
+        nm.int32,
+    )
+
+    @nm.jit
+    def get_pagesize(pagesize):
+        pagesize[:] = libc.getpagesize()
+
+    pagesize = np.zeros((), dtype=np.int32)
+    get_pagesize(pagesize)
+
+    assert pagesize == os.sysconf("SC_PAGE_SIZE")
+
+
 def test_blas():
     if ctypes.util.find_library("blas") is None:
         pytest.skip("BLAS library not found")

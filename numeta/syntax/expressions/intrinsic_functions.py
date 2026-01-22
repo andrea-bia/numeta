@@ -1,16 +1,28 @@
-from .function import Function
 from numeta.syntax.tools import check_node
 from numeta.syntax.settings import settings
 from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
+from .expression_node import ExpressionNode
 
 
-class IntrinsicFunction(Function):
+class IntrinsicFunction(ExpressionNode):
     token = ""
 
     def __init__(self, *arguments):
-        from numeta.syntax.module import builtins_module
+        self.arguments = [check_node(arg) for arg in arguments]
 
-        super().__init__(self.token, [check_node(arg) for arg in arguments], parent=builtins_module)
+    def get_code_blocks(self):
+        result = [self.token, "("]
+        for argument in self.arguments:
+            result.extend(argument.get_code_blocks())
+            result.append(", ")
+        if result[-1] == ", ":
+            result.pop()
+        result.append(")")
+        return result
+
+    def extract_entities(self):
+        for arg in self.arguments:
+            yield from arg.extract_entities()
 
     def get_with_updated_variables(self, variables_couples):
         new_args = [arg.get_with_updated_variables(variables_couples) for arg in self.arguments]
@@ -128,12 +140,13 @@ class Conjugate(UnaryIntrinsicFunction):
         return self.arguments[0]._shape
 
 
-class Complex(Function):
+class Complex(IntrinsicFunction):
+    token = "cmplx"
+
     def __init__(self, real, imaginary, kind=None):
-        self.name = "cmplx"
         if kind is None:
             kind = settings.DEFAULT_COMPLEX.kind
-        self.arguments = [check_node(real), check_node(imaginary), check_node(kind)]
+        super().__init__(real, imaginary, kind)
 
     @property
     def _ftype(self):

@@ -2,6 +2,7 @@ from .fortran_type import FortranType
 from .variable import Variable
 from .derived_type import DerivedType
 from .subroutine import Subroutine
+from .function import Function
 from .module import Module, ExternalModule
 from .scope import Scope
 from .settings import settings

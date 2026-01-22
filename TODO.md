@@ -8,4 +8,3 @@
 - Improve efficiency of nested function returns by avoiding unnecessary allocations.
 
 ## fix
-- Create interfaces so functions can include external-library functions that need interfaces.

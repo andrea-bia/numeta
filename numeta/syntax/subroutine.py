@@ -91,8 +91,5 @@ class Subroutine(NamedEntity):
     def get_interface_declaration(self):
         return InterfaceDeclaration(self)
 
-    def get_interface_code(self):
-        return "".join(self.get_interface_declaration().print_lines())
-
     def __call__(self, *arguments):
         Call(self, *arguments)
