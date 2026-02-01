@@ -3,12 +3,12 @@ import numpy as np
 import pytest
 
 
-def test_comptime_type_hint():
+def test_comptime_type_hint(backend, backend):
     n = 100
 
     dtype = np.float64
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mul(dtype: nm.comptime, a, b, c):
         for i in nm.range(a.shape[0]):
             for k in nm.range(b.shape[0]):

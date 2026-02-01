@@ -3,9 +3,9 @@ import numeta as nm
 from numeta.syntax.settings import settings
 
 
-def test_slice_exclusive_bounds():
+def test_slice_exclusive_bounds(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a):
         a[1:5] = 1
 
@@ -17,11 +17,11 @@ def test_slice_exclusive_bounds():
     np.testing.assert_array_equal(arr, expected)
 
 
-def test_slice_inclusive_bounds():
+def test_slice_inclusive_bounds(backend, backend):
 
     settings.unset_c_like_bounds()
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a):
         a[:4] = 1
 

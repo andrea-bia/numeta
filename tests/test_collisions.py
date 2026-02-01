@@ -7,13 +7,13 @@ from numeta.numeta_library import NumetaLibrary
 from numeta.pyc_extension import PyCExtension
 
 
-def test_compiled_name_collision_warns():
+def test_compiled_name_collision_warns(backend, backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     NumetaFunction.used_compiled_names.clear()
     NumetaFunction.used_compiled_names.add("add_1")
     try:
 
-        @nm.jit
+        @nm.jit(backend=backend)
         def add(a):
             a[:] += 1
 
@@ -25,7 +25,7 @@ def test_compiled_name_collision_warns():
         NumetaFunction.used_compiled_names.update(original_names)
 
 
-def test_custom_namer_collision_raises():
+def test_custom_namer_collision_raises(backend, backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     NumetaFunction.used_compiled_names.clear()
     try:
@@ -33,14 +33,14 @@ def test_custom_namer_collision_raises():
         def namer(*signature):
             return "fixed_name"
 
-        @nm.jit(namer=namer)
+        @nm.jit(backend=backend, namer=namer)
         def add(a):
             a[:] += 1
 
         array = np.zeros(4, dtype=np.int64)
         add(array)
 
-        @nm.jit(namer=namer)
+        @nm.jit(backend=backend, namer=namer)
         def add2(a):
             a[:] += 1
 
@@ -51,7 +51,7 @@ def test_custom_namer_collision_raises():
         NumetaFunction.used_compiled_names.update(original_names)
 
 
-def test_compiled_name_reserved_suffix_raises():
+def test_compiled_name_reserved_suffix_raises(backend, backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     NumetaFunction.used_compiled_names.clear()
     try:
@@ -59,7 +59,7 @@ def test_compiled_name_reserved_suffix_raises():
         def namer(*signature):
             return f"fixed{PyCExtension.SUFFIX}"
 
-        @nm.jit(namer=namer)
+        @nm.jit(backend=backend, namer=namer)
         def add(a):
             a[:] += 1
 
@@ -71,7 +71,7 @@ def test_compiled_name_reserved_suffix_raises():
         NumetaFunction.used_compiled_names.update(original_names)
 
 
-def test_compiled_name_loaded_library_collision():
+def test_compiled_name_loaded_library_collision(backend, backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     original_loaded = NumetaLibrary.loaded.copy()
     NumetaFunction.used_compiled_names.clear()
@@ -79,7 +79,7 @@ def test_compiled_name_loaded_library_collision():
     NumetaLibrary.loaded.add("add_0")
     try:
 
-        @nm.jit
+        @nm.jit(backend=backend)
         def add(a):
             a[:] += 1
 

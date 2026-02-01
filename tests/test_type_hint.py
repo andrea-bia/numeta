@@ -6,10 +6,10 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_CompTime(dtype):
+def test_CompTime(dtype, backend):
     n = 100
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mul(ct: nm.comptime, a, b, c):
         for i in nm.range(a.shape[0]):
             for k in nm.range(b.shape[0]):
@@ -27,7 +27,7 @@ def test_CompTime(dtype):
         np.testing.assert_allclose(c, np.dot(a, b), rtol=float(10e2 * np.finfo(dtype).eps))
 
 
-def test_struct_array():
+def test_struct_array(backend, backend):
     n = 2
     m = 3
 
@@ -35,7 +35,7 @@ def test_struct_array():
     np_nested2 = np.dtype([("c", np_nested1, (n,)), ("d", np_nested1, (3,))], align=True)
     np_nested3 = np.dtype([("c", np_nested2, (2,)), ("d", np_nested1, (3,))], align=True)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mod_struct(a) -> None:
         a[1]["c"][1]["d"][2]["b"][1] = -4.0
 
@@ -49,7 +49,7 @@ def test_struct_array():
     np.testing.assert_equal(a, b)
 
 
-def test_struct():
+def test_struct(backend, backend):
     n = 2
     m = 3
 
@@ -57,7 +57,7 @@ def test_struct():
     np_nested2 = np.dtype([("c", np_nested1, (n,)), ("d", np_nested1, (3,))], align=True)
     np_nested3 = np.dtype([("c", np_nested2, (2,)), ("d", np_nested1, (3,))], align=True)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mod_struct(a) -> None:
         a["c"][1]["d"][2]["b"][1] = -4.0
 

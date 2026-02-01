@@ -5,7 +5,7 @@ import pytest
 import os
 
 
-def test_libc_getpagesize():
+def test_libc_getpagesize(backend, backend):
     if ctypes.util.find_library("c") is None:
         pytest.skip("libc library not found")
     libc = nm.ExternalLibraryWrapper("c")
@@ -15,7 +15,7 @@ def test_libc_getpagesize():
         nm.int32,
     )
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def get_pagesize(pagesize):
         pagesize[:] = libc.getpagesize()
 
@@ -25,7 +25,7 @@ def test_libc_getpagesize():
     assert pagesize == os.sysconf("SC_PAGE_SIZE")
 
 
-def test_blas():
+def test_blas(backend, backend):
     if ctypes.util.find_library("blas") is None:
         pytest.skip("BLAS library not found")
     blas = nm.ExternalLibraryWrapper("blas")
@@ -52,7 +52,7 @@ def test_blas():
 
     n = 100
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def matmul(a, b, c):
         blas.dgemm(
             "N",

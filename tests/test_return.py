@@ -6,10 +6,10 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_matmul_return_1_ndarray(dtype):
+def test_matmul_return_1_ndarray(dtype, backend):
     n = 100
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mul(a, b):
         c = nm.zeros((a.shape[0], b.shape[1]), dtype)
         for i in nm.range(a.shape[0]):
@@ -31,10 +31,10 @@ def test_matmul_return_1_ndarray(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_matmul_return_2_ndarray(dtype):
+def test_matmul_return_2_ndarray(dtype, backend):
     n = 100
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mul(a, b):
         c = nm.zeros((a.shape[0], b.shape[1]), dtype)
         d = nm.zeros((a.shape[0], b.shape[1]), dtype)
@@ -61,9 +61,9 @@ def test_matmul_return_2_ndarray(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_return_scalar(dtype):
+def test_return_scalar(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def return_scalar():
         return nm.scalar(dtype, 42)
 
@@ -78,11 +78,11 @@ def test_return_scalar(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_return_1_ndarray_getitem(dtype):
+def test_return_1_ndarray_getitem(dtype, backend):
     n = 100
     m = 50
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mul(a, b):
         c = nm.zeros((a.shape[0], b.shape[1]), dtype)
         for i in nm.range(a.shape[0]):
@@ -104,11 +104,11 @@ def test_return_1_ndarray_getitem(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_return_1_ndarray_sum(dtype):
+def test_return_1_ndarray_sum(dtype, backend):
     n = 100
     m = 50
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def return_1_ndarray_sum(a, b):
         return a + b
 
@@ -126,10 +126,10 @@ def test_return_1_ndarray_sum(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_return_1_ndarray_transpose(dtype):
+def test_return_1_ndarray_transpose(dtype, backend):
     shape = (18, 7)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def transpose_expr(a):
         return nm.transpose(a)
 
@@ -147,10 +147,10 @@ def test_return_1_ndarray_transpose(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_return_1_ndarray_mixed_expression(dtype):
+def test_return_1_ndarray_mixed_expression(dtype, backend):
     shape = (24, 16)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def combined_expression(a, b):
         rows = a.shape[0] // 2
         cols = a.shape[1] // 2
@@ -175,13 +175,13 @@ def test_return_1_ndarray_mixed_expression(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_call_returning_function_scalar(dtype):
+def test_call_returning_function_scalar(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def return_scalar():
         return nm.scalar(dtype, 42)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller():
         return return_scalar()
 
@@ -196,16 +196,16 @@ def test_call_returning_function_scalar(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_call_returning_function_array_rank1(dtype):
+def test_call_returning_function_array_rank1(dtype, backend):
 
     size = 40
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def return_array_rank1():
         a = nm.zeros(size, dtype)
         return a
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller():
         return return_array_rank1()
 
@@ -222,14 +222,14 @@ def test_call_returning_function_array_rank1(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_call_returning_function_array_rank2(dtype):
+def test_call_returning_function_array_rank2(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def return_array_rank2(n, m):
         a = nm.zeros((n, m), dtype)
         return a
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller_rank2(n, m):
         return return_array_rank2(n, m)
 
@@ -247,16 +247,16 @@ def test_call_returning_function_array_rank2(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_nested_return_array_rank1(dtype):
+def test_nested_return_array_rank1(dtype, backend):
 
     size = 40
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def return_array_rank1():
         a = nm.zeros(size, dtype)
         return a
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(b):
         b[:] = return_array_rank1()
 
@@ -274,18 +274,18 @@ def test_nested_return_array_rank1(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_nested_return_array_rank1_no_numpy_allocator(dtype):
+def test_nested_return_array_rank1_no_numpy_allocator(dtype, backend):
 
     size = 40
 
     nm.settings.unset_numpy_allocator()
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def return_array_rank1():
         a = nm.zeros(size, dtype)
         return a
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(b):
         b[:] = return_array_rank1()
 
@@ -305,12 +305,12 @@ def test_nested_return_array_rank1_no_numpy_allocator(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_inline_returning_function_scalar(dtype):
-    @nm.jit(inline=True)
+def test_inline_returning_function_scalar(dtype, backend):
+    @nm.jit(backend=backend, inline=True)
     def return_scalar_inline():
         return nm.scalar(dtype, 7)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller_scalar():
         return return_scalar_inline()
 
@@ -327,16 +327,16 @@ def test_inline_returning_function_scalar(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_inline_returning_function_array(dtype):
+def test_inline_returning_function_array(dtype, backend):
     size = 8
 
-    @nm.jit(inline=True)
+    @nm.jit(backend=backend, inline=True)
     def return_array_inline(n):
         out = nm.zeros(n, dtype)
         out[:] = nm.scalar(dtype, 3)
         return out
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller_array(n):
         return return_array_inline(n)
 
@@ -350,7 +350,7 @@ def test_inline_returning_function_array(dtype):
         np.testing.assert_allclose(array, expected_array, rtol=10e2 * np.finfo(dtype).eps)
 
 
-def test_return_external_function():
+def test_return_external_function(backend, backend):
     import ctypes.util
     import os
 
@@ -363,7 +363,7 @@ def test_return_external_function():
         nm.int32,
     )
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def get_pagesize():
         return libc.getpagesize()
 

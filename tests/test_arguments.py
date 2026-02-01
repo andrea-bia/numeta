@@ -6,9 +6,9 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_scalar_array(dtype):
+def test_scalar_array(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a):
         a[:] = 2
 
@@ -18,9 +18,9 @@ def test_scalar_array(dtype):
     np.testing.assert_allclose(a, np.array([2]).astype(dtype))
 
 
-def test_scalar():
+def test_scalar(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a, b):
         a[:] = b
 

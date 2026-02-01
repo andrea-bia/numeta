@@ -2,8 +2,8 @@ import numeta as nm
 import numpy as np
 
 
-def test_custom_namer():
-    @nm.jit(namer=lambda length, *_: f"spec_{length}")
+def test_custom_namer(backend, backend):
+    @nm.jit(backend=backend, namer=lambda length, *_: f"spec_{length}")
     def fill(length: nm.comptime, a):
         for i in range(length):
             a[i] = i

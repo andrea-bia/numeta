@@ -6,11 +6,11 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_empty(dtype):
+def test_empty(dtype, backend):
     n = 50
     m = 20
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def copy_and_set_zero_first_col_with_empty(a, b):
         tmp = nm.empty((n, m), dtype)
         tmp[:] = 1.0
@@ -33,11 +33,11 @@ def test_empty(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_empty_runtime_shape(dtype):
+def test_empty_runtime_shape(dtype, backend):
     n = 50
     m = 20
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def copy_and_set_zero_first_col_with_empty(a, b, n, m):
         tmp = nm.empty((n, m), dtype)
         tmp[:] = 1.0
@@ -60,11 +60,11 @@ def test_empty_runtime_shape(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_empty_fortran(dtype):
+def test_empty_fortran(dtype, backend):
     n = 50
     m = 20
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def copy_and_set_zero_first_col_with_empty(a, b):
         tmp = nm.empty((n, m), dtype, order="F")
         tmp[:] = 1.0

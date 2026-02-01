@@ -6,11 +6,11 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_zeros(dtype):
+def test_zeros(dtype, backend):
     n = 50
     m = 20
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def copy_and_set_zero_first_col_with_zeros(a):
         tmp = nm.zeros((n, m), dtype)
 
@@ -29,11 +29,11 @@ def test_zeros(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_zeros_fortran(dtype):
+def test_zeros_fortran(dtype, backend):
     n = 50
     m = 20
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def copy_and_set_zero_first_col_with_zeros(a):
         tmp = nm.zeros((n, m), dtype, order="F")
 

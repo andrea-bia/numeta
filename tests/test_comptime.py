@@ -2,12 +2,12 @@ import numeta as nm
 import numpy as np
 
 
-def test_comptime_type_hint():
+def test_comptime_type_hint(backend, backend):
 
     n = 100
     m = 3
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def sum_first_n(length: nm.comptime, a, result):
         result[:] = 0.0
         for i in range(length):

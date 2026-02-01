@@ -6,9 +6,9 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_cast(dtype):
+def test_cast(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def set_nine(a):
         a_int = nm.cast(a, dtype)
         a_int[:] = 9.0
@@ -28,9 +28,9 @@ def test_cast(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_cast_getitem(dtype):
+def test_cast_getitem(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def set_nine(a):
         a_int = nm.cast(a[0], dtype)
         a_int[:] = 9.0
@@ -47,11 +47,11 @@ def test_cast_getitem(dtype):
         )
 
 
-def test_cast_struct():
+def test_cast_struct(backend, backend):
 
     dtype = np.dtype([("a", np.float64), ("b", np.int64)])
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def set_nine(a):
         a_int = nm.cast(a, dtype)
         a_int["a"][:] = 9.0

@@ -9,7 +9,7 @@ import numeta as nm
 )
 @pytest.mark.parametrize("shape", [(), (5,), (2, 3)])
 def test_variable_number_of_arguments(n_args, dtype, shape):
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(*args):
         for i, arg in enumerate(args):
             arg[:] = float(i)
@@ -22,8 +22,8 @@ def test_variable_number_of_arguments(n_args, dtype, shape):
         np.testing.assert_allclose(arg, expected)
 
 
-def test_no_args():
-    @nm.jit
+def test_no_args(backend, backend):
+    @nm.jit(backend=backend)
     def no_op(*args):
         pass
 

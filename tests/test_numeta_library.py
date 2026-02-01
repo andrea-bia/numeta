@@ -8,10 +8,10 @@ import numeta as nm
 from numeta.pyc_extension import PyCExtension
 
 
-def test_library_save_and_load(tmp_path):
+def test_library_save_and_load(tmp_path, backend):
     lib = nm.NumetaLibrary("save_and_load")
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def add(a):
         a[:] += 1
 
@@ -20,14 +20,14 @@ def test_library_save_and_load(tmp_path):
     assert all(array == 1)
 
 
-def test_library_write_code(tmp_path):
+def test_library_write_code(tmp_path, backend):
     lib = nm.NumetaLibrary("write_code")
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def add(a):
         a[:] += 1
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def mul(a):
         a[:] *= 2
 
@@ -50,14 +50,14 @@ def test_library_write_code(tmp_path):
         assert f"subroutine {name}" in code
 
 
-def test_library_save_and_load_with_dep(tmp_path):
+def test_library_save_and_load_with_dep(tmp_path, backend):
     lib = nm.NumetaLibrary("save_and_load_with_dep")
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def set_zero(a):
         a[:] = 0
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def add(a):
         set_zero(a)
         a[:] += 1
@@ -78,14 +78,14 @@ def test_library_save_and_load_with_dep(tmp_path):
     assert all(array == 1)
 
 
-def test_library_save_and_load_with_dep_2(tmp_path):
+def test_library_save_and_load_with_dep_2(tmp_path, backend):
     lib = nm.NumetaLibrary("save_and_load_with_dep_2")
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def set_zero(a):
         a[:] = 0
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def add(a):
         set_zero(a)
         a[:] += 1
@@ -106,14 +106,14 @@ def test_library_save_and_load_with_dep_2(tmp_path):
     assert all(array == 1)
 
 
-def test_library_save_and_load_use_dep(tmp_path):
+def test_library_save_and_load_use_dep(tmp_path, backend):
     lib = nm.NumetaLibrary("save_and_load_use_dep")
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def set_zero(a):
         a[:] = 0
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def add(a):
         set_zero(a)
         a[:] += 1
@@ -127,7 +127,7 @@ def test_library_save_and_load_use_dep(tmp_path):
     add.clear()
     lib_loaded = nm.NumetaLibrary.load("save_and_load_use_dep", tmp_path)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def minus(a):
         lib_loaded.set_zero(a)
         a[:] -= 1
@@ -137,14 +137,14 @@ def test_library_save_and_load_use_dep(tmp_path):
     assert all(array == -1)
 
 
-def test_library_global_variable_dep(tmp_path):
+def test_library_global_variable_dep(tmp_path, backend):
     lib = nm.NumetaLibrary("global_variable_dep")
 
     global_constant_var = nm.declare_global_constant(
         (2, 1), np.float64, value=np.array([2.0, -1.0]), name="global_constant_var"
     )
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def set(var):
         var[0] = global_constant_var[0, 0]
         var[1] = global_constant_var[1, 0]
@@ -163,15 +163,15 @@ def test_library_global_variable_dep(tmp_path):
     np.testing.assert_allclose(a, np.array([2.0, -1.0]))
 
 
-def test_library_name_conflict(tmp_path):
+def test_library_name_conflict(tmp_path, backend):
 
     lib = nm.NumetaLibrary("name_conflict")
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def set_zero(a):
         a[:] = 0
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def add(a):
         set_zero(a)
         a[:] += 1
@@ -194,7 +194,7 @@ def test_library_name_conflict(tmp_path):
     assert all(array == 1)
 
 
-def test_library_external_dep(tmp_path):
+def test_library_external_dep(tmp_path, backend):
     import ctypes.util
     import os
 
@@ -226,7 +226,7 @@ def test_library_external_dep(tmp_path):
 
     n = 100
 
-    @nm.jit(library=lib)
+    @nm.jit(backend=backend, library=lib)
     def matmul(a, b, c):
         blas.dgemm(
             "N",
@@ -260,10 +260,10 @@ def test_library_external_dep(tmp_path):
     np.testing.assert_allclose(c, np.dot(a, b))
 
 
-def test_library_public_api():
+def test_library_public_api(backend, backend):
     lib = nm.NumetaLibrary("public_api")
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def add(a):
         a[:] += 1
 
@@ -280,17 +280,17 @@ def test_library_public_api():
     assert len(lib) == 0
 
 
-def test_library_register_rejects_reserved_name():
+def test_library_register_rejects_reserved_name(backend, backend):
     lib = nm.NumetaLibrary("public_api_reserved")
 
     with pytest.raises(ValueError, match="reserved"):
 
-        @nm.jit(library=lib)
+        @nm.jit(backend=backend, library=lib)
         def register(a):
             a[:] += 1
 
 
-def test_library_load_collision_warns(tmp_path):
+def test_library_load_collision_warns(tmp_path, backend):
     from numeta.numeta_function import NumetaFunction
 
     original_names = NumetaFunction.used_compiled_names.copy()
@@ -300,7 +300,7 @@ def test_library_load_collision_warns(tmp_path):
         lib_dir.mkdir()
         lib = nm.NumetaLibrary("collision_lib")
 
-        @nm.jit(library=lib)
+        @nm.jit(backend=backend, library=lib)
         def add(a):
             a[:] += 1
 
@@ -310,7 +310,7 @@ def test_library_load_collision_warns(tmp_path):
 
         NumetaFunction.used_compiled_names.clear()
 
-        @nm.jit
+        @nm.jit(backend=backend)
         def add(a):
             a[:] += 1
 
@@ -325,7 +325,7 @@ def test_library_load_collision_warns(tmp_path):
         NumetaFunction.used_compiled_names.update(original_names)
 
 
-def test_library_reserved_suffix_rejected(tmp_path):
+def test_library_reserved_suffix_rejected(tmp_path, backend):
     reserved_name = f"bad{PyCExtension.SUFFIX}"
     with pytest.raises(ValueError, match="reserved"):
         nm.NumetaLibrary(reserved_name)
@@ -333,7 +333,7 @@ def test_library_reserved_suffix_rejected(tmp_path):
         nm.NumetaLibrary.load(reserved_name, tmp_path)
 
 
-def test_library_wrapper_module_collision():
+def test_library_wrapper_module_collision(backend, backend):
     wrapper_module = f"collision{PyCExtension.SUFFIX}"
     sys.modules[wrapper_module] = object()
     try:

@@ -281,11 +281,11 @@ def convert_signature_to_argument_specs(
             rank = arg[2]
 
             fortran_order = False
-            if len(arg) == 4:
+            if len(arg) >= 4:
                 fortran_order = arg[3]
 
             intent = "inout"
-            if len(arg) == 5:
+            if len(arg) >= 5:
                 intent = arg[4]
 
             if rank is None:
@@ -295,7 +295,7 @@ def convert_signature_to_argument_specs(
             else:
                 shape = ArrayShape([None] * rank, fortran_order=fortran_order)
 
-            if len(arg) == 6:
+            if len(arg) >= 6:
                 # it means that the shape is known at comptime
                 shape = ArrayShape(arg[5], fortran_order=fortran_order)
 

@@ -6,10 +6,10 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_pmul(dtype):
+def test_pmul(dtype, backend):
     n = 100
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def pmul(a, b, c):
         for i in nm.prange(
             a.shape[0],

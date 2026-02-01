@@ -2,11 +2,11 @@ import numpy as np
 import numeta as nm
 
 
-def test_disable_array_descriptor():
+def test_disable_array_descriptor(backend, backend):
 
     nm.settings.unset_add_shape_descriptors()
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(n, a):
         # if shape descriptors were not disable i should have done a[0, 0]
         a[0] = n

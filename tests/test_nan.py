@@ -3,9 +3,9 @@ import numpy as np
 import pytest
 
 
-def test_nan():
+def test_nan(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def check_nan(a, is_nan):
         is_nan[0] = a[0] != a[0]
 

@@ -3,8 +3,8 @@ import pytest
 import numeta as nm
 
 
-def test_optional_argument():
-    @nm.jit
+def test_optional_argument(backend, backend):
+    @nm.jit(backend=backend)
     def fill(a, value=1.0):
         a[:] = value
 
@@ -19,8 +19,8 @@ def test_optional_argument():
     assert len(fill.get_symbolic_functions()) == 1
 
 
-def test_optional_comptime_argument():
-    @nm.jit
+def test_optional_comptime_argument(backend, backend):
+    @nm.jit(backend=backend)
     def fill(a, value: nm.comptime = 1.0):
         a[:] = value
 
@@ -35,8 +35,8 @@ def test_optional_comptime_argument():
     assert len(fill.get_symbolic_functions()) == 3
 
 
-def test_optional_argument_mixed():
-    @nm.jit
+def test_optional_argument_mixed(backend, backend):
+    @nm.jit(backend=backend)
     def fill(a, value=1.0, value2=-2.0):
         a[:] = value
         a[2] = value2
@@ -81,7 +81,7 @@ def test_optional_argument_mixed():
 )
 @pytest.mark.parametrize("shape", [(), (5,), (2, 3)])
 def test_keyword_arguments(n_args, dtype, shape):
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(**kwargs):
         for i, arg in kwargs.items():
             arg[:] = int(i[3])
@@ -97,7 +97,7 @@ def test_keyword_arguments(n_args, dtype, shape):
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
 def test_variable_positional_and_keyword_arguments(n_args, n_kwargs):
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(*args, **kwargs):
         for i, arg in enumerate(args):
             arg[:] = int(i)
@@ -119,7 +119,7 @@ def test_variable_positional_and_keyword_arguments(n_args, n_kwargs):
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
 def test_positional_and_variable_positional_and_keyword_arguments(n_args, n_kwargs):
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a, *args, **kwargs):
         for i, arg in enumerate(args):
             arg[:] = int(i)
@@ -148,7 +148,7 @@ def test_positional_and_variable_positional_and_keyword_arguments(n_args, n_kwar
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
 def test_positional_and_variable_positional_and_optional_and_keyword_arguments(n_args, n_kwargs):
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a, *args, b=2.0, **kwargs):
         for i, arg in enumerate(args):
             arg[:] = int(i) + b
@@ -176,8 +176,8 @@ def test_positional_and_variable_positional_and_optional_and_keyword_arguments(n
     np.testing.assert_allclose(a, expected_a)
 
 
-def test_optional_array_argument():
-    @nm.jit
+def test_optional_array_argument(backend, backend):
+    @nm.jit(backend=backend)
     def fill(a, b=np.zeros((5,), dtype=np.float64)):
         for i in nm.range(a.shape[0]):
             a[i] = b[i] + 1.0
@@ -199,8 +199,8 @@ def test_optional_array_argument():
         ("c", "a", "b"),
     ],
 )
-def test_all_keyword_permutations(order):
-    @nm.jit
+def test_all_keyword_permutations(order, backend):
+    @nm.jit(backend=backend)
     def fill(a, b, c=1.0):
         a[:] = b + c
 
@@ -212,9 +212,9 @@ def test_all_keyword_permutations(order):
     np.testing.assert_allclose(a, np.full((), 5.0))
 
 
-def test_optional_keyword_only_comptime_argument():
+def test_optional_keyword_only_comptime_argument(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a, *, length: nm.comptime = 4):
         for i in nm.range(length):
             a[i] = -i
@@ -232,8 +232,8 @@ def test_optional_keyword_only_comptime_argument():
     np.testing.assert_allclose(b, expected)
 
 
-def test_keyword_arguments_have_unique_signature():
-    @nm.jit
+def test_keyword_arguments_have_unique_signature(backend, backend):
+    @nm.jit(backend=backend)
     def fill(**kwargs):
         for i, arg in kwargs.items():
             arg[:] = float(i[3])
@@ -253,13 +253,13 @@ def test_keyword_arguments_have_unique_signature():
     assert len(fill.get_symbolic_functions()) == 1
 
 
-def test_keyword_arguments_have_unique_signature_unordered():
+def test_keyword_arguments_have_unique_signature_unordered(backend, backend):
 
     from numeta.settings import settings
 
     settings.unset_reorder_kwargs()
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(**kwargs):
         for i, arg in kwargs.items():
             arg[:] = float(i[3])

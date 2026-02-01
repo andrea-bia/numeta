@@ -2,8 +2,8 @@ import numeta as nm
 import numpy as np
 
 
-def test_omp():
-    @nm.jit
+def test_omp(backend, backend):
+    @nm.jit(backend=backend)
     def test_mul(a, b, c):
         n_threads = nm.scalar(nm.i8, nm.omp.omp_get_max_threads())
         i_thread = nm.scalar(nm.i8, 0)

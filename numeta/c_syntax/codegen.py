@@ -5,11 +5,10 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
-from numeta.array_shape import SCALAR, UNKNOWN
+from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
 from numeta.datatype import DataType
-from numeta.syntax import Subroutine, Variable
-from numeta.syntax.settings import settings as syntax_settings
 from numeta.settings import settings as nm_settings
+from numeta.syntax import Subroutine, Variable
 from numeta.syntax.expressions import (
     BinaryOperationNode,
     FunctionCall,
@@ -18,7 +17,8 @@ from numeta.syntax.expressions import (
 )
 from numeta.syntax.expressions.getattr import GetAttr
 from numeta.syntax.expressions.getitem import GetItem
-from numeta.syntax.expressions.various import ArrayConstructor, Re, Im
+from numeta.syntax.expressions.various import ArrayConstructor, Im, Re
+from numeta.syntax.settings import settings as syntax_settings
 from numeta.syntax.statements import (
     Allocate,
     Assignment,
@@ -85,11 +85,14 @@ class CCodegen:
         self._arg_specs: list[CArg] = []
         self._array_info: dict[str, ArrayInfo] = {}
         self._struct_defs: list[str] = []
+        self._global_defs: list[str] = []
+        self._global_arrays: dict[str, tuple[int, list[str], bool, str]] = {}
         self._requires_math = False
         self._loop_counter = 0
         self._temp_counter = 0
         self._build_signature()
         self._collect_structs()
+        self._collect_global_arrays()
 
     @property
     def requires_math(self) -> bool:
@@ -101,11 +104,15 @@ class CCodegen:
         lines.append("#include <numpy/arrayobject.h>\n")
         lines.append("#include <numpy/npy_math.h>\n")
         lines.append("#include <complex.h>\n")
+        lines.append("#include <stdlib.h>\n")
         if self._requires_math:
             lines.append("#include <math.h>\n")
         lines.append("\n")
         lines.extend(self._struct_defs)
         if self._struct_defs:
+            lines.append("\n")
+        lines.extend(self._global_defs)
+        if self._global_defs:
             lines.append("\n")
         prototypes = self._render_prototypes()
         lines.extend(prototypes)
@@ -146,6 +153,82 @@ class CCodegen:
 
         self._struct_defs = list(defs.values())
 
+    def _collect_global_arrays(self) -> None:
+        def maybe_register(expr):
+            if isinstance(expr, Variable):
+                if expr.assign is not None and expr._shape is not SCALAR:
+                    self._register_global_array(expr)
+            if isinstance(expr, GetItem):
+                if isinstance(expr.variable, Variable):
+                    maybe_register(expr.variable)
+            if isinstance(expr, GetAttr):
+                if isinstance(expr.variable, Variable):
+                    maybe_register(expr.variable)
+
+        def walk_expr(expr):
+            maybe_register(expr)
+            if isinstance(expr, BinaryOperationNode):
+                walk_expr(expr.left)
+                walk_expr(expr.right)
+            elif isinstance(expr, IntrinsicFunction):
+                for arg in expr.arguments:
+                    walk_expr(arg)
+            elif isinstance(expr, FunctionCall):
+                for arg in expr.arguments:
+                    walk_expr(arg)
+            elif isinstance(expr, GetItem):
+                if isinstance(expr.sliced, tuple):
+                    for item in expr.sliced:
+                        if hasattr(item, "get_code_blocks"):
+                            walk_expr(item)
+                elif hasattr(expr.sliced, "get_code_blocks"):
+                    walk_expr(expr.sliced)
+            elif isinstance(expr, GetAttr):
+                walk_expr(expr.variable)
+
+        def walk_stmt(stmt):
+            if isinstance(stmt, Assignment):
+                walk_expr(stmt.target)
+                walk_expr(stmt.value)
+            if isinstance(stmt, If):
+                walk_expr(stmt.condition)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+                for o in stmt.orelse:
+                    if isinstance(o, (ElseIf, Else)):
+                        for s in o.scope.get_statements():
+                            walk_stmt(s)
+            if isinstance(stmt, Do):
+                walk_expr(stmt.iterator)
+                walk_expr(stmt.start)
+                walk_expr(stmt.end)
+                if stmt.step is not None:
+                    walk_expr(stmt.step)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+            if isinstance(stmt, DoWhile):
+                walk_expr(stmt.condition)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+            if isinstance(stmt, SelectCase):
+                walk_expr(stmt.value)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+            if isinstance(stmt, Case):
+                walk_expr(stmt.value)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+            if isinstance(stmt, Call):
+                for arg in stmt.arguments:
+                    walk_expr(arg)
+            if isinstance(stmt, Print):
+                for child in stmt.children:
+                    if hasattr(child, "get_code_blocks"):
+                        walk_expr(child)
+
+        for stmt in self.subroutine.scope.get_statements():
+            walk_stmt(stmt)
+
     def _register_array_argument(self, variable: Variable) -> None:
         rank = variable._shape.rank
         ctype = self._map_ftype_to_ctype(variable)
@@ -185,127 +268,32 @@ class CCodegen:
         lines.append("}\n")
         return lines
 
-    def _render_prototypes(self) -> list[str]:
-        prototypes = []
-        for sub in self._collect_called_subroutines():
-            if sub.name == self.subroutine.name:
-                continue
-            args = ", ".join(self._render_prototype_arg(sub, var) for var in sub.arguments.values())
-            prototypes.append(f"void {sub.name}({args});\n")
-        return prototypes
-
-    def _collect_called_subroutines(self) -> list[Subroutine]:
-        seen = set()
-        collected = []
-
-        def add_sub(sub):
-            if sub.name in seen:
-                return
-            seen.add(sub.name)
-            collected.append(sub)
-
-        def walk_expr(expr):
-            if isinstance(expr, FunctionCall):
-                if isinstance(expr.function, Subroutine):
-                    add_sub(expr.function)
-                for arg in expr.arguments:
-                    walk_expr(arg)
-            elif isinstance(expr, BinaryOperationNode):
-                walk_expr(expr.left)
-                walk_expr(expr.right)
-            elif isinstance(expr, IntrinsicFunction):
-                for arg in expr.arguments:
-                    walk_expr(arg)
-            elif isinstance(expr, GetItem):
-                walk_expr(expr.variable)
-                if isinstance(expr.sliced, tuple):
-                    for item in expr.sliced:
-                        if hasattr(item, "get_code_blocks"):
-                            walk_expr(item)
-                elif hasattr(expr.sliced, "get_code_blocks"):
-                    walk_expr(expr.sliced)
-
-        def walk_stmt(stmt):
-            if isinstance(stmt, Call) and isinstance(stmt.function, Subroutine):
-                add_sub(stmt.function)
-            if isinstance(stmt, Assignment):
-                walk_expr(stmt.target)
-                walk_expr(stmt.value)
-            if isinstance(stmt, If):
-                walk_expr(stmt.condition)
-                for s in stmt.scope.get_statements():
-                    walk_stmt(s)
-                for o in stmt.orelse:
-                    if isinstance(o, (ElseIf, Else)):
-                        for s in o.scope.get_statements():
-                            walk_stmt(s)
-            if isinstance(stmt, Do):
-                walk_expr(stmt.iterator)
-                walk_expr(stmt.start)
-                walk_expr(stmt.end)
-                if stmt.step is not None:
-                    walk_expr(stmt.step)
-                for s in stmt.scope.get_statements():
-                    walk_stmt(s)
-            if isinstance(stmt, DoWhile):
-                walk_expr(stmt.condition)
-                for s in stmt.scope.get_statements():
-                    walk_stmt(s)
-            if isinstance(stmt, SelectCase):
-                walk_expr(stmt.value)
-                for s in stmt.scope.get_statements():
-                    walk_stmt(s)
-            if isinstance(stmt, Case):
-                walk_expr(stmt.value)
-                for s in stmt.scope.get_statements():
-                    walk_stmt(s)
-            if isinstance(stmt, Print):
-                for child in stmt.children:
-                    if hasattr(child, "get_code_blocks"):
-                        walk_expr(child)
-
-        for stmt in self.subroutine.scope.get_statements():
-            walk_stmt(stmt)
-
-        return collected
-
-    def _render_prototype_arg(self, sub: Subroutine, variable: Variable) -> str:
-        if variable._shape is SCALAR:
-            ctype = self._map_ftype_to_ctype(variable)
-            is_const = variable.intent == "in"
-            is_pointer = self._is_pointer_arg(variable)
-            return CArg(variable.name, ctype, is_pointer, is_const).render()
-        rank = variable._shape.rank
-        ctype = self._map_ftype_to_ctype(variable)
-        args = []
-        has_shape_descriptor = (
-            nm_settings.add_shape_descriptors and variable._shape.has_comptime_undefined_dims()
-        )
-        if has_shape_descriptor:
-            args.append(CArg(f"{variable.name}_dims", "npy_intp", True, True).render())
-        args.append(CArg(variable.name, ctype, True, variable.intent == "in").render())
-        return ", ".join(args)
-
     def _render_local_declarations(self, indent: int) -> list[str]:
         declarations: list[str] = []
         for variable in self.subroutine.get_local_variables().values():
             if variable._shape is SCALAR:
                 ctype = self._map_ftype_to_ctype(variable)
                 const_prefix = "const " if variable.parameter else ""
-                init = ""
-                if variable.assign is not None:
-                    init_value = self._render_literal(variable.assign)
-                    init = f" = {init_value}"
-                declarations.append(
-                    f"{'    ' * indent}{const_prefix}{ctype} {variable.name}{init};\n"
-                )
+                if variable.pointer:
+                    declarations.append(
+                        f"{'    ' * indent}{const_prefix}{ctype} *{variable.name} = NULL;\n"
+                    )
+                else:
+                    init = ""
+                    if variable.assign is not None:
+                        init_value = self._render_literal(variable.assign)
+                        init = f" = {init_value}"
+                    declarations.append(
+                        f"{'    ' * indent}{const_prefix}{ctype} {variable.name}{init};\n"
+                    )
                 continue
 
             self._register_local_array(variable)
             info = self._array_info[variable.name]
             if info.dims_name is not None and not info.is_argument:
                 dims_init = ""
-                if not variable._shape.has_comptime_undefined_dims():
+                needs_init = not all(info.dims_name in expr for expr in info.dims_exprs)
+                if needs_init:
                     dims_vals = ", ".join(info.dims_exprs)
                     dims_init = f" = {{{dims_vals}}}"
                 declarations.append(
@@ -334,7 +322,10 @@ class CCodegen:
         ctype = self._map_ftype_to_ctype(variable)
         fortran_order = variable._shape.fortran_order
         dims_name = f"{variable.name}_dims"
-        if variable._shape is UNKNOWN or variable._shape.has_comptime_undefined_dims():
+        has_shape_exprs = any(hasattr(dim, "get_code_blocks") for dim in variable._shape.dims)
+        if has_shape_exprs:
+            dims_exprs = [self._render_dim(dim) for dim in variable._shape.dims]
+        elif variable._shape is UNKNOWN or variable._shape.has_comptime_undefined_dims():
             dims_exprs = [f"{dims_name}[{i}]" for i in range(rank)]
         else:
             dims_exprs = [self._render_dim(dim) for dim in variable._shape.dims]
@@ -368,7 +359,14 @@ class CCodegen:
         if isinstance(stmt, Return):
             return [f"{'    ' * indent}return;\n"]
         if isinstance(stmt, Call):
-            return [f"{'    ' * indent}{self._render_call(stmt)}\n"]
+            if isinstance(stmt.function, Subroutine) and stmt.function.name == "c_f_pointer":
+                return self._render_c_f_pointer(stmt, indent)
+            call_line, pre_lines, post_lines = self._render_call(stmt, indent)
+            lines = []
+            lines.extend(pre_lines)
+            lines.append(f"{'    ' * indent}{call_line}\n")
+            lines.extend(post_lines)
+            return lines
         if isinstance(stmt, Cycle):
             return [f"{'    ' * indent}continue;\n"]
         if isinstance(stmt, Exit):
@@ -500,16 +498,34 @@ class CCodegen:
     def _render_pointer_assignment(self, stmt: PointerAssignment, indent: int) -> list[str]:
         if not isinstance(stmt.pointer, Variable):
             raise NotImplementedError("C backend only supports pointer assignment to variables")
+        lines: list[str] = []
+        if stmt.pointer_shape is not None:
+            shape = stmt.pointer_shape
+            if not isinstance(shape, ArrayShape):
+                shape = ArrayShape(tuple(shape), fortran_order=True)
+            info = self._array_info.get(stmt.pointer.name)
+            if info is None:
+                self._register_local_array(stmt.pointer)
+                info = self._array_info[stmt.pointer.name]
+            if info.dims_name is not None:
+                for i, dim in enumerate(shape.dims):
+                    dim_expr = self._render_dim(dim)
+                    lines.append(f"{'    ' * indent}{info.dims_name}[{i}] = {dim_expr};\n")
         target_expr = self._render_pointer_target(stmt.target, stmt.pointer_shape)
-        return [f"{'    ' * indent}{stmt.pointer.name} = {target_expr};\n"]
+        lines.append(f"{'    ' * indent}{stmt.pointer.name} = {target_expr};\n")
+        return lines
 
-    def _render_call(self, stmt: Call) -> str:
+    def _render_call(self, stmt: Call, indent: int) -> tuple[str, list[str], list[str]]:
         function = stmt.function
         name = function if isinstance(function, str) else function.name
         arg_values: list[str] = []
+        pre_lines: list[str] = []
+        post_lines: list[str] = []
         if isinstance(function, str):
             args = ", ".join(self._render_expr(arg) for arg in stmt.arguments)
-            return f"{name}({args});"
+            return f"{name}({args});", [], []
+        if isinstance(function, Subroutine) and function.name == "c_f_pointer":
+            return "", self._render_c_f_pointer(stmt, indent), []
 
         callee_args = list(function.arguments.values())
         if len(callee_args) != len(stmt.arguments):
@@ -518,20 +534,31 @@ class CCodegen:
                 f"got {len(stmt.arguments)}"
             )
         for call_arg, callee_arg in zip(stmt.arguments, callee_args):
-            arg_values.extend(self._render_call_arg(call_arg, callee_arg))
+            arg_list, pre, post = self._render_call_arg(call_arg, callee_arg, indent)
+            arg_values.extend(arg_list)
+            pre_lines.extend(pre)
+            post_lines.extend(post)
         args = ", ".join(arg_values)
-        return f"{name}({args});"
+        return f"{name}({args});", pre_lines, post_lines
 
-    def _render_call_arg(self, arg, callee_arg: Variable) -> list[str]:
+    def _render_call_arg(
+        self, arg, callee_arg: Variable, indent: int
+    ) -> tuple[list[str], list[str], list[str]]:
         if callee_arg._shape is SCALAR:
             callee_is_pointer = self._is_pointer_arg(callee_arg)
             if callee_is_pointer:
                 if isinstance(arg, Variable):
                     if self._pointer_args.get(arg.name, False):
-                        return [arg.name]
-                    return [f"&{arg.name}"]
-                raise NotImplementedError("C backend requires variables for inout arguments")
-            return [self._render_expr(arg)]
+                        return [arg.name], [], []
+                    return [f"&{arg.name}"], [], []
+                if isinstance(arg, (GetAttr, GetItem)):
+                    return [f"&({self._render_expr(arg)})"], [], []
+                temp = f"_nm_arg{self._temp_counter}"
+                self._temp_counter += 1
+                ctype = self._map_ftype_to_ctype(callee_arg)
+                pre_lines = [f"{'    ' * indent}{ctype} {temp} = {self._render_expr(arg)};\n"]
+                return [f"&{temp}"], pre_lines, []
+            return [self._render_expr(arg)], [], []
 
         if isinstance(arg, Variable):
             info = self._array_info.get(arg.name)
@@ -539,18 +566,181 @@ class CCodegen:
                 self._register_local_array(arg)
                 info = self._array_info[arg.name]
             args: list[str] = []
-            if (
-                callee_arg._shape.has_comptime_undefined_dims()
-                and nm_settings.add_shape_descriptors
-            ):
-                if info.dims_name is not None:
-                    args.append(info.dims_name)
-                else:
-                    dims_tmp = f"{arg.name}_dims"
-                    args.append(dims_tmp)
+            pre_lines: list[str] = []
             args.append(arg.name)
-            return args
-        raise NotImplementedError("C backend only supports array arguments as variables")
+            return args, pre_lines, []
+        if isinstance(arg, (GetItem, GetAttr)):
+            return self._render_slice_arg(arg, callee_arg, indent)
+        if callee_arg.intent != "in":
+            raise NotImplementedError("C backend requires variable arrays for out/inout arguments")
+        if isinstance(arg, (ArrayConstructor, IntrinsicFunction, BinaryOperationNode)):
+            return self._render_temp_array_expr(arg, indent)
+        raise NotImplementedError("C backend only supports array arguments as variables or slices")
+
+    def _render_slice_arg(
+        self, arg, callee_arg: Variable, indent: int
+    ) -> tuple[list[str], list[str], list[str]]:
+        rank, dims_exprs = self._expr_rank_dims(arg)
+        ctype = self._ctype_from_expr(arg)
+        temp = f"_nm_arg{self._temp_counter}"
+        self._temp_counter += 1
+        size_expr = self._render_product(dims_exprs)
+        pre_lines: list[str] = [
+            f"{'    ' * indent}{ctype} *{temp} = ({ctype}*)malloc(sizeof({ctype}) * {size_expr});\n"
+        ]
+        post_lines: list[str] = []
+        args: list[str] = []
+        has_shape_descriptor = (
+            nm_settings.add_shape_descriptors and callee_arg._shape.has_comptime_undefined_dims()
+        )
+        has_shape_exprs = any(hasattr(dim, "get_code_blocks") for dim in callee_arg._shape.dims)
+        if has_shape_descriptor and not has_shape_exprs:
+            dims_name = f"{temp}_dims"
+            pre_lines.append(
+                f"{'    ' * indent}npy_intp {dims_name}[{rank}] = {{{', '.join(dims_exprs)}}};\n"
+            )
+            args.append(dims_name)
+        args.append(temp)
+
+        if callee_arg.intent in {"in", "inout"}:
+            pre_lines.extend(
+                self._render_copy_loops(
+                    src_expr=arg,
+                    dst_name=temp,
+                    dims_exprs=dims_exprs,
+                    fortran_order=arg._shape.fortran_order,
+                    indent=indent,
+                    direction="in",
+                )
+            )
+        if callee_arg.intent in {"out", "inout"}:
+            post_lines.extend(
+                self._render_copy_loops(
+                    src_expr=arg,
+                    dst_name=temp,
+                    dims_exprs=dims_exprs,
+                    fortran_order=arg._shape.fortran_order,
+                    indent=indent,
+                    direction="out",
+                )
+            )
+        post_lines.append(f"{'    ' * indent}free({temp});\n")
+        return args, pre_lines, post_lines
+
+    def _render_copy_loops(
+        self,
+        *,
+        src_expr,
+        dst_name: str,
+        dims_exprs: Sequence[str],
+        fortran_order: bool,
+        indent: int,
+        direction: str,
+    ) -> list[str]:
+        lines: list[str] = []
+        lb = syntax_settings.array_lower_bound
+        loop_vars: list[str] = []
+        for i, dim in enumerate(dims_exprs):
+            var = self._next_loop_var()
+            loop_vars.append(var)
+            end = f"{dim} - 1 + {lb}"
+            lines.append(
+                f"{'    ' * indent}for (npy_intp {var} = {lb}; {var} <= {end}; {var}++) {{\n"
+            )
+            indent += 1
+        linear = self._linear_index(loop_vars, dims_exprs, fortran_order)
+        if direction == "in":
+            src_val = self._render_expr_at(src_expr, loop_vars)
+            lines.append(f"{'    ' * indent}{dst_name}[{linear}] = {src_val};\n")
+        else:
+            dest = self._render_expr_at(src_expr, loop_vars)
+            lines.append(f"{'    ' * indent}{dest} = {dst_name}[{linear}];\n")
+        for _ in loop_vars:
+            indent -= 1
+            lines.append(f"{'    ' * indent}}}\n")
+        return lines
+
+    def _render_temp_array_expr(self, expr, indent: int) -> tuple[list[str], list[str], list[str]]:
+        rank, dims_exprs = self._expr_rank_dims(expr)
+        ctype = self._ctype_from_expr(expr)
+        temp = f"_nm_arg{self._temp_counter}"
+        self._temp_counter += 1
+        size_expr = self._render_product(dims_exprs)
+        pre_lines: list[str] = [
+            f"{'    ' * indent}{ctype} *{temp} = ({ctype}*)malloc(sizeof({ctype}) * {size_expr});\n"
+        ]
+        post_lines: list[str] = [f"{'    ' * indent}free({temp});\n"]
+        lb = syntax_settings.array_lower_bound
+        loop_vars: list[str] = []
+        loop_indent = indent
+        for dim in dims_exprs:
+            var = self._next_loop_var()
+            loop_vars.append(var)
+            end = f"{dim} - 1 + {lb}"
+            pre_lines.append(
+                f"{'    ' * loop_indent}for (npy_intp {var} = {lb}; {var} <= {end}; {var}++) {{\n"
+            )
+            loop_indent += 1
+        rhs, setup_lines = self._render_expr_for_target(expr, loop_vars, dims_exprs, loop_indent)
+        pre_lines.extend(setup_lines)
+        linear = self._linear_index(loop_vars, dims_exprs, expr._shape.fortran_order)
+        pre_lines.append(f"{'    ' * loop_indent}{temp}[{linear}] = {rhs};\n")
+        for _ in loop_vars:
+            loop_indent -= 1
+            pre_lines.append(f"{'    ' * loop_indent}}}\n")
+        return [temp], pre_lines, post_lines
+
+    def _render_c_f_pointer(self, stmt: Call, indent: int) -> list[str]:
+        if len(stmt.arguments) < 2:
+            raise NotImplementedError("c_f_pointer requires at least two arguments")
+        cptr = stmt.arguments[0]
+        fptr = stmt.arguments[1]
+        cptr_expr = None
+        if isinstance(cptr, FunctionCall) and cptr.function.name == "c_loc":
+            cptr_expr = self._render_c_loc(cptr.arguments[0])
+        else:
+            cptr_expr = self._render_expr(cptr)
+        if not isinstance(fptr, Variable):
+            raise NotImplementedError("c_f_pointer target must be a variable")
+        ctype = self._map_ftype_to_ctype(fptr)
+        if fptr.pointer:
+            return [f"{'    ' * indent}{fptr.name} = ({ctype}*){cptr_expr};\n"]
+        return [f"{'    ' * indent}{fptr.name} = *({ctype}*){cptr_expr};\n"]
+
+    def _render_c_loc(self, expr) -> str:
+        if isinstance(expr, Variable):
+            if expr._shape is SCALAR:
+                if self._pointer_args.get(expr.name, False):
+                    return expr.name
+                return f"&{expr.name}"
+            return expr.name
+        if isinstance(expr, (GetItem, GetAttr)):
+            return f"&({self._render_expr(expr)})"
+        raise NotImplementedError("c_loc supports variables and element references only")
+
+    def _format_for_expr(self, expr) -> str:
+        if isinstance(expr, LiteralNode):
+            if isinstance(expr.value, int):
+                return '"%ld"'
+            if isinstance(expr.value, float):
+                return '"%g"'
+            if isinstance(expr.value, str):
+                return '"%s"'
+            if isinstance(expr.value, bool):
+                return '"%d"'
+            if isinstance(expr.value, complex):
+                return '"(%g%+gi)"'
+        if hasattr(expr, "_ftype"):
+            ftype = expr._ftype
+            if ftype is not None and ftype.type == "integer":
+                return '"%ld"'
+            if ftype is not None and ftype.type == "real":
+                return '"%g"'
+            if ftype is not None and ftype.type == "logical":
+                return '"%d"'
+            if ftype is not None and ftype.type == "complex":
+                return '"(%g%+gi)"'
+        return '"%g"'
 
     def _render_print(self, stmt: Print, indent: int) -> list[str]:
         parts: list[str] = []
@@ -616,7 +806,7 @@ class CCodegen:
                 element_indices.append(idx)
         lhs = self._render_array_element_from_expr(target, element_indices)
         rhs, setup_lines = self._render_expr_for_target(
-            stmt.value, element_indices, target_dim_exprs, indent
+            stmt.value, loop_vars, target_dim_exprs, indent
         )
         lines.extend(setup_lines)
         lines.append(f"{'    ' * indent}{lhs} = {rhs};\n")
@@ -670,7 +860,15 @@ class CCodegen:
                 else:
                     step = None
                 start, end = self._slice_bounds(slice_, dims_exprs[i])
-                loop_dims.append((start, end, step))
+                if step is None or step == "1":
+                    loop_start = "0"
+                    loop_end = f"({end} - {start})"
+                    loop_step = "1"
+                else:
+                    loop_start = "0"
+                    loop_end = f"(({end} - {start})/({step}))"
+                    loop_step = "1"
+                loop_dims.append((loop_start, loop_end, loop_step))
                 target_indices.append(None)
             else:
                 idx = self._render_expr(slice_)
@@ -696,7 +894,14 @@ class CCodegen:
         expr_rank, expr_dims = self._expr_rank_dims(expr)
         target_rank = len(target_dims)
         if expr_rank > target_rank:
-            raise NotImplementedError("C backend does not support broadcasting to lower rank")
+            extra = expr_rank - target_rank
+            for i in range(extra):
+                if self._literal_dim(expr_dims[i]) != 1:
+                    raise NotImplementedError(
+                        "C backend does not support broadcasting to lower rank"
+                    )
+            expr_dims = expr_dims[extra:]
+            expr_rank = target_rank
         if expr_rank == 0:
             return
         pad = target_rank - expr_rank
@@ -750,6 +955,10 @@ class CCodegen:
     ) -> tuple[str, list[str]]:
         if isinstance(expr, IntrinsicFunction):
             return self._render_intrinsic_for_target(expr, target_indices, target_dims, indent)
+        if expr._shape is SCALAR:
+            # Special case for scalar expressions that might involve reductions
+            # We need to walk the expression tree to find reductions and hoist them
+            return self._render_scalar_expr_with_setup(expr, indent)
         if isinstance(expr, ArrayConstructor):
             return self._render_array_constructor_expr(expr, target_indices, target_dims, indent)
         if isinstance(expr, BinaryOperationNode):
@@ -767,8 +976,6 @@ class CCodegen:
                 return f"pow({left}, {right})", setup
             op = _C_OPS.get(expr.op, expr.op)
             return f"({left} {op} {right})", setup
-        if expr._shape is SCALAR:
-            return self._render_expr(expr), []
         if isinstance(expr, (Variable, GetItem, GetAttr, Re, Im)):
             expr_indices = self._broadcast_indices(expr, target_indices, target_dims)
             return self._render_expr_at(expr, expr_indices), []
@@ -776,15 +983,47 @@ class CCodegen:
             f"C backend does not support array expression {type(expr).__name__}"
         )
 
+    def _render_scalar_expr_with_setup(self, expr, indent: int) -> tuple[str, list[str]]:
+        if isinstance(expr, BinaryOperationNode):
+            left, left_setup = self._render_scalar_expr_with_setup(expr.left, indent)
+            right, right_setup = self._render_scalar_expr_with_setup(expr.right, indent)
+            setup = left_setup + right_setup
+            if self._is_complex_expr(expr.left) or self._is_complex_expr(expr.right):
+                return self._render_complex_binop_from_strings(expr, left, right), setup
+            if expr.op == "**":
+                self._requires_math = True
+                return f"pow({left}, {right})", setup
+            op = _C_OPS.get(expr.op, expr.op)
+            return f"({left} {op} {right})", setup
+        if isinstance(expr, IntrinsicFunction):
+            if expr.token in {"sum", "maxval", "minval", "all", "dot_product"}:
+                return self._render_reduction(expr, indent)
+            # Other intrinsics (e.g. abs, sin) might nest reductions?
+            # For now assume standard intrinsics are pure or recurse if arguments have reductions
+            # This is getting complicated. For now, just handle direct reductions or basic expressions.
+            # If arguments are complex, we might need recursion.
+            return self._render_intrinsic_for_target(expr, [], [], indent)
+        # Fallback for literals, variables, etc.
+        return self._render_expr(expr), []
+
     def _broadcast_indices(
         self, expr, target_indices: Sequence[str], target_dims: Sequence[str]
     ) -> list[str]:
+        if len(target_indices) > len(target_dims):
+            target_indices = list(target_indices)[len(target_indices) - len(target_dims) :]
         expr_rank, expr_dims = self._expr_rank_dims(expr)
         target_rank = len(target_indices)
         if expr_rank == 0:
             return []
         if expr_rank > target_rank:
-            raise NotImplementedError("C backend does not support broadcasting to lower rank")
+            extra = expr_rank - target_rank
+            for i in range(extra):
+                if self._literal_dim(expr_dims[i]) != 1:
+                    raise NotImplementedError(
+                        "C backend does not support broadcasting to lower rank"
+                    )
+            expr_dims = expr_dims[extra:]
+            expr_rank = target_rank
         pad = target_rank - expr_rank
         lb = str(syntax_settings.array_lower_bound)
         mapped: list[str] = []
@@ -923,31 +1162,6 @@ class CCodegen:
             return "1", setups
         raise NotImplementedError(f"C backend does not support intrinsic {token}")
 
-    def _array_expr_info(self, expr) -> tuple[int, list[str], bool, str]:
-        if isinstance(expr, Variable):
-            info = self._array_info.get(expr.name)
-            if info is None:
-                raise NotImplementedError("C backend requires array metadata for variable arrays")
-            return info.rank, list(info.dims_exprs), info.fortran_order, expr.name
-        if isinstance(expr, GetAttr):
-            shape = expr._shape
-            if shape is UNKNOWN or shape is SCALAR:
-                raise NotImplementedError("C backend requires array-shaped GetAttr")
-            dims_exprs = [self._render_dim(dim) for dim in shape.dims]
-            return shape.rank, dims_exprs, shape.fortran_order, self._render_getattr(expr)
-        raise NotImplementedError(
-            "C backend only supports array metadata for variables or struct fields"
-        )
-
-    def _render_array_element_from_expr(self, expr, indices: Sequence[str]) -> str:
-        if isinstance(expr, GetItem):
-            return self._render_getitem(expr, indices)
-        rank, dims_exprs, fortran_order, base = self._array_expr_info(expr)
-        if len(indices) != rank:
-            raise ValueError("Index rank does not match array rank")
-        linear = self._linear_index(indices, dims_exprs, fortran_order)
-        return f"{base}[{linear}]"
-
     def _render_complex_binop_from_strings(
         self, expr: BinaryOperationNode, left: str, right: str
     ) -> str:
@@ -1013,10 +1227,24 @@ class CCodegen:
             op = _C_OPS.get(expr.op, expr.op)
             return f"({self._render_expr(expr.left)} {op} {self._render_expr(expr.right)})"
         if isinstance(expr, FunctionCall):
+            if expr.function.name == "c_loc":
+                return self._render_c_loc(expr.arguments[0])
             name = expr.function.name
             args = ", ".join(self._render_expr(arg) for arg in expr.arguments)
             return f"{name}({args})"
         if isinstance(expr, IntrinsicFunction):
+            if expr.token in {"sum", "maxval", "minval", "all", "dot_product"}:
+                # These reductions return a scalar but need setup loops
+                val, setup = self._render_intrinsic_for_target(expr, [], [], indent=0)
+                # If there are setup lines (loops), we can't embed this in an expression.
+                # This simplistic check isn't enough for nested expressions.
+                # However, _render_expr currently assumes pure expressions without side-effects/setup.
+                # If we have setup, we must have been called via _render_expr_for_target at statement level.
+                if not setup:
+                    return val
+                raise NotImplementedError(
+                    "Intrinsic reduction inside complex expression not yet fully supported in C backend"
+                )
             return self._render_intrinsic(expr)
         if isinstance(expr, GetItem):
             return self._render_getitem(expr)
@@ -1199,23 +1427,56 @@ class CCodegen:
         if len(slices) < rank:
             slices.extend([slice(None)] * (rank - len(slices)))
         out_indices: list[str] = []
-        index_iter = iter(indices) if indices is not None else None
+        index_iter = None
+        if indices is not None:
+            slice_count = sum(1 for slice_ in slices if isinstance(slice_, slice))
+            if len(indices) == slice_count:
+                index_iter = iter(indices)
+            elif len(indices) == len(slices):
+                filtered = [
+                    idx for idx, slice_ in zip(indices, slices) if isinstance(slice_, slice)
+                ]
+                index_iter = iter(filtered)
+            else:
+                filtered = []
+                idx_iter = iter(indices)
+                for slice_ in slices:
+                    if isinstance(slice_, slice):
+                        try:
+                            filtered.append(next(idx_iter))
+                        except StopIteration:
+                            break
+                index_iter = iter(filtered)
         for i, slice_ in enumerate(slices):
             if isinstance(slice_, slice):
                 if index_iter is None:
                     raise NotImplementedError("C backend requires indices for sliced getitem")
                 start, _ = self._slice_bounds(slice_, dims_exprs[i])
-                out_indices.append(f"({start} + {next(index_iter)})")
+                step = slice_.step
+                if step is None:
+                    out_indices.append(f"({start} + {next(index_iter)})")
+                else:
+                    step_expr = self._render_expr(step)
+                    out_indices.append(f"({start} + ({step_expr}) * {next(index_iter)})")
             else:
                 idx = self._render_expr(slice_)
                 out_indices.append(idx)
         linear = self._linear_index(out_indices, dims_exprs, fortran_order)
-        return f"{base}[{linear}]"
+        return f"({base})[{linear}]"
+
+    def _render_array_element_from_expr(self, expr, indices: Sequence[str]) -> str:
+        if isinstance(expr, GetItem):
+            return self._render_getitem(expr, indices)
+        rank, dims_exprs, fortran_order, base = self._array_expr_info(expr)
+        if len(indices) != rank:
+            raise ValueError("Index rank does not match array rank")
+        linear = self._linear_index(indices, dims_exprs, fortran_order)
+        return f"({base})[{linear}]"
 
     def _render_getattr(self, expr: GetAttr) -> str:
         base = expr.variable
         if isinstance(base, Variable):
-            if self._pointer_args.get(base.name, False):
+            if self._pointer_args.get(base.name, False) or base.pointer:
                 return f"{base.name}->{expr.attr}"
             return f"{base.name}.{expr.attr}"
         if isinstance(base, GetItem):
@@ -1274,10 +1535,26 @@ class CCodegen:
                 stop_expr = f"({stop_expr} - 1)"
         return start_expr, stop_expr
 
+    def _render_slice_expr(self, slice_: slice) -> str:
+        parts = []
+        if slice_.start is not None:
+            parts.append(self._render_expr(slice_.start))
+        parts.append(":")
+        if slice_.stop is not None:
+            parts.append(self._render_expr(slice_.stop))
+        if slice_.step is not None:
+            parts.append(":")
+            parts.append(self._render_expr(slice_.step))
+        return "".join(parts)
+
     def _render_literal(self, value) -> str:
         if isinstance(value, (bool, np.bool_)):
             return "1" if value else "0"
-        if isinstance(value, (int, float, np.integer, np.floating)):
+        if isinstance(value, np.integer):
+            return str(int(value))
+        if isinstance(value, np.floating):
+            return repr(float(value))
+        if isinstance(value, (int, float)):
             return repr(value)
         if isinstance(value, np.complexfloating):
             self._requires_math = True
@@ -1295,6 +1572,8 @@ class CCodegen:
 
     def _render_variable(self, variable: Variable, as_pointer: bool) -> str:
         if self._pointer_args.get(variable.name, False):
+            return variable.name if as_pointer else f"*{variable.name}"
+        if variable.pointer and variable._shape is SCALAR:
             return variable.name if as_pointer else f"*{variable.name}"
         return variable.name
 
@@ -1504,6 +1783,8 @@ class CCodegen:
     ) -> tuple[str, list[str]]:
         a = expr.arguments[0]
         b = expr.arguments[1]
+        if not self._expr_fortran_order(a) and not self._expr_fortran_order(b):
+            a, b = b, a
         a_rank, a_dims = self._expr_rank_dims(a)
         b_rank, b_dims = self._expr_rank_dims(b)
         ctype = self._ctype_from_expr(a)
@@ -1600,12 +1881,20 @@ class CCodegen:
         np_type = dtype.get_numpy()
         return np.dtype(np_type).itemsize * 8
 
+    def _expr_fortran_order(self, expr) -> bool:
+        shape = getattr(expr, "_shape", None)
+        if shape is None:
+            return False
+        return shape.fortran_order
+
     def _map_ftype_to_ctype(self, variable: Variable) -> str:
         ftype = variable._ftype
+        if isinstance(ftype, Variable):
+            ftype = ftype._ftype
         if ftype is None:
             raise NotImplementedError("C backend requires a concrete type")
         if ftype.type == "type" and getattr(ftype.kind, "name", None) == "c_ptr":
-            return "void"
+            return "void*"
         dtype = DataType.from_ftype(ftype)
         return dtype.get_cnumpy()
 
@@ -1626,30 +1915,6 @@ class CCodegen:
             return DataType.from_ftype(ftype)
         except Exception:
             return None
-
-    def _format_for_expr(self, expr) -> str:
-        if isinstance(expr, LiteralNode):
-            if isinstance(expr.value, int):
-                return '"%ld"'
-            if isinstance(expr.value, float):
-                return '"%g"'
-            if isinstance(expr.value, str):
-                return '"%s"'
-            if isinstance(expr.value, bool):
-                return '"%d"'
-            if isinstance(expr.value, complex):
-                return '"(%g%+gi)"'
-        if hasattr(expr, "_ftype"):
-            ftype = expr._ftype
-            if ftype is not None and ftype.type == "integer":
-                return '"%ld"'
-            if ftype is not None and ftype.type == "real":
-                return '"%g"'
-            if ftype is not None and ftype.type == "logical":
-                return '"%d"'
-            if ftype is not None and ftype.type == "complex":
-                return '"(%g%+gi)"'
-        return '"%g"'
 
     def _render_dim(self, dim) -> str:
         if isinstance(dim, (int, np.integer)):
@@ -1701,10 +1966,157 @@ class CCodegen:
                     start, _ = self._slice_bounds(slice_, info.dims_exprs[i])
                     indices.append(start)
                 else:
-                    indices.append(self._render_expr(slice_))
+                    indices.append(self._normalize_index(self._render_expr(slice_)))
             if not isinstance(target.variable, Variable):
                 raise NotImplementedError("C backend only supports pointer assignment to variables")
             return f"&{self._render_array_element(target.variable, indices)}"
         raise NotImplementedError(
             "C backend only supports pointer assignment to variables or getitem"
         )
+
+    def _render_prototypes(self) -> list[str]:
+        prototypes = []
+        for sub in self._collect_called_subroutines():
+            if sub.name == self.subroutine.name:
+                continue
+            args = ", ".join(self._render_prototype_arg(sub, var) for var in sub.arguments.values())
+            prototypes.append(f"void {sub.name}({args});\n")
+        return prototypes
+
+    def _collect_called_subroutines(self) -> list[Subroutine]:
+        seen = set()
+        collected = []
+
+        def add_sub(sub):
+            if sub.name in seen:
+                return
+            seen.add(sub.name)
+            collected.append(sub)
+
+        def walk_expr(expr):
+            if isinstance(expr, FunctionCall):
+                if isinstance(expr.function, Subroutine):
+                    add_sub(expr.function)
+                for arg in expr.arguments:
+                    walk_expr(arg)
+            elif isinstance(expr, BinaryOperationNode):
+                walk_expr(expr.left)
+                walk_expr(expr.right)
+            elif isinstance(expr, IntrinsicFunction):
+                for arg in expr.arguments:
+                    walk_expr(arg)
+            elif isinstance(expr, GetItem):
+                walk_expr(expr.variable)
+                if isinstance(expr.sliced, tuple):
+                    for item in expr.sliced:
+                        if hasattr(item, "get_code_blocks"):
+                            walk_expr(item)
+                elif hasattr(expr.sliced, "get_code_blocks"):
+                    walk_expr(expr.sliced)
+
+        def walk_stmt(stmt):
+            if isinstance(stmt, Call) and isinstance(stmt.function, Subroutine):
+                if stmt.function.name not in {"c_f_pointer", "c_loc"}:
+                    add_sub(stmt.function)
+            if isinstance(stmt, Assignment):
+                walk_expr(stmt.target)
+                walk_expr(stmt.value)
+            if isinstance(stmt, If):
+                walk_expr(stmt.condition)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+                for o in stmt.orelse:
+                    if isinstance(o, (ElseIf, Else)):
+                        for s in o.scope.get_statements():
+                            walk_stmt(s)
+            if isinstance(stmt, Do):
+                walk_expr(stmt.iterator)
+                walk_expr(stmt.start)
+                walk_expr(stmt.end)
+                if stmt.step is not None:
+                    walk_expr(stmt.step)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+            if isinstance(stmt, DoWhile):
+                walk_expr(stmt.condition)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+            if isinstance(stmt, SelectCase):
+                walk_expr(stmt.value)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+            if isinstance(stmt, Case):
+                walk_expr(stmt.value)
+                for s in stmt.scope.get_statements():
+                    walk_stmt(s)
+            if isinstance(stmt, Print):
+                for child in stmt.children:
+                    if hasattr(child, "get_code_blocks"):
+                        walk_expr(child)
+
+        for stmt in self.subroutine.scope.get_statements():
+            walk_stmt(stmt)
+
+        return collected
+
+    def _render_prototype_arg(self, sub: Subroutine, variable: Variable) -> str:
+        if variable._shape is SCALAR:
+            ctype = self._map_ftype_to_ctype(variable)
+            is_const = variable.intent == "in"
+            is_pointer = self._is_pointer_arg(variable)
+            return CArg(variable.name, ctype, is_pointer, is_const).render()
+        ctype = self._map_ftype_to_ctype(variable)
+        args = []
+        has_shape_descriptor = (
+            nm_settings.add_shape_descriptors and variable._shape.has_comptime_undefined_dims()
+        )
+        has_shape_exprs = any(hasattr(dim, "get_code_blocks") for dim in variable._shape.dims)
+        if has_shape_descriptor and not has_shape_exprs:
+            args.append(CArg(f"{variable.name}_dims", "npy_intp", True, True).render())
+        args.append(CArg(variable.name, ctype, True, variable.intent == "in").render())
+        return ", ".join(args)
+
+    def _array_expr_info(self, expr) -> tuple[int, list[str], bool, str]:
+        if isinstance(expr, Variable):
+            info = self._array_info.get(expr.name)
+            if info is None:
+                global_info = self._global_arrays.get(expr.name)
+                if global_info is not None:
+                    return global_info
+                if expr.assign is not None and expr._shape is not SCALAR:
+                    return self._register_global_array(expr)
+                raise NotImplementedError("C backend requires array metadata for variable arrays")
+            return info.rank, list(info.dims_exprs), info.fortran_order, expr.name
+        if isinstance(expr, GetAttr):
+            shape = expr._shape
+            if shape is UNKNOWN or shape is SCALAR:
+                raise NotImplementedError("C backend requires array-shaped GetAttr")
+            dims_exprs = [self._render_dim(dim) for dim in shape.dims]
+            ctype = self._ctype_from_expr(expr)
+            base = f"({ctype}*){self._render_getattr(expr)}"
+            return shape.rank, dims_exprs, shape.fortran_order, base
+        raise NotImplementedError(
+            "C backend only supports array metadata for variables or struct fields"
+        )
+
+    def _register_global_array(self, variable: Variable) -> tuple[int, list[str], bool, str]:
+        name = variable.name
+        if name in self._global_arrays:
+            return self._global_arrays[name]
+        shape = variable._shape
+        if shape is UNKNOWN or shape is SCALAR:
+            raise NotImplementedError("C backend requires fixed-shape global arrays")
+        dims_exprs = [self._render_dim(dim) for dim in shape.dims]
+        ctype = self._map_ftype_to_ctype(variable)
+        values = variable.assign
+        if values is None:
+            raise NotImplementedError("C backend requires global arrays with assigned values")
+        array = np.array(values)
+        order = "F" if shape.fortran_order else "C"
+        flat = array.flatten(order=order)
+        rendered = ", ".join(self._render_literal(v) for v in flat)
+        size_expr = self._render_product(dims_exprs)
+        self._global_defs.append(f"static const {ctype} {name}[{size_expr}] = {{{rendered}}};\n")
+        info = (shape.rank, dims_exprs, shape.fortran_order, name)
+        self._global_arrays[name] = info
+        return info

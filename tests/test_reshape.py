@@ -6,11 +6,11 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_reshape(dtype):
+def test_reshape(dtype, backend):
     n = 100
     m = 20
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def set_zero_first_col(n, m, a):
         a_p = nm.reshape(a, (n, m))
 
@@ -31,11 +31,11 @@ def test_reshape(dtype):
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_reshape_fortran(dtype):
+def test_reshape_fortran(dtype, backend):
     n = 100
     m = 20
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def set_zero_first_col(n, m, a):
         a_p = nm.reshape(a, (n, m), order="F")
 

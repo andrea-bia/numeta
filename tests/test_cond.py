@@ -2,8 +2,8 @@ import numpy as np
 import numeta as nm
 
 
-def test_cond():
-    @nm.jit
+def test_cond(backend, backend):
+    @nm.jit(backend=backend)
     def cond(a) -> None:
         a[:] = 0.0
         for i in nm.range(n):

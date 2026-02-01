@@ -6,8 +6,8 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_scalar(dtype):
-    @nm.jit
+def test_scalar(dtype, backend):
+    @nm.jit(backend=backend)
     def fill(a):
         tmp = nm.scalar(dtype, 50)
         a[0] = tmp

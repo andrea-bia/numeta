@@ -2,8 +2,8 @@ import numpy as np
 import numeta as nm
 
 
-def test_cases():
-    @nm.jit
+def test_cases(backend, backend):
+    @nm.jit(backend=backend)
     def cases(a) -> None:
         a[:] = 0.0
         for i in nm.range(n):

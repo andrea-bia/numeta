@@ -8,7 +8,7 @@ from numeta.signature import (
 from numeta.types_hint import comptime
 
 
-def test_parse_parameters_with_varargs_and_kwargs():
+def test_parse_parameters_with_varargs_and_kwargs(backend, backend):
     def sample(a, *values, b=1, **options):
         return a, values, b, options
 
@@ -24,7 +24,7 @@ def test_parse_parameters_with_varargs_and_kwargs():
     assert [params[idx].name for idx in fixed_param_indices] == ["a", "b"]
 
 
-def test_signature_parsing_with_comptime_and_keyword_only():
+def test_signature_parsing_with_comptime_and_keyword_only(backend, backend):
     def sample(a: comptime, b, *, c=2):
         return a, b, c
 
@@ -64,7 +64,7 @@ def test_signature_parsing_with_comptime_and_keyword_only():
     assert argument_specs[2].is_keyword is True
 
 
-def test_signature_parsing_with_varargs():
+def test_signature_parsing_with_varargs(backend, backend):
     def sample(a, *vals):
         return a, vals
 

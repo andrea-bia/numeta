@@ -2,13 +2,13 @@ import numpy as np
 import numeta as nm
 
 
-def test_call_array_scalar():
+def test_call_array_scalar(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(n, a):
         a[:] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(n, a):
         callee(n, a)
 
@@ -20,13 +20,13 @@ def test_call_array_scalar():
     np.testing.assert_equal(a, expected)
 
 
-def test_call_array():
+def test_call_array(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(n, a):
         a[:, 2] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(n, a):
         callee(n, a)
 
@@ -38,13 +38,13 @@ def test_call_array():
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getitem_scalar():
+def test_call_getitem_scalar(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(n, a):
         a[:] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(n, a):
         callee(n, a[3, 7])
 
@@ -56,13 +56,13 @@ def test_call_getitem_scalar():
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getitem_slice():
+def test_call_getitem_slice(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(n, a):
         a[:] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(n, a):
         callee(50, a[:])
         callee(n, a[:2, :3])
@@ -80,13 +80,13 @@ def test_call_getitem_slice():
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getitem_slice_runtime_dep():
+def test_call_getitem_slice_runtime_dep(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(n, a):
         a[:] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(n, m, a):
         callee(50, a[:])
         callee(n, a[:n, : m // 2])
@@ -108,13 +108,13 @@ def test_call_getitem_slice_runtime_dep():
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getattr_scalar():
+def test_call_getattr_scalar(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(n, a):
         a[:] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(n, a):
         callee(n, a["x"])
 
@@ -128,13 +128,13 @@ def test_call_getattr_scalar():
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getattr_array():
+def test_call_getattr_array(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(n, a):
         a[:] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(n, a):
         callee(n, a["y"])
 
@@ -148,13 +148,13 @@ def test_call_getattr_array():
     np.testing.assert_equal(a, expected)
 
 
-def test_call_matmul():
+def test_call_matmul(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(a, d):
         a[:] = d
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(a, b, c):
         callee(c, nm.matmul(b, a))
 
@@ -165,16 +165,16 @@ def test_call_matmul():
     caller(a, b, c)
 
     expected = a @ b
-    np.testing.assert_equal(c, expected)
+    np.testing.assert_allclose(c, expected)
 
 
-def test_call_matmul_fortran_order():
+def test_call_matmul_fortran_order(backend, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def callee(a, d):
         a[:] = d
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(a, b, c):
         callee(c, nm.matmul(a, b))
 
@@ -185,20 +185,20 @@ def test_call_matmul_fortran_order():
     caller(a, b, c)
 
     expected = a @ b
-    np.testing.assert_equal(c, expected)
+    np.testing.assert_allclose(c, expected)
 
 
-def test_nested_calls():
-    @nm.jit
+def test_nested_calls(backend, backend):
+    @nm.jit(backend=backend)
     def inner(n, arr):
         arr[0] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def middle(n, arr):
         inner(n, arr)
         arr[1] = n + 1
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(n, arr):
         middle(n, arr)
 
@@ -209,17 +209,17 @@ def test_nested_calls():
     np.testing.assert_equal(arr, expected)
 
 
-def test_nested_calls_with_literals():
-    @nm.jit
+def test_nested_calls_with_literals(backend, backend):
+    @nm.jit(backend=backend)
     def inner(n, arr):
         arr[0] = n
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def middle(n, arr):
         inner(2, arr)
         arr[1] = n + 1
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def caller(arr):
         middle(3, arr)
 

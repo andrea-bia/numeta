@@ -7,9 +7,9 @@ import numeta as nm
     "dtype",
     [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128],
 )
-def test_scalar_call(dtype):
+def test_scalar_call(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(dtype: nm.comptime, a):
         nm_dtype = nm.get_datatype(dtype)
 
@@ -32,9 +32,9 @@ def test_scalar_call(dtype):
     "dtype",
     [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128],
 )
-def test_array_call_matrix(dtype):
+def test_array_call_matrix(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a):
         nm_dtype = nm.get_datatype(dtype)
         a[:2, :2] = nm_dtype[2, 3](50)[:2, :2]
@@ -56,9 +56,9 @@ def test_array_call_matrix(dtype):
     "dtype",
     [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128],
 )
-def test_array_call_3d(dtype):
+def test_array_call_3d(dtype, backend):
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(a):
         nm_dtype = nm.get_datatype(dtype)
         a[:] = nm_dtype[2, 2, 3](7)
@@ -70,7 +70,7 @@ def test_array_call_3d(dtype):
     np.testing.assert_allclose(out, expected)
 
 
-def test_variable_declaration_syntax():
+def test_variable_declaration_syntax(backend, backend):
 
     a = nm.float64(name="a")
     from numeta.syntax.statements import VariableDeclaration

@@ -2,7 +2,7 @@ import numpy as np
 import numeta as nm
 
 
-def test_struct_array():
+def test_struct_array(backend, backend):
     n = 2
     m = 3
 
@@ -10,7 +10,7 @@ def test_struct_array():
     np_nested2 = np.dtype([("c", np_nested1, (n,)), ("d", np_nested1, (3,))], align=True)
     np_nested3 = np.dtype([("c", np_nested2, (2,)), ("d", np_nested1, (3,))], align=True)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mod_struct(a) -> None:
         a[1]["c"][1]["d"][2]["b"][1] = -4.0
 
@@ -24,7 +24,7 @@ def test_struct_array():
     np.testing.assert_equal(a, b)
 
 
-def test_struct():
+def test_struct(backend, backend):
     n = 2
     m = 3
 
@@ -32,7 +32,7 @@ def test_struct():
     np_nested2 = np.dtype([("c", np_nested1, (n,)), ("d", np_nested1, (3,))], align=True)
     np_nested3 = np.dtype([("c", np_nested2, (2,)), ("d", np_nested1, (3,))], align=True)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mod_struct(a) -> None:
         a["c"][1]["d"][2]["b"][1] = -4.0
 
@@ -46,7 +46,7 @@ def test_struct():
     np.testing.assert_equal(a, b)
 
 
-def test_struct_type_helpers():
+def test_struct_type_helpers(backend, backend):
     dtype = np.dtype([("x", np.int32), ("y", np.float64)], align=True)
     st = nm.get_datatype(dtype)
 
@@ -55,7 +55,7 @@ def test_struct_type_helpers():
     assert arr_t.dtype is st
     assert arr_t.shape.dims == (2,)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(out):
         tmp = st()
         tmp["x"] = 5
@@ -71,11 +71,11 @@ def test_struct_type_helpers():
     np.testing.assert_equal(out, expected)
 
 
-def test_struct_array_call():
+def test_struct_array_call(backend, backend):
     dtype = np.dtype([("x", np.int32), ("y", np.float64)], align=True)
     nm_dtype = nm.get_datatype(dtype)
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def fill(out):
         val = nm_dtype()
         val["x"] = 7
@@ -91,7 +91,7 @@ def test_struct_array_call():
     np.testing.assert_equal(out, expected)
 
 
-def test_struct_class_reuse():
+def test_struct_class_reuse(backend, backend):
 
     dtype = np.dtype([("x", np.int32), ("y", np.float64)], align=True)
     st1 = nm.get_datatype(dtype)

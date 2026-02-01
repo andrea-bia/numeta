@@ -62,7 +62,7 @@ def render(expr):
     return print_block(expr.get_code_blocks())
 
 
-def test_simple_assignment_syntax():
+def test_simple_assignment_syntax(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
@@ -70,51 +70,51 @@ def test_simple_assignment_syntax():
     assert stmt.print_lines() == ["x=y\n"]
 
 
-def test_literal_node():
+def test_literal_node(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     lit = LiteralNode(5)
     assert render(lit) == "5_c_int64_t\n"
 
 
-def test_binary_operation_node():
+def test_binary_operation_node(backend, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     expr = x + y
     assert render(expr) == "(x+y)\n"
 
 
-def test_getattr_node():
+def test_getattr_node(backend, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = GetAttr(x, "tag")
     assert render(expr) == "x%tag\n"
 
 
-def test_getitem_node():
+def test_getitem_node(backend, backend):
     arr = Variable("a", syntax_settings.DEFAULT_REAL, shape=(10, 10))
     expr = arr[1, 2]
     assert render(expr) == "a(1, 2)\n"
 
 
-def test_unary_neg_node():
+def test_unary_neg_node(backend, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = -x
     assert render(expr) == "-(x)\n"
 
 
-def test_eq_ne_nodes():
+def test_eq_ne_nodes(backend, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     assert render(x == y) == "(x.eq.y)\n"
     assert render(x != y) == "(x.ne.y)\n"
 
 
-def test_re_im_nodes():
+def test_re_im_nodes(backend, backend):
     z = Variable("z", syntax_settings.DEFAULT_COMPLEX)
     assert render(z.real) == "z%re\n"
     assert render(z.imag) == "z%im\n"
 
 
-def test_array_constructor():
+def test_array_constructor(backend, backend):
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     arr = Variable("arr", syntax_settings.DEFAULT_INTEGER, shape=(10, 10))
     expr = ArrayConstructor(arr[1, 1], 5, i).get_code_blocks()
@@ -122,7 +122,7 @@ def test_array_constructor():
     assert expr == expected
 
 
-def test_complex_function_default():
+def test_complex_function_default(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     settings.set_default_from_datatype(nm.complex128, iso_c=True)
 
@@ -132,7 +132,7 @@ def test_complex_function_default():
     assert render(expr) == "cmplx(a, b, c_double_complex)\n"
 
 
-def test_complex_function():
+def test_complex_function(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     settings.set_default_from_datatype(nm.complex128, iso_c=True)
     settings.set_default_from_datatype(nm.int64, iso_c=True)
@@ -203,56 +203,56 @@ def test_intrinsic_functions(func, nargs, token):
     assert render(expr) == expected
 
 
-def test_variable_declaration_scalar():
+def test_variable_declaration_scalar(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     dec = VariableDeclaration(x)
     assert dec.print_lines() == ["integer(c_int64_t) :: x\n"]
 
 
-def test_variable_declaration_array():
+def test_variable_declaration_array(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     a = Variable("a", syntax_settings.DEFAULT_REAL, shape=(5,))
     dec = VariableDeclaration(a)
     assert dec.print_lines() == ["real(c_double), dimension(0:4) :: a\n"]
 
 
-def test_variable_declaration_pointer():
+def test_variable_declaration_pointer(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     p = Variable("p", syntax_settings.DEFAULT_REAL, shape=(10, 10), pointer=True)
     dec = VariableDeclaration(p)
     assert dec.print_lines() == ["real(c_double), pointer, dimension(:,:) :: p\n"]
 
 
-def test_variable_declaration_allocatable():
+def test_variable_declaration_allocatable(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     arr = Variable("arr", syntax_settings.DEFAULT_REAL, shape=(3, 3), allocatable=True)
     dec = VariableDeclaration(arr)
     assert dec.print_lines() == ["real(c_double), allocatable, dimension(:,:) :: arr\n"]
 
 
-def test_variable_declaration_intent():
+def test_variable_declaration_intent(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, intent="in")
     dec = VariableDeclaration(v)
     assert dec.print_lines() == ["real(c_double), intent(in), value :: v\n"]
 
 
-def test_variable_declaration_bind_c():
+def test_variable_declaration_bind_c(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, bind_c=True)
     dec = VariableDeclaration(v)
     assert dec.print_lines() == ["real(c_double), bind(C, name='v') :: v\n"]
 
 
-def test_variable_declaration_assign_scalar():
+def test_variable_declaration_assign_scalar(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, assign=5.0)
     dec = VariableDeclaration(v)
     assert dec.print_lines() == ["real(c_double) :: v; data v / 5.0_c_double /\n"]
 
 
-def test_variable_declaration_assign_array():
+def test_variable_declaration_assign_array(backend, backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, shape=(2, 1), assign=np.array([3.0, 5.0]))
     dec = VariableDeclaration(v)
@@ -261,7 +261,7 @@ def test_variable_declaration_assign_array():
     ]
 
 
-def test_subroutine_print_lines():
+def test_subroutine_print_lines(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
     y = Variable("y", syntax_settings.DEFAULT_INTEGER, intent="out")
@@ -281,7 +281,7 @@ def test_subroutine_print_lines():
     assert sub.print_lines() == expected
 
 
-def test_module_print_code():
+def test_module_print_code(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
     mod = Module("mymod")
@@ -301,7 +301,7 @@ def test_module_print_code():
     assert mod.print_lines() == expected
 
 
-def test_derived_type_declaration():
+def test_derived_type_declaration(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     dt = DerivedType(
@@ -322,7 +322,7 @@ def test_derived_type_declaration():
     assert dt.get_declaration().print_lines() == expected
 
 
-def test_do_statement():
+def test_do_statement(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
@@ -337,7 +337,7 @@ def test_do_statement():
         assert l1 == l2
 
 
-def test_if_statement():
+def test_if_statement(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
@@ -367,7 +367,7 @@ def test_if_statement():
         assert l1 == l2
 
 
-def test_do_while_statement():
+def test_do_while_statement(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
@@ -382,7 +382,7 @@ def test_do_while_statement():
         assert l1 == l2
 
 
-def test_update_variables_simple_assignment():
+def test_update_variables_simple_assignment(backend, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     stmt = Assignment(x, y, add_to_scope=False)
@@ -393,7 +393,7 @@ def test_update_variables_simple_assignment():
     assert stmt.print_lines() == ["new_x=new_y\n"]
 
 
-def test_update_variables_binary_operation_node():
+def test_update_variables_binary_operation_node(backend, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     expr = x + y
@@ -404,7 +404,7 @@ def test_update_variables_binary_operation_node():
     assert render(expr) == "(new_x+new_y)\n"
 
 
-def test_update_variables_simple_add():
+def test_update_variables_simple_add(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = x + 5
@@ -414,7 +414,7 @@ def test_update_variables_simple_add():
     assert render(expr) == "(new_x+5_c_int64_t)\n"
 
 
-def test_update_variables_getattr_node():
+def test_update_variables_getattr_node(backend, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = GetAttr(x, "tag")
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
@@ -422,7 +422,7 @@ def test_update_variables_getattr_node():
     assert render(expr) == "new_x%tag\n"
 
 
-def test_update_variables_getitem_node():
+def test_update_variables_getitem_node(backend, backend):
     arr = Variable("a", syntax_settings.DEFAULT_REAL, shape=(10, 10))
     expr = arr[1, 2]
     new_arr = Variable("new_a", syntax_settings.DEFAULT_REAL, shape=(40, 30))
@@ -430,7 +430,7 @@ def test_update_variables_getitem_node():
     assert render(expr) == "new_a(1, 2)\n"
 
 
-def test_update_variables_withgetitem_node():
+def test_update_variables_withgetitem_node(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = Assignment(x, 5, add_to_scope=False)
@@ -439,7 +439,7 @@ def test_update_variables_withgetitem_node():
     assert render(expr) == "new_x(3)=5_c_int64_t\n"
 
 
-def test_update_variables_eq_ne_nodes():
+def test_update_variables_eq_ne_nodes(backend, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
@@ -454,7 +454,7 @@ def test_update_variables_eq_ne_nodes():
     assert render(expr) == "(new_x.ne.new_y)\n"
 
 
-def test_update_variables_re_im_nodes():
+def test_update_variables_re_im_nodes(backend, backend):
     z = Variable("z", syntax_settings.DEFAULT_COMPLEX)
     new_z = Variable("new_z", syntax_settings.DEFAULT_COMPLEX)
 
@@ -532,7 +532,7 @@ def test_intrinsic_functions(func, nargs, token):
     assert render(expr) == expected
 
 
-def test_update_variables_do_statement():
+def test_update_variables_do_statement(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
@@ -557,7 +557,7 @@ def test_update_variables_do_statement():
         assert l1 == l2
 
 
-def test_update_variables_if_statement():
+def test_update_variables_if_statement(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
@@ -594,7 +594,7 @@ def test_update_variables_if_statement():
         assert line1 == line2, f"Expected: {line2}, but got: {line1}"
 
 
-def test_update_variables_do_while_statement():
+def test_update_variables_do_while_statement(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
@@ -619,7 +619,7 @@ def test_update_variables_do_while_statement():
         assert l1 == l2
 
 
-def test_call():
+def test_call(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
     y = Variable("y", syntax_settings.DEFAULT_INTEGER, intent="out")
@@ -652,7 +652,7 @@ def test_call():
         assert l1 == l2
 
 
-def test_call_external_module():
+def test_call_external_module(backend, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     lib = nm.syntax.module.ExternalModule("module", None, hidden=True)
     lib.add_method("foo", [Variable("a", syntax_settings.DEFAULT_INTEGER)], None)

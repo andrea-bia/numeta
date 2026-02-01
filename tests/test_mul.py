@@ -6,10 +6,10 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_mul(dtype):
+def test_mul(dtype, backend):
     n = 100
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def mul(a, b, c):
         for i in nm.range(a.shape[0]):
             for k in nm.range(b.shape[0]):

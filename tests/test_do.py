@@ -6,10 +6,10 @@ import pytest
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
-def test_do(dtype):
+def test_do(dtype, backend):
     n = 100
 
-    @nm.jit
+    @nm.jit(backend=backend)
     def do_loop(n, a) -> None:
         i = nm.scalar(nm.i8)
         with nm.do(i, 0, n - 1):
