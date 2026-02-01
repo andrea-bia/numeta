@@ -18,7 +18,7 @@ from numeta.syntax.expressions import (
 )
 from numeta.syntax.expressions.getattr import GetAttr
 from numeta.syntax.expressions.getitem import GetItem
-from numeta.syntax.expressions.various import ArrayConstructor
+from numeta.syntax.expressions.various import ArrayConstructor, Re, Im
 from numeta.syntax.statements import (
     Allocate,
     Assignment,
@@ -98,6 +98,8 @@ class CCodegen:
         lines: list[str] = []
         lines.append("#include <Python.h>\n")
         lines.append("#include <numpy/arrayobject.h>\n")
+        lines.append("#include <numpy/npy_math.h>\n")
+        lines.append("#include <complex.h>\n")
         if self._requires_math:
             lines.append("#include <math.h>\n")
         lines.append("\n")
@@ -144,6 +146,7 @@ class CCodegen:
         self._struct_defs = list(defs.values())
 
     def _register_array_argument(self, variable: Variable) -> None:
+        rank = variable._shape.rank
         ctype = self._map_ftype_to_ctype(variable)
         fortran_order = variable._shape.fortran_order
         dims_name = None
@@ -388,6 +391,9 @@ class CCodegen:
         target = stmt.target
         if self._is_array_target(target):
             return self._render_array_assignment(stmt, indent)
+        if isinstance(target, (Re, Im)):
+            line = self._render_complex_set(target, stmt.value)
+            return [f"{'    ' * indent}{line}\n"]
         if isinstance(target, GetAttr):
             lhs = self._render_getattr(target)
             rhs = self._render_expr(stmt.value)
@@ -546,8 +552,15 @@ class CCodegen:
             if isinstance(child, str):
                 parts.append(f'"{child}"')
             else:
-                fmt = self._format_for_expr(child)
-                parts.append(f"{fmt}, {self._render_expr(child)}")
+                if self._is_complex_expr(child):
+                    rendered = self._render_expr(child)
+                    suffix = "f" if self._is_complex64(child) else ""
+                    parts.append(
+                        f'"(%g%+gi)", creal{suffix}({rendered}), cimag{suffix}({rendered})'
+                    )
+                else:
+                    fmt = self._format_for_expr(child)
+                    parts.append(f"{fmt}, {self._render_expr(child)}")
         if not parts:
             return []
         lines = []
@@ -659,7 +672,13 @@ class CCodegen:
             return self._render_array_element(expr, indices)
         if isinstance(expr, GetItem):
             return self._render_getitem(expr, indices)
+        if isinstance(expr, Re):
+            return self._render_complex_component(expr.variable, "real", indices)
+        if isinstance(expr, Im):
+            return self._render_complex_component(expr.variable, "imag", indices)
         if isinstance(expr, BinaryOperationNode):
+            if self._is_complex_expr(expr.left) or self._is_complex_expr(expr.right):
+                return self._render_complex_binop(expr, indices)
             if expr.op == "**":
                 self._requires_math = True
                 return f"pow({self._render_expr_at(expr.left, indices)}, {self._render_expr_at(expr.right, indices)})"
@@ -681,6 +700,8 @@ class CCodegen:
         if isinstance(expr, Variable):
             return self._render_variable(expr, as_pointer=False)
         if isinstance(expr, BinaryOperationNode):
+            if self._is_complex_expr(expr.left) or self._is_complex_expr(expr.right):
+                return self._render_complex_binop(expr, None)
             if expr.op == "**":
                 self._requires_math = True
                 return f"pow({self._render_expr(expr.left)}, {self._render_expr(expr.right)})"
@@ -694,6 +715,10 @@ class CCodegen:
             return self._render_intrinsic(expr)
         if isinstance(expr, GetItem):
             return self._render_getitem(expr)
+        if isinstance(expr, Re):
+            return self._render_complex_component(expr.variable, "real", None)
+        if isinstance(expr, Im):
+            return self._render_complex_component(expr.variable, "imag", None)
         if isinstance(expr, GetAttr):
             return self._render_getattr(expr)
         if isinstance(expr, ArrayConstructor):
@@ -722,11 +747,45 @@ class CCodegen:
             return f"(!{arg})"
         if token in {"abs", "exp", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan"}:
             self._requires_math = True
+            arg0 = expr.arguments[0]
+            rendered = self._render_expr_at(arg0, indices) if indices else self._render_expr(arg0)
+            if self._is_complex_expr(arg0):
+                return self._render_complex_intrinsic(token, rendered, arg0)
             args = ", ".join(
                 self._render_expr_at(arg, indices) if indices else self._render_expr(arg)
                 for arg in expr.arguments
             )
             return f"{token}({args})"
+        if token in {"real", "aimag"}:
+            arg0 = expr.arguments[0]
+            rendered = self._render_expr_at(arg0, indices) if indices else self._render_expr(arg0)
+            if self._is_complex_expr(arg0):
+                suffix = "f" if self._is_complex64(arg0) else ""
+                func = "creal" if token == "real" else "cimag"
+                return f"{func}{suffix}({rendered})"
+            return rendered
+        if token == "conjg":
+            arg0 = expr.arguments[0]
+            rendered = self._render_expr_at(arg0, indices) if indices else self._render_expr(arg0)
+            if self._is_complex_expr(arg0):
+                suffix = "f" if self._is_complex64(arg0) else ""
+                self._requires_math = True
+                return f"conj{suffix}({rendered})"
+            return rendered
+        if token == "cmplx":
+            real = expr.arguments[0]
+            imag = expr.arguments[1] if len(expr.arguments) > 1 else LiteralNode(0.0)
+            real_rendered = (
+                self._render_expr_at(real, indices) if indices else self._render_expr(real)
+            )
+            imag_rendered = (
+                self._render_expr_at(imag, indices) if indices else self._render_expr(imag)
+            )
+            is_float = self._cmplx_is_float(expr)
+            self._requires_math = True
+            if is_float:
+                return f"npy_cpackf((float){real_rendered}, (float){imag_rendered})"
+            return f"npy_cpack((double){real_rendered}, (double){imag_rendered})"
         raise NotImplementedError(f"C backend does not support intrinsic {token}")
 
     def _render_getitem(self, expr: GetItem, indices: Sequence[str] | None = None) -> str:
@@ -816,9 +875,19 @@ class CCodegen:
             return "1" if value else "0"
         if isinstance(value, (int, float, np.integer, np.floating)):
             return repr(value)
+        if isinstance(value, np.complexfloating):
+            self._requires_math = True
+            real = value.real
+            imag = value.imag
+            if value.dtype == np.complex64:
+                return f"npy_cpackf((float){real}, (float){imag})"
+            return f"npy_cpack((double){real}, (double){imag})"
+        if isinstance(value, complex):
+            self._requires_math = True
+            return f"npy_cpack((double){value.real}, (double){value.imag})"
         if isinstance(value, str):
             return f'"{value}"'
-        raise NotImplementedError("C backend only supports int/float/bool/string literals")
+        raise NotImplementedError("C backend only supports int/float/bool/complex/string literals")
 
     def _render_variable(self, variable: Variable, as_pointer: bool) -> str:
         if self._pointer_args.get(variable.name, False):
@@ -833,6 +902,85 @@ class CCodegen:
             return False
         return True
 
+    def _is_complex_expr(self, expr) -> bool:
+        ftype = getattr(expr, "_ftype", None)
+        return ftype is not None and ftype.type == "complex"
+
+    def _is_complex64(self, expr) -> bool:
+        dtype = self._safe_dtype_from_ftype(expr)
+        if dtype is None:
+            return False
+        return dtype.get_numpy() is np.complex64
+
+    def _render_complex_binop(
+        self, expr: BinaryOperationNode, indices: Sequence[str] | None
+    ) -> str:
+        self._requires_math = True
+        left = self._render_expr_at(expr.left, indices) if indices else self._render_expr(expr.left)
+        right = (
+            self._render_expr_at(expr.right, indices) if indices else self._render_expr(expr.right)
+        )
+        if expr.op == "**":
+            func = (
+                "cpowf"
+                if (self._is_complex64(expr.left) or self._is_complex64(expr.right))
+                else "cpow"
+            )
+            return f"{func}({left}, {right})"
+        op = _C_OPS.get(expr.op, expr.op)
+        return f"({left} {op} {right})"
+
+    def _render_complex_intrinsic(self, token: str, value: str, arg) -> str:
+        self._requires_math = True
+        suffix = "f" if self._is_complex64(arg) else ""
+        mapping = {
+            "abs": f"npy_cabs{suffix}",
+            "exp": f"npy_cexp{suffix}",
+            "sqrt": f"npy_csqrt{suffix}",
+            "sin": f"npy_csin{suffix}",
+            "cos": f"npy_ccos{suffix}",
+            "tan": f"npy_ctan{suffix}",
+            "asin": f"npy_casin{suffix}",
+            "acos": f"npy_cacos{suffix}",
+            "atan": f"npy_catan{suffix}",
+        }
+        func = mapping[token]
+        return f"{func}({value})"
+
+    def _cmplx_is_float(self, expr: IntrinsicFunction) -> bool:
+        if len(expr.arguments) < 3:
+            return False
+        kind = expr.arguments[2]
+        if isinstance(kind, LiteralNode) and isinstance(kind.value, int):
+            return kind.value == 4
+        return False
+
+    def _render_complex_component(self, base, component: str, indices: Sequence[str] | None) -> str:
+        rendered = self._render_expr_at(base, indices) if indices else self._render_expr(base)
+        if self._is_complex_expr(base):
+            suffix = "f" if self._is_complex64(base) else ""
+            func = "creal" if component == "real" else "cimag"
+            return f"{func}{suffix}({rendered})"
+        return rendered
+
+    def _render_complex_set(self, target, value) -> str:
+        base = target.variable
+        rhs = self._render_expr(value)
+        is_float = self._is_complex64(base)
+        macro = "NPY_CSETREALF" if is_float else "NPY_CSETREAL"
+        if isinstance(target, Im):
+            macro = "NPY_CSETIMAGF" if is_float else "NPY_CSETIMAG"
+        if isinstance(base, Variable):
+            if self._pointer_args.get(base.name, False):
+                ptr = base.name
+            else:
+                ptr = f"&{base.name}"
+        elif isinstance(base, GetItem):
+            ptr = f"&{self._render_getitem(base)}"
+        else:
+            raise NotImplementedError("C backend only supports real/imag assignment on variables")
+        return f"{macro}({ptr}, {rhs});"
+
     def _map_ftype_to_ctype(self, variable: Variable) -> str:
         ftype = variable._ftype
         if ftype is None:
@@ -842,9 +990,12 @@ class CCodegen:
         dtype = DataType.from_ftype(ftype)
         return dtype.get_cnumpy()
 
-    def _safe_dtype_from_ftype(self, variable: Variable) -> DataType | None:
+    def _safe_dtype_from_ftype(self, expr) -> DataType | None:
+        ftype = getattr(expr, "_ftype", None)
+        if ftype is None:
+            return None
         try:
-            return DataType.from_ftype(variable._ftype)
+            return DataType.from_ftype(ftype)
         except Exception:
             return None
 
@@ -858,6 +1009,8 @@ class CCodegen:
                 return '"%s"'
             if isinstance(expr.value, bool):
                 return '"%d"'
+            if isinstance(expr.value, complex):
+                return '"(%g%+gi)"'
         if hasattr(expr, "_ftype"):
             ftype = expr._ftype
             if ftype is not None and ftype.type == "integer":
@@ -866,6 +1019,8 @@ class CCodegen:
                 return '"%g"'
             if ftype is not None and ftype.type == "logical":
                 return '"%d"'
+            if ftype is not None and ftype.type == "complex":
+                return '"(%g%+gi)"'
         return '"%g"'
 
     def _render_dim(self, dim) -> str:

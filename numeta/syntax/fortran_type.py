@@ -22,3 +22,16 @@ class FortranType(Node):
         if isinstance(self.kind, NamedEntity):
             return self.kind.name
         return str(self.kind)
+
+    def __eq__(self, other):
+        if not isinstance(other, FortranType):
+            return False
+        return self.type == other.type and self._kind_key() == other._kind_key()
+
+    def __hash__(self):
+        return hash((self.type, self._kind_key()))
+
+    def _kind_key(self):
+        if isinstance(self.kind, NamedEntity):
+            return ("named", self.kind.name)
+        return ("value", self.kind)

@@ -36,7 +36,7 @@ class Im(ExpressionNode):
 
     @property
     def _shape(self):
-        return self.variable.shape
+        return self.variable._shape
 
     def get_code_blocks(self):
         return [*self.variable.get_code_blocks(), "%", "im"]

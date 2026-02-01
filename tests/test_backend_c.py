@@ -58,3 +58,22 @@ def test_c_backend_intrinsics():
 
     result = compute(9)
     np.testing.assert_equal(result, 12)
+
+
+def test_c_backend_complex_ops():
+    @nm.jit(backend="c")
+    def compute(a, b):
+        return a + b * (1 + 2j)
+
+    result = compute(1 + 1j, 2 - 1j)
+    expected = (1 + 1j) + (2 - 1j) * (1 + 2j)
+    np.testing.assert_allclose(result, expected)
+
+
+def test_c_backend_complex_parts():
+    @nm.jit(backend="c")
+    def combine(a):
+        return a.real + a.imag
+
+    result = combine(3 + 4j)
+    np.testing.assert_equal(result, 7)
