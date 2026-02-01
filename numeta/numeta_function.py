@@ -25,9 +25,10 @@ class NumetaCompiledFunction(ExternalLibrary):
         name,
         symbolic_function,
         *,
-        path: None | Path = None,
+        path: None | str | Path = None,
         do_checks=False,
         compile_flags="-O3 -march=native",
+        backend: str = "fortran",
     ):
         """
         Has to be linked at runtime
@@ -41,6 +42,8 @@ class NumetaCompiledFunction(ExternalLibrary):
         self._path.mkdir(exist_ok=True)
         self._rpath = self._path
         self.do_checks = do_checks
+        self.backend = backend
+        self._requires_math = False
         if isinstance(compile_flags, str):
             self.compile_flags = compile_flags.split()
         else:
@@ -51,7 +54,7 @@ class NumetaCompiledFunction(ExternalLibrary):
     def obj_files(self):
         if self._obj_files is None:
             self._obj_files, self._include = self.compile_obj()
-        return [str(self._obj_files)]
+        return [self._obj_files]
 
     @property
     def include(self):
@@ -73,36 +76,58 @@ class NumetaCompiledFunction(ExternalLibrary):
 
     def compile_obj(self):
         """
-        Compile Fortran source files using gfortran and return the resulting object file.
+        Compile source files using the selected backend and return the object file.
         """
         if self._obj_files is None:
-            compiler = Compiler("gfortran", self.compile_flags)
-            fortran_src = self._path / f"{self.name}_src.f90"
-            fortran_src.write_text(self.symbolic_function.get_code())
+            if self.backend == "fortran":
+                compiler = Compiler("gfortran", self.compile_flags)
+                fortran_src = self._path / f"{self.name}_src.f90"
+                fortran_src.write_text(self.symbolic_function.get_code())
+                sources = [fortran_src]
+                include_dirs = []
+                additional_flags = []
+                obj_suffix = "_fortran.o"
+            elif self.backend == "c":
+                from .c_syntax import CCodegen
+                import numpy as np
+                import sysconfig
 
-            include_dirs = set()
-            additional_flags = set()
+                compiler = Compiler("gcc", self.compile_flags)
+                c_src = self._path / f"{self.name}_src.c"
+                codegen = CCodegen(self.symbolic_function)
+                c_src.write_text(codegen.render())
+                self._requires_math = codegen.requires_math
+                sources = [c_src]
+                include_dirs = [
+                    sysconfig.get_paths()["include"],
+                    np.get_include(),
+                ]
+                additional_flags = ["-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"]
+                obj_suffix = "_c.o"
+            else:
+                raise ValueError(f"Unsupported backend: {self.backend}")
 
             for lib in self.symbolic_function.get_dependencies().values():
 
                 if lib.include is not None:
                     if isinstance(lib.include, (list, tuple, set)):
-                        include_dirs |= set(lib.include)
+                        include_dirs.extend(list(lib.include))
                     else:
-                        include_dirs.add(lib.include)
+                        include_dirs.append(lib.include)
 
                 if lib.additional_flags is not None:
                     if isinstance(lib.additional_flags, str):
-                        additional_flags.add(tuple(lib.additional_flags.split()))
+                        additional_flags.extend(lib.additional_flags.split())
                     else:
-                        additional_flags.add(tuple(lib.additional_flags))
+                        additional_flags.extend(list(lib.additional_flags))
 
             return compiler.compile_to_obj(
                 name=self.name,
                 directory=self._path,
-                sources=[str(fortran_src)],
+                sources=sources,
                 include_dirs=include_dirs,
                 additional_flags=additional_flags,
+                obj_suffix=obj_suffix,
             )
 
     def compile(self):
@@ -113,19 +138,27 @@ class NumetaCompiledFunction(ExternalLibrary):
 
             # find dependencies
 
-            libraries = {"gfortran", "mvec"}
+            libraries = set()
             libraries_dirs = set()
             rpath_dirs = set()
-            include_dirs = set()
-            additional_flags = set()
+            include_dirs = []
+            additional_flags = []
+
+            if self.backend == "fortran":
+                libraries |= {"gfortran", "mvec"}
+            elif self.backend == "c":
+                if getattr(self, "_requires_math", False):
+                    libraries.add("m")
+            else:
+                raise ValueError(f"Unsupported backend: {self.backend}")
 
             for lib in self.symbolic_function.get_dependencies().values():
 
                 if lib.include is not None:
                     if isinstance(lib.include, (list, tuple, set)):
-                        include_dirs |= set(lib.include)
+                        include_dirs.extend(list(lib.include))
                     else:
-                        include_dirs.add(lib.include)
+                        include_dirs.append(lib.include)
 
                 if lib.to_link:
                     libraries.add(lib.name)
@@ -136,9 +169,9 @@ class NumetaCompiledFunction(ExternalLibrary):
 
                 if lib.additional_flags is not None:
                     if isinstance(lib.additional_flags, str):
-                        additional_flags.add(tuple(lib.additional_flags.split()))
+                        additional_flags.extend(lib.additional_flags.split())
                     else:
-                        additional_flags.add(tuple(lib.additional_flags))
+                        additional_flags.extend(list(lib.additional_flags))
 
             compiler = Compiler("gcc", self.compile_flags)
             lib = compiler.compile_to_library(
@@ -170,6 +203,7 @@ class NumetaFunction:
         compile_flags="-O3 -march=native",
         namer=None,
         inline: bool | int = False,
+        backend: str = "fortran",
     ) -> None:
         super().__init__()
         self.name = func.__name__
@@ -179,6 +213,7 @@ class NumetaFunction:
         self.directory.mkdir(exist_ok=True)
         self.do_checks = do_checks
         self.compile_flags = compile_flags
+        self.backend = backend
 
         self.namer = namer
         self.inline = inline
@@ -476,6 +511,7 @@ class NumetaFunction:
             path=self.directory,
             do_checks=self.do_checks,
             compile_flags=self.compile_flags,
+            backend=self.backend,
         )
 
         symbolic_fun.parent = self._compiled_functions[signature]
@@ -512,6 +548,7 @@ class NumetaFunction:
                 core_lib_path=self._compiled_functions[signature].path,
                 directory=self.directory,
                 compile_flags=self.compile_flags,
+                backend=self.backend,
             )
 
     def load(self, signature):

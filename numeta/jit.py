@@ -26,6 +26,7 @@ def jit(
     namer: Optional[Callable[..., str]] = None,
     inline: bool | int = False,
     library: NumetaLibrary | None = None,
+    backend: str = "fortran",
 ):
     """@jit(...) used with arguments."""
     ...
@@ -40,6 +41,7 @@ def jit(
     namer: Optional[Callable[..., str]] = None,
     inline: bool | int = False,
     library: NumetaLibrary | None = None,
+    backend: str = "fortran",
 ):
     """
     Compile a function with the Numeta JIT, either directly or via parameters.
@@ -67,6 +69,8 @@ def jit(
         Controls inlining behavior (bool or max-stmts int).
     library
         Optional library container used to group jitted functions.
+    backend
+        Backend to use for code generation ("fortran" or "c").
 
     Returns
     -------
@@ -98,6 +102,7 @@ def jit(
                     compile_flags=compile_flags,
                     namer=namer,
                     inline=inline,
+                    backend=backend,
                 )
                 if library is not None:
                     library.register(nm_func)
@@ -112,5 +117,6 @@ def jit(
             compile_flags=compile_flags,
             namer=namer,
             inline=inline,
+            backend=backend,
         )
         return nm_func

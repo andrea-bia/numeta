@@ -28,19 +28,27 @@ class PyCExtension:
     def set_lib_path(self, path):
         self.lib_path = path
 
-    def compile(self, core_lib_name, core_lib_path, directory, compile_flags):
+    def compile(self, core_lib_name, core_lib_path, directory, compile_flags, backend="fortran"):
         if self.lib_path is not None:
             return self.lib_path
 
         wrapper_src = Path(directory) / f"{self.name}.c"
         self.write(wrapper_src)
 
-        libraries = [
-            "gfortran",
-            "mvec",
-            f"python{sys.version_info.major}.{sys.version_info.minor}",
-            core_lib_name,
-        ]
+        if backend == "fortran":
+            libraries = [
+                "gfortran",
+                "mvec",
+                f"python{sys.version_info.major}.{sys.version_info.minor}",
+                core_lib_name,
+            ]
+        elif backend == "c":
+            libraries = [
+                f"python{sys.version_info.major}.{sys.version_info.minor}",
+                core_lib_name,
+            ]
+        else:
+            raise ValueError(f"Unsupported backend: {backend}")
         include_dirs = [sysconfig.get_paths()["include"], np.get_include()]
         additional_flags = ["-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"]
 

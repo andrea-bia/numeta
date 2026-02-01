@@ -38,7 +38,7 @@ class Compiler:
         self,
         *,
         obj_file: Path,
-        source_files: Path,
+        source_files: Iterable[Path],
         include_dirs: Iterable[str],
         additional_flags: Iterable[str],
     ) -> list[str]:
@@ -86,13 +86,14 @@ class Compiler:
         name: str,
         directory: Path,
         sources: Iterable[Path],
-        include_dirs: Iterable[Path] = (),
+        include_dirs: Iterable[str] = (),
         additional_flags: Iterable[str] = (),
+        obj_suffix: str = "_fortran.o",
     ) -> tuple[Path, str]:
         """
         Compile Fortran source files using gfortran and return the resulting object file.
         """
-        obj_file = directory / f"{name}_fortran.o"
+        obj_file = directory / f"{name}{obj_suffix}"
 
         command = self.build_obj_command(
             obj_file=obj_file,
@@ -115,7 +116,7 @@ class Compiler:
         libraries_dirs: Iterable[Path] = (),
         rpath_dirs: Iterable[Path] = (),
         additional_flags: Iterable[str] = (),
-    ) -> tuple[Path, str]:
+    ) -> Path:
         """
         Compile Fortran source files using gfortran and return the resulting object file.
         """
