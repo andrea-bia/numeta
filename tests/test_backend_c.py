@@ -15,9 +15,8 @@ def test_c_backend_scalar_arithmetic():
 def test_c_backend_do_loop():
     @nm.jit(backend="c")
     def sum_to(n):
-        dtype = nm.FortranType("integer", 8)
-        s = nm.scalar(dtype, 0)
-        i = nm.scalar(dtype)
+        s = nm.scalar(nm.i8, 0)
+        i = nm.scalar(nm.i8)
         with nm.do(i, 0, n - 1):
             s[:] = s + i
         return s
@@ -29,7 +28,7 @@ def test_c_backend_do_loop():
 def test_c_backend_if_else():
     @nm.jit(backend="c")
     def choose(a, b, flag):
-        out = nm.scalar(nm.FortranType("integer", 8))
+        out = nm.scalar(nm.i8)
         with nm.If(flag):
             out[:] = a
         with nm.Else():
