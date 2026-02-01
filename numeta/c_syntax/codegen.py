@@ -611,10 +611,7 @@ class CCodegen:
                 element_indices.append(next(loop_iter))
             else:
                 element_indices.append(idx)
-        target_var = target.variable if isinstance(target, GetItem) else target
-        if not isinstance(target_var, Variable):
-            raise NotImplementedError("C backend only supports variable array targets")
-        lhs = self._render_array_element(target_var, element_indices)
+        lhs = self._render_array_element_from_expr(target, element_indices)
         rhs, setup_lines = self._render_expr_for_target(
             stmt.value, element_indices, target_dim_exprs, base_indent
         )
@@ -640,16 +637,27 @@ class CCodegen:
                 for i in range(info.rank)
             ]
             return loop_dims, [None] * info.rank
+        if isinstance(target, GetAttr):
+            rank, dims_exprs, _, _ = self._array_expr_info(target)
+            loop_dims = [
+                (
+                    str(syntax_settings.array_lower_bound),
+                    f"{dims_exprs[i]} - 1 + {syntax_settings.array_lower_bound}",
+                    None,
+                )
+                for i in range(rank)
+            ]
+            return loop_dims, [None] * rank
         if not isinstance(target, GetItem):
             raise NotImplementedError(
                 "C backend only supports array targets as variables or getitem"
             )
         variable = target.variable
-        info = self._array_info[variable.name]
+        rank, dims_exprs, _, _ = self._array_expr_info(variable)
         slices = target.sliced if isinstance(target.sliced, tuple) else (target.sliced,)
         slices = list(slices)
-        if len(slices) < info.rank:
-            slices.extend([slice(None)] * (info.rank - len(slices)))
+        if len(slices) < rank:
+            slices.extend([slice(None)] * (rank - len(slices)))
         loop_dims: list[tuple[str, str, str | None]] = []
         target_indices: list[str | None] = []
         for i, slice_ in enumerate(slices):
@@ -658,7 +666,7 @@ class CCodegen:
                     step = self._render_expr(slice_.step)
                 else:
                     step = None
-                start, end = self._slice_bounds(slice_, info.dims_exprs[i])
+                start, end = self._slice_bounds(slice_, dims_exprs[i])
                 loop_dims.append((start, end, step))
                 target_indices.append(None)
             else:
@@ -670,6 +678,9 @@ class CCodegen:
         if isinstance(target, Variable):
             info = self._array_info[target.name]
             return list(info.dims_exprs)
+        if isinstance(target, GetAttr):
+            _, dims_exprs, _, _ = self._array_expr_info(target)
+            return list(dims_exprs)
         dims = []
         for start, end, step in loop_dims:
             if step is None or step == "1":
@@ -707,6 +718,9 @@ class CCodegen:
             info = self._array_info.get(expr.name)
             if info is not None:
                 return info.rank, list(info.dims_exprs)
+        if isinstance(expr, GetAttr):
+            rank, dims_exprs, _, _ = self._array_expr_info(expr)
+            return rank, list(dims_exprs)
         dims = []
         for dim in shape.dims:
             dims.append(self._render_dim(dim))
@@ -752,7 +766,7 @@ class CCodegen:
             return f"({left} {op} {right})", setup
         if isinstance(expr, IntrinsicFunction):
             return self._render_intrinsic_for_target(expr, target_indices, target_dims, indent)
-        if isinstance(expr, (Variable, GetItem, Re, Im)):
+        if isinstance(expr, (Variable, GetItem, GetAttr, Re, Im)):
             expr_indices = self._broadcast_indices(expr, target_indices, target_dims)
             return self._render_expr_at(expr, expr_indices), []
         raise NotImplementedError(
@@ -854,6 +868,31 @@ class CCodegen:
             return f"npy_cpack((double){real}, (double){imag})", setups
         raise NotImplementedError(f"C backend does not support intrinsic {token}")
 
+    def _array_expr_info(self, expr) -> tuple[int, list[str], bool, str]:
+        if isinstance(expr, Variable):
+            info = self._array_info.get(expr.name)
+            if info is None:
+                raise NotImplementedError("C backend requires array metadata for variable arrays")
+            return info.rank, list(info.dims_exprs), info.fortran_order, expr.name
+        if isinstance(expr, GetAttr):
+            shape = expr._shape
+            if shape is UNKNOWN or shape is SCALAR:
+                raise NotImplementedError("C backend requires array-shaped GetAttr")
+            dims_exprs = [self._render_dim(dim) for dim in shape.dims]
+            return shape.rank, dims_exprs, shape.fortran_order, self._render_getattr(expr)
+        raise NotImplementedError(
+            "C backend only supports array metadata for variables or struct fields"
+        )
+
+    def _render_array_element_from_expr(self, expr, indices: Sequence[str]) -> str:
+        if isinstance(expr, GetItem):
+            return self._render_getitem(expr, indices)
+        rank, dims_exprs, fortran_order, base = self._array_expr_info(expr)
+        if len(indices) != rank:
+            raise ValueError("Index rank does not match array rank")
+        linear = self._linear_index(indices, dims_exprs, fortran_order)
+        return f"{base}[{linear}]"
+
     def _render_complex_binop_from_strings(
         self, expr: BinaryOperationNode, left: str, right: str
     ) -> str:
@@ -881,6 +920,10 @@ class CCodegen:
             return self._render_complex_component(expr.variable, "real", indices)
         if isinstance(expr, Im):
             return self._render_complex_component(expr.variable, "imag", indices)
+        if isinstance(expr, GetAttr):
+            if expr._shape is SCALAR:
+                return self._render_getattr(expr)
+            return self._render_array_element_from_expr(expr, indices)
         if isinstance(expr, BinaryOperationNode):
             if self._is_complex_expr(expr.left) or self._is_complex_expr(expr.right):
                 return self._render_complex_binop(expr, indices)
@@ -997,27 +1040,28 @@ class CCodegen:
 
     def _render_getitem(self, expr: GetItem, indices: Sequence[str] | None = None) -> str:
         variable = expr.variable
-        if not isinstance(variable, Variable):
-            raise NotImplementedError("C backend only supports getitem on variables")
-        info = self._array_info.get(variable.name)
-        if info is None:
-            raise NotImplementedError("C backend requires array metadata for getitem")
+        if not isinstance(variable, (Variable, GetAttr)):
+            raise NotImplementedError(
+                "C backend only supports getitem on variables or struct fields"
+            )
+        rank, dims_exprs, fortran_order, base = self._array_expr_info(variable)
         slices = expr.sliced if isinstance(expr.sliced, tuple) else (expr.sliced,)
         slices = list(slices)
-        if len(slices) < info.rank:
-            slices.extend([slice(None)] * (info.rank - len(slices)))
+        if len(slices) < rank:
+            slices.extend([slice(None)] * (rank - len(slices)))
         out_indices: list[str] = []
         index_iter = iter(indices) if indices is not None else None
         for i, slice_ in enumerate(slices):
             if isinstance(slice_, slice):
                 if index_iter is None:
                     raise NotImplementedError("C backend requires indices for sliced getitem")
-                start, _ = self._slice_bounds(slice_, info.dims_exprs[i])
+                start, _ = self._slice_bounds(slice_, dims_exprs[i])
                 out_indices.append(f"({start} + {next(index_iter)})")
             else:
                 idx = self._render_expr(slice_)
                 out_indices.append(idx)
-        return self._render_array_element(variable, out_indices)
+        linear = self._linear_index(out_indices, dims_exprs, fortran_order)
+        return f"{base}[{linear}]"
 
     def _render_getattr(self, expr: GetAttr) -> str:
         base = expr.variable
@@ -1025,7 +1069,11 @@ class CCodegen:
             if self._pointer_args.get(base.name, False):
                 return f"{base.name}->{expr.attr}"
             return f"{base.name}.{expr.attr}"
-        raise NotImplementedError("C backend only supports getattr on variables")
+        if isinstance(base, GetItem):
+            return f"{self._render_getitem(base)}.{expr.attr}"
+        if isinstance(base, GetAttr):
+            return f"{self._render_getattr(base)}.{expr.attr}"
+        raise NotImplementedError("C backend only supports getattr on variables or struct elements")
 
     def _render_array_element(self, variable: Variable, indices: Sequence[str]) -> str:
         info = self._array_info.get(variable.name)
@@ -1260,6 +1308,8 @@ class CCodegen:
 
     def _is_array_target(self, target) -> bool:
         if isinstance(target, Variable):
+            return target._shape is not SCALAR
+        if isinstance(target, GetAttr):
             return target._shape is not SCALAR
         if isinstance(target, GetItem):
             return True

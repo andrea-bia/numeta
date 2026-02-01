@@ -109,3 +109,40 @@ def test_c_backend_broadcast_vector():
     b = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     add_vec(a, b)
     np.testing.assert_allclose(a, np.array([[1, 2, 3], [1, 2, 3]], dtype=np.float64))
+
+
+def test_c_backend_struct_scalar():
+    dtype = np.dtype([("x", np.int32), ("y", np.float64)], align=True)
+
+    @nm.jit(backend="c")
+    def fill(a):
+        a["x"] = 3
+        a["y"] = 2.5
+
+    arr = np.zeros(1, dtype=dtype)
+    fill(arr[0])
+
+    expected = np.zeros(1, dtype=dtype)
+    expected[0]["x"] = 3
+    expected[0]["y"] = 2.5
+    np.testing.assert_equal(arr, expected)
+
+
+def test_c_backend_struct_nested_array():
+    n = 2
+    m = 3
+
+    np_nested1 = np.dtype([("a", np.int64, (n, n)), ("b", np.float64, (m,))], align=True)
+    np_nested2 = np.dtype([("c", np_nested1, (n,)), ("d", np_nested1, (3,))], align=True)
+    np_nested3 = np.dtype([("c", np_nested2, (2,)), ("d", np_nested1, (3,))], align=True)
+
+    @nm.jit(backend="c")
+    def mod_struct(a) -> None:
+        a[1]["c"][1]["d"][2]["b"][1] = -4.0
+
+    a = np.zeros(2, dtype=np_nested3)
+    mod_struct(a)
+
+    b = np.zeros(2, dtype=np_nested3)
+    b[1]["c"][1]["d"][2]["b"][1] = -4.0
+    np.testing.assert_equal(a, b)
