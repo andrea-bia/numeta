@@ -1,5 +1,6 @@
 import numeta as nm
 import numpy as np
+from numeta.syntax.expressions import ArrayConstructor
 
 
 def test_c_backend_scalar_arithmetic():
@@ -77,3 +78,34 @@ def test_c_backend_complex_parts():
 
     result = combine(3 + 4j)
     np.testing.assert_equal(result, 7)
+
+
+def test_c_backend_array_constructor_assignment():
+    @nm.jit(backend="c")
+    def fill(a):
+        a[:] = ArrayConstructor(1, 2, 3, 4)
+
+    a = np.zeros(4, dtype=np.int64)
+    fill(a)
+    np.testing.assert_array_equal(a, np.array([1, 2, 3, 4], dtype=np.int64))
+
+
+def test_c_backend_broadcast_scalar():
+    @nm.jit(backend="c")
+    def add_scalar(a, b):
+        a[:] = a + b
+
+    a = np.arange(4, dtype=np.float64)
+    add_scalar(a, 2.5)
+    np.testing.assert_allclose(a, np.arange(4, dtype=np.float64) + 2.5)
+
+
+def test_c_backend_broadcast_vector():
+    @nm.jit(backend="c")
+    def add_vec(a, b):
+        a[:] = a + b
+
+    a = np.zeros((2, 3), dtype=np.float64, order="C")
+    b = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    add_vec(a, b)
+    np.testing.assert_allclose(a, np.array([[1, 2, 3], [1, 2, 3]], dtype=np.float64))

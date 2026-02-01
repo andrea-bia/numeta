@@ -87,6 +87,7 @@ class CCodegen:
         self._struct_defs: list[str] = []
         self._requires_math = False
         self._loop_counter = 0
+        self._temp_counter = 0
         self._build_signature()
         self._collect_structs()
 
@@ -154,7 +155,8 @@ class CCodegen:
         has_shape_descriptor = (
             nm_settings.add_shape_descriptors and variable._shape.has_comptime_undefined_dims()
         )
-        if has_shape_descriptor:
+        has_shape_exprs = any(hasattr(dim, "get_code_blocks") for dim in variable._shape.dims)
+        if has_shape_descriptor and not has_shape_exprs:
             dims_name = f"{variable.name}_dims"
             self._arg_specs.append(CArg(dims_name, "npy_intp", True, True))
             dims_exprs = [f"{dims_name}[{i}]" for i in range(rank)]
@@ -577,9 +579,11 @@ class CCodegen:
             raise NotImplementedError("C backend does not support assignments to unknown shapes")
         loop_dims, target_indices = self._build_target_indices(target)
         rhs_is_scalar = stmt.value._shape is SCALAR
-        if not rhs_is_scalar and stmt.value._shape.rank != target_shape.rank:
-            raise NotImplementedError("C backend requires matching shapes for array assignment")
+        target_dim_exprs = self._target_dim_exprs(target, loop_dims)
+        if not rhs_is_scalar:
+            self._validate_broadcast(stmt.value, target_dim_exprs)
         lines: list[str] = []
+        base_indent = indent
         loop_vars: list[str] = []
         for dim in loop_dims:
             var = self._next_loop_var()
@@ -611,11 +615,10 @@ class CCodegen:
         if not isinstance(target_var, Variable):
             raise NotImplementedError("C backend only supports variable array targets")
         lhs = self._render_array_element(target_var, element_indices)
-        rhs = (
-            self._render_expr_at(stmt.value, element_indices)
-            if not rhs_is_scalar
-            else self._render_expr(stmt.value)
+        rhs, setup_lines = self._render_expr_for_target(
+            stmt.value, element_indices, target_dim_exprs, base_indent
         )
+        lines = setup_lines + lines
         lines.append(f"{'    ' * indent}{lhs} = {rhs};\n")
 
         for _ in loop_dims:
@@ -663,6 +666,208 @@ class CCodegen:
                 target_indices.append(idx)
         return loop_dims, target_indices
 
+    def _target_dim_exprs(self, target, loop_dims: list[tuple[str, str, str | None]]) -> list[str]:
+        if isinstance(target, Variable):
+            info = self._array_info[target.name]
+            return list(info.dims_exprs)
+        dims = []
+        for start, end, step in loop_dims:
+            if step is None or step == "1":
+                dims.append(f"({end} - {start} + 1)")
+            else:
+                dims.append(f"(({end} - {start})/({step}) + 1)")
+        return dims
+
+    def _validate_broadcast(self, expr, target_dims: Sequence[str]) -> None:
+        expr_rank, expr_dims = self._expr_rank_dims(expr)
+        target_rank = len(target_dims)
+        if expr_rank > target_rank:
+            raise NotImplementedError("C backend does not support broadcasting to lower rank")
+        if expr_rank == 0:
+            return
+        pad = target_rank - expr_rank
+        for i, expr_dim in enumerate(expr_dims):
+            target_dim = target_dims[pad + i]
+            expr_literal = self._literal_dim(expr_dim)
+            target_literal = self._literal_dim(target_dim)
+            if expr_literal is None or target_literal is None:
+                continue
+            if expr_literal != 1 and expr_literal != target_literal:
+                raise NotImplementedError("C backend only supports broadcastable shapes")
+
+    def _expr_rank_dims(self, expr) -> tuple[int, list[str]]:
+        shape = expr._shape
+        if shape is SCALAR:
+            return 0, []
+        if shape is UNKNOWN:
+            raise NotImplementedError("C backend does not support unknown shapes in broadcasting")
+        if isinstance(expr, ArrayConstructor):
+            return 1, [str(len(expr.elements))]
+        if isinstance(expr, Variable):
+            info = self._array_info.get(expr.name)
+            if info is not None:
+                return info.rank, list(info.dims_exprs)
+        dims = []
+        for dim in shape.dims:
+            dims.append(self._render_dim(dim))
+        return shape.rank, dims
+
+    def _literal_dim(self, dim_expr: str) -> int | None:
+        if isinstance(dim_expr, int):
+            return dim_expr
+        if not isinstance(dim_expr, str):
+            return None
+        text = dim_expr.strip()
+        if text.startswith("(") and text.endswith(")"):
+            text = text[1:-1].strip()
+        if text.isdigit() or (text.startswith("-") and text[1:].isdigit()):
+            return int(text)
+        return None
+
+    def _render_expr_for_target(
+        self,
+        expr,
+        target_indices: Sequence[str],
+        target_dims: Sequence[str],
+        indent: int,
+    ) -> tuple[str, list[str]]:
+        if expr._shape is SCALAR:
+            return self._render_expr(expr), []
+        if isinstance(expr, ArrayConstructor):
+            return self._render_array_constructor_expr(expr, target_indices, target_dims, indent)
+        if isinstance(expr, BinaryOperationNode):
+            left, left_setup = self._render_expr_for_target(
+                expr.left, target_indices, target_dims, indent
+            )
+            right, right_setup = self._render_expr_for_target(
+                expr.right, target_indices, target_dims, indent
+            )
+            setup = left_setup + right_setup
+            if self._is_complex_expr(expr.left) or self._is_complex_expr(expr.right):
+                return self._render_complex_binop_from_strings(expr, left, right), setup
+            if expr.op == "**":
+                self._requires_math = True
+                return f"pow({left}, {right})", setup
+            op = _C_OPS.get(expr.op, expr.op)
+            return f"({left} {op} {right})", setup
+        if isinstance(expr, IntrinsicFunction):
+            return self._render_intrinsic_for_target(expr, target_indices, target_dims, indent)
+        if isinstance(expr, (Variable, GetItem, Re, Im)):
+            expr_indices = self._broadcast_indices(expr, target_indices, target_dims)
+            return self._render_expr_at(expr, expr_indices), []
+        raise NotImplementedError(
+            f"C backend does not support array expression {type(expr).__name__}"
+        )
+
+    def _broadcast_indices(
+        self, expr, target_indices: Sequence[str], target_dims: Sequence[str]
+    ) -> list[str]:
+        expr_rank, expr_dims = self._expr_rank_dims(expr)
+        target_rank = len(target_indices)
+        if expr_rank == 0:
+            return []
+        if expr_rank > target_rank:
+            raise NotImplementedError("C backend does not support broadcasting to lower rank")
+        pad = target_rank - expr_rank
+        lb = str(syntax_settings.array_lower_bound)
+        mapped: list[str] = []
+        for i, expr_dim in enumerate(expr_dims):
+            target_index = target_indices[pad + i]
+            expr_literal = self._literal_dim(expr_dim)
+            target_literal = self._literal_dim(target_dims[pad + i])
+            if expr_literal == 1:
+                mapped.append(lb)
+            elif expr_literal is None or target_literal is None:
+                mapped.append(target_index)
+            elif expr_literal == target_literal:
+                mapped.append(target_index)
+            else:
+                raise NotImplementedError("C backend only supports broadcastable shapes")
+        return mapped
+
+    def _render_array_constructor_expr(
+        self,
+        expr: ArrayConstructor,
+        target_indices: Sequence[str],
+        target_dims: Sequence[str],
+        indent: int,
+    ) -> tuple[str, list[str]]:
+        expr_rank, expr_dims = self._expr_rank_dims(expr)
+        if expr_rank != 1:
+            raise NotImplementedError("C backend only supports 1-D array constructors")
+        ctype = self._ctype_from_expr(expr.elements[0])
+        temp_name = f"_nm_ctor{self._temp_counter}"
+        self._temp_counter += 1
+        elements = ", ".join(self._render_expr(el) for el in expr.elements)
+        decl = f"{'    ' * indent}{ctype} {temp_name}[{expr_dims[0]}] = {{{elements}}};\n"
+        expr_indices = self._broadcast_indices(expr, target_indices, target_dims)
+        index = self._normalize_index(expr_indices[0])
+        return f"{temp_name}[{index}]", [decl]
+
+    def _render_intrinsic_for_target(
+        self,
+        expr: IntrinsicFunction,
+        target_indices: Sequence[str],
+        target_dims: Sequence[str],
+        indent: int,
+    ) -> tuple[str, list[str]]:
+        token = expr.token
+        setups: list[str] = []
+        args_rendered: list[str] = []
+        for arg in expr.arguments:
+            rendered, setup = self._render_expr_for_target(arg, target_indices, target_dims, indent)
+            setups.extend(setup)
+            args_rendered.append(rendered)
+        if token == "-":
+            return f"(-{args_rendered[0]})", setups
+        if token == ".not.":
+            return f"(!{args_rendered[0]})", setups
+        if token in {"abs", "exp", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan"}:
+            if self._is_complex_expr(expr.arguments[0]):
+                return (
+                    self._render_complex_intrinsic(token, args_rendered[0], expr.arguments[0]),
+                    setups,
+                )
+            self._requires_math = True
+            return f"{token}({', '.join(args_rendered)})", setups
+        if token in {"real", "aimag"}:
+            arg0 = expr.arguments[0]
+            if self._is_complex_expr(arg0):
+                suffix = "f" if self._is_complex64(arg0) else ""
+                func = "creal" if token == "real" else "cimag"
+                return f"{func}{suffix}({args_rendered[0]})", setups
+            return args_rendered[0], setups
+        if token == "conjg":
+            arg0 = expr.arguments[0]
+            if self._is_complex_expr(arg0):
+                suffix = "f" if self._is_complex64(arg0) else ""
+                self._requires_math = True
+                return f"conj{suffix}({args_rendered[0]})", setups
+            return args_rendered[0], setups
+        if token == "cmplx":
+            real = args_rendered[0]
+            imag = args_rendered[1] if len(args_rendered) > 1 else "0.0"
+            is_float = self._cmplx_is_float(expr)
+            self._requires_math = True
+            if is_float:
+                return f"npy_cpackf((float){real}, (float){imag})", setups
+            return f"npy_cpack((double){real}, (double){imag})", setups
+        raise NotImplementedError(f"C backend does not support intrinsic {token}")
+
+    def _render_complex_binop_from_strings(
+        self, expr: BinaryOperationNode, left: str, right: str
+    ) -> str:
+        self._requires_math = True
+        if expr.op == "**":
+            func = (
+                "cpowf"
+                if (self._is_complex64(expr.left) or self._is_complex64(expr.right))
+                else "cpow"
+            )
+            return f"{func}({left}, {right})"
+        op = _C_OPS.get(expr.op, expr.op)
+        return f"({left} {op} {right})"
+
     def _render_expr_at(self, expr, indices: Sequence[str]) -> str:
         if isinstance(expr, LiteralNode):
             return self._render_literal(expr.value)
@@ -695,6 +900,8 @@ class CCodegen:
         raise NotImplementedError(f"C backend does not support expression {type(expr).__name__}")
 
     def _render_expr(self, expr) -> str:
+        if isinstance(expr, (int, float, complex, bool, np.generic)):
+            return self._render_literal(expr)
         if isinstance(expr, LiteralNode):
             return self._render_literal(expr.value)
         if isinstance(expr, Variable):
@@ -983,6 +1190,15 @@ class CCodegen:
 
     def _map_ftype_to_ctype(self, variable: Variable) -> str:
         ftype = variable._ftype
+        if ftype is None:
+            raise NotImplementedError("C backend requires a concrete type")
+        if ftype.type == "type" and getattr(ftype.kind, "name", None) == "c_ptr":
+            return "void"
+        dtype = DataType.from_ftype(ftype)
+        return dtype.get_cnumpy()
+
+    def _ctype_from_expr(self, expr) -> str:
+        ftype = getattr(expr, "_ftype", None)
         if ftype is None:
             raise NotImplementedError("C backend requires a concrete type")
         if ftype.type == "type" and getattr(ftype.kind, "name", None) == "c_ptr":
