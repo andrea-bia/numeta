@@ -398,15 +398,19 @@ class CCodegen:
             return [f"{'    ' * indent}{line}\n"]
         if isinstance(target, GetAttr):
             lhs = self._render_getattr(target)
-            rhs = self._render_expr(stmt.value)
-            return [f"{'    ' * indent}{lhs} = {rhs};\n"]
+            rhs, setup = self._render_expr_for_target(stmt.value, [], [], indent)
+            lines = setup
+            lines.append(f"{'    ' * indent}{lhs} = {rhs};\n")
+            return lines
         if not isinstance(target, Variable):
             raise NotImplementedError(
                 f"C backend only supports assignment to variables or array targets, got {type(target).__name__}"
             )
         lhs = self._render_variable(target, as_pointer=False)
-        rhs = self._render_expr(stmt.value)
-        return [f"{'    ' * indent}{lhs} = {rhs};\n"]
+        rhs, setup = self._render_expr_for_target(stmt.value, [], [], indent)
+        lines = setup
+        lines.append(f"{'    ' * indent}{lhs} = {rhs};\n")
+        return lines
 
     def _render_if(self, stmt: If, indent: int) -> list[str]:
         lines: list[str] = []
@@ -583,7 +587,6 @@ class CCodegen:
         if not rhs_is_scalar:
             self._validate_broadcast(stmt.value, target_dim_exprs)
         lines: list[str] = []
-        base_indent = indent
         loop_vars: list[str] = []
         for dim in loop_dims:
             var = self._next_loop_var()
@@ -613,9 +616,9 @@ class CCodegen:
                 element_indices.append(idx)
         lhs = self._render_array_element_from_expr(target, element_indices)
         rhs, setup_lines = self._render_expr_for_target(
-            stmt.value, element_indices, target_dim_exprs, base_indent
+            stmt.value, element_indices, target_dim_exprs, indent
         )
-        lines = setup_lines + lines
+        lines.extend(setup_lines)
         lines.append(f"{'    ' * indent}{lhs} = {rhs};\n")
 
         for _ in loop_dims:
@@ -745,8 +748,8 @@ class CCodegen:
         target_dims: Sequence[str],
         indent: int,
     ) -> tuple[str, list[str]]:
-        if expr._shape is SCALAR:
-            return self._render_expr(expr), []
+        if isinstance(expr, IntrinsicFunction):
+            return self._render_intrinsic_for_target(expr, target_indices, target_dims, indent)
         if isinstance(expr, ArrayConstructor):
             return self._render_array_constructor_expr(expr, target_indices, target_dims, indent)
         if isinstance(expr, BinaryOperationNode):
@@ -764,8 +767,8 @@ class CCodegen:
                 return f"pow({left}, {right})", setup
             op = _C_OPS.get(expr.op, expr.op)
             return f"({left} {op} {right})", setup
-        if isinstance(expr, IntrinsicFunction):
-            return self._render_intrinsic_for_target(expr, target_indices, target_dims, indent)
+        if expr._shape is SCALAR:
+            return self._render_expr(expr), []
         if isinstance(expr, (Variable, GetItem, GetAttr, Re, Im)):
             expr_indices = self._broadcast_indices(expr, target_indices, target_dims)
             return self._render_expr_at(expr, expr_indices), []
@@ -826,6 +829,18 @@ class CCodegen:
         indent: int,
     ) -> tuple[str, list[str]]:
         token = expr.token
+        if token in {"sum", "maxval", "minval", "all", "dot_product"}:
+            return self._render_reduction(expr, indent)
+        if token == "matmul":
+            return self._render_matmul(expr, target_indices, target_dims, indent)
+        if token == "transpose":
+            return self._render_transpose(expr, target_indices)
+        if token == "shape":
+            return self._render_shape_element(expr, target_indices[0])
+        if token in {"size", "rank"}:
+            return self._render_scalar_intrinsic(expr), []
+        if token in {"max", "min"}:
+            return self._render_max_min(expr, target_indices, target_dims, indent)
         setups: list[str] = []
         args_rendered: list[str] = []
         for arg in expr.arguments:
@@ -836,8 +851,23 @@ class CCodegen:
             return f"(-{args_rendered[0]})", setups
         if token == ".not.":
             return f"(!{args_rendered[0]})", setups
-        if token in {"abs", "exp", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan"}:
-            if self._is_complex_expr(expr.arguments[0]):
+        if token in {
+            "abs",
+            "exp",
+            "sqrt",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "atan2",
+            "floor",
+            "sinh",
+            "cosh",
+            "tanh",
+        }:
+            if self._is_complex_expr(expr.arguments[0]) and token not in {"atan2", "floor"}:
                 return (
                     self._render_complex_intrinsic(token, args_rendered[0], expr.arguments[0]),
                     setups,
@@ -866,6 +896,31 @@ class CCodegen:
             if is_float:
                 return f"npy_cpackf((float){real}, (float){imag})", setups
             return f"npy_cpack((double){real}, (double){imag})", setups
+        if token in {"iand", "ior", "xor"}:
+            op = "&" if token == "iand" else ("|" if token == "ior" else "^")
+            return f"({args_rendered[0]} {op} {args_rendered[1]})", setups
+        if token == "ishft":
+            return (
+                f"(({args_rendered[1]}) >= 0 ? (({args_rendered[0]}) << ({args_rendered[1]})) : (({args_rendered[0]}) >> (-({args_rendered[1]}))))",
+                setups,
+            )
+        if token == "ibset":
+            return f"(({args_rendered[0]}) | (1ULL << ({args_rendered[1]})))", setups
+        if token == "ibclr":
+            return f"(({args_rendered[0]}) & ~(1ULL << ({args_rendered[1]})))", setups
+        if token == "popcnt":
+            return f"__builtin_popcountll((unsigned long long)({args_rendered[0]}))", setups
+        if token == "trailz":
+            width = self._bit_width(expr.arguments[0])
+            return (
+                f"(({args_rendered[0]}) == 0 ? {width} : __builtin_ctzll((unsigned long long)({args_rendered[0]})))",
+                setups,
+            )
+        if token == "allocated":
+            arg0 = expr.arguments[0]
+            if isinstance(arg0, Variable) and arg0._shape is not SCALAR:
+                return f"({arg0.name} != NULL)", setups
+            return "1", setups
         raise NotImplementedError(f"C backend does not support intrinsic {token}")
 
     def _array_expr_info(self, expr) -> tuple[int, list[str], bool, str]:
@@ -995,11 +1050,26 @@ class CCodegen:
                 else self._render_expr(expr.arguments[0])
             )
             return f"(!{arg})"
-        if token in {"abs", "exp", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan"}:
+        if token in {
+            "abs",
+            "exp",
+            "sqrt",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "atan2",
+            "floor",
+            "sinh",
+            "cosh",
+            "tanh",
+        }:
             self._requires_math = True
             arg0 = expr.arguments[0]
             rendered = self._render_expr_at(arg0, indices) if indices else self._render_expr(arg0)
-            if self._is_complex_expr(arg0):
+            if self._is_complex_expr(arg0) and token not in {"atan2", "floor"}:
                 return self._render_complex_intrinsic(token, rendered, arg0)
             args = ", ".join(
                 self._render_expr_at(arg, indices) if indices else self._render_expr(arg)
@@ -1036,6 +1106,85 @@ class CCodegen:
             if is_float:
                 return f"npy_cpackf((float){real_rendered}, (float){imag_rendered})"
             return f"npy_cpack((double){real_rendered}, (double){imag_rendered})"
+        if token in {"iand", "ior", "xor"}:
+            left = (
+                self._render_expr_at(expr.arguments[0], indices)
+                if indices
+                else self._render_expr(expr.arguments[0])
+            )
+            right = (
+                self._render_expr_at(expr.arguments[1], indices)
+                if indices
+                else self._render_expr(expr.arguments[1])
+            )
+            op = "&" if token == "iand" else ("|" if token == "ior" else "^")
+            return f"({left} {op} {right})"
+        if token == "ishft":
+            value = (
+                self._render_expr_at(expr.arguments[0], indices)
+                if indices
+                else self._render_expr(expr.arguments[0])
+            )
+            shift = (
+                self._render_expr_at(expr.arguments[1], indices)
+                if indices
+                else self._render_expr(expr.arguments[1])
+            )
+            return f"(({shift}) >= 0 ? (({value}) << ({shift})) : (({value}) >> (-({shift}))))"
+        if token == "ibset":
+            value = (
+                self._render_expr_at(expr.arguments[0], indices)
+                if indices
+                else self._render_expr(expr.arguments[0])
+            )
+            pos = (
+                self._render_expr_at(expr.arguments[1], indices)
+                if indices
+                else self._render_expr(expr.arguments[1])
+            )
+            return f"(({value}) | (1ULL << ({pos})))"
+        if token == "ibclr":
+            value = (
+                self._render_expr_at(expr.arguments[0], indices)
+                if indices
+                else self._render_expr(expr.arguments[0])
+            )
+            pos = (
+                self._render_expr_at(expr.arguments[1], indices)
+                if indices
+                else self._render_expr(expr.arguments[1])
+            )
+            return f"(({value}) & ~(1ULL << ({pos})))"
+        if token == "popcnt":
+            value = (
+                self._render_expr_at(expr.arguments[0], indices)
+                if indices
+                else self._render_expr(expr.arguments[0])
+            )
+            return f"__builtin_popcountll((unsigned long long)({value}))"
+        if token == "trailz":
+            value = (
+                self._render_expr_at(expr.arguments[0], indices)
+                if indices
+                else self._render_expr(expr.arguments[0])
+            )
+            width = self._bit_width(expr.arguments[0])
+            return f"(({value}) == 0 ? {width} : __builtin_ctzll((unsigned long long)({value})))"
+        if token == "allocated":
+            arg0 = expr.arguments[0]
+            if isinstance(arg0, Variable) and arg0._shape is not SCALAR:
+                return f"({arg0.name} != NULL)"
+            return "1"
+        if token == "rank":
+            return str(self._expr_rank_dims(expr.arguments[0])[0])
+        if token == "size":
+            return self._render_size(expr)
+        if token == "shape":
+            raise NotImplementedError("shape should be lowered in array context")
+        if token in {"max", "min"}:
+            return self._render_scalar_max_min(expr)
+        if token in {"sum", "maxval", "minval", "all", "dot_product", "matmul", "transpose"}:
+            raise NotImplementedError("Array intrinsics should be lowered in array context")
         raise NotImplementedError(f"C backend does not support intrinsic {token}")
 
     def _render_getitem(self, expr: GetItem, indices: Sequence[str] | None = None) -> str:
@@ -1235,6 +1384,221 @@ class CCodegen:
         else:
             raise NotImplementedError("C backend only supports real/imag assignment on variables")
         return f"{macro}({ptr}, {rhs});"
+
+    def _render_scalar_intrinsic(self, expr: IntrinsicFunction) -> str:
+        token = expr.token
+        if token == "rank":
+            return str(self._expr_rank_dims(expr.arguments[0])[0])
+        if token == "size":
+            return self._render_size(expr)
+        return self._render_intrinsic(expr)
+
+    def _render_size(self, expr: IntrinsicFunction) -> str:
+        arg = expr.arguments[0]
+        rank, dims_exprs = self._expr_rank_dims(arg)
+        if len(expr.arguments) == 1:
+            return self._render_product(dims_exprs)
+        dim_expr = self._render_expr(expr.arguments[1])
+        return self._render_dim_select(dim_expr, dims_exprs, base=1)
+
+    def _render_shape_element(
+        self, expr: IntrinsicFunction, index_expr: str
+    ) -> tuple[str, list[str]]:
+        arg = expr.arguments[0]
+        _, dims_exprs = self._expr_rank_dims(arg)
+        return (
+            self._render_dim_select(index_expr, dims_exprs, base=syntax_settings.array_lower_bound),
+            [],
+        )
+
+    def _render_dim_select(self, index_expr: str, dims_exprs: Sequence[str], base: int) -> str:
+        if len(dims_exprs) == 1:
+            return dims_exprs[0]
+        parts = []
+        for i, dim in enumerate(dims_exprs):
+            idx = base + i
+            parts.append(f"(({index_expr}) == {idx} ? {dim} : ")
+        result = "".join(parts) + "0" + ")" * len(dims_exprs)
+        return result
+
+    def _render_reduction(self, expr: IntrinsicFunction, indent: int) -> tuple[str, list[str]]:
+        token = expr.token
+        if token == "dot_product":
+            a = expr.arguments[0]
+            b = expr.arguments[1]
+            rank, dims_exprs = self._expr_rank_dims(a)
+            if rank != 1:
+                raise NotImplementedError("dot_product only supports 1-D arrays")
+            temp = f"_nm_red{self._temp_counter}"
+            self._temp_counter += 1
+            ctype = self._ctype_from_expr(a)
+            lines = [f"{'    ' * indent}{ctype} {temp} = 0;\n"]
+            idx = self._next_loop_var()
+            lb = syntax_settings.array_lower_bound
+            end = f"{dims_exprs[0]} - 1 + {lb}"
+            lines.append(
+                f"{'    ' * indent}for (npy_intp {idx} = {lb}; {idx} <= {end}; {idx}++) {{\n"
+            )
+            lines.append(
+                f"{'    ' * (indent + 1)}{temp} += {self._render_expr_at(a, [idx])} * {self._render_expr_at(b, [idx])};\n"
+            )
+            lines.append(f"{'    ' * indent}}}\n")
+            return temp, lines
+
+        arg = expr.arguments[0]
+        rank, dims_exprs = self._expr_rank_dims(arg)
+        if rank == 0:
+            value = self._render_expr(arg)
+            if token == "all":
+                return value, []
+            return value, []
+        temp = f"_nm_red{self._temp_counter}"
+        self._temp_counter += 1
+        ctype = self._ctype_from_expr(arg)
+        lines: list[str] = []
+        lb = syntax_settings.array_lower_bound
+        if token == "sum":
+            lines.append(f"{'    ' * indent}{ctype} {temp} = 0;\n")
+        elif token == "all":
+            lines.append(f"{'    ' * indent}int {temp} = 1;\n")
+        else:
+            init_indices = [str(lb)] * rank
+            init_val = self._render_expr_at(arg, init_indices)
+            lines.append(f"{'    ' * indent}{ctype} {temp} = {init_val};\n")
+
+        loop_vars: list[str] = []
+        for i in range(rank):
+            var = self._next_loop_var()
+            loop_vars.append(var)
+            end = f"{dims_exprs[i]} - 1 + {lb}"
+            lines.append(
+                f"{'    ' * indent}for (npy_intp {var} = {lb}; {var} <= {end}; {var}++) {{\n"
+            )
+            indent += 1
+
+        value = self._render_expr_at(arg, loop_vars)
+        if token == "sum":
+            lines.append(f"{'    ' * indent}{temp} += {value};\n")
+        elif token == "maxval":
+            lines.append(f"{'    ' * indent}if ({value} > {temp}) {temp} = {value};\n")
+        elif token == "minval":
+            lines.append(f"{'    ' * indent}if ({value} < {temp}) {temp} = {value};\n")
+        elif token == "all":
+            label = f"_nm_all_done_{temp}"
+            lines.append(f"{'    ' * indent}if (!({value})) {{ {temp} = 0; goto {label}; }}\n")
+
+        for _ in range(rank):
+            indent -= 1
+            lines.append(f"{'    ' * indent}}}\n")
+        if token == "all":
+            label = f"_nm_all_done_{temp}"
+            lines.append(f"{label}: ;\n")
+        return temp, lines
+
+    def _render_matmul(
+        self,
+        expr: IntrinsicFunction,
+        target_indices: Sequence[str],
+        target_dims: Sequence[str],
+        indent: int,
+    ) -> tuple[str, list[str]]:
+        a = expr.arguments[0]
+        b = expr.arguments[1]
+        a_rank, a_dims = self._expr_rank_dims(a)
+        b_rank, b_dims = self._expr_rank_dims(b)
+        ctype = self._ctype_from_expr(a)
+        temp = f"_nm_mm{self._temp_counter}"
+        self._temp_counter += 1
+        lines = [f"{'    ' * indent}{ctype} {temp} = 0;\n"]
+        k = self._next_loop_var()
+        lb = syntax_settings.array_lower_bound
+        if a_rank == 1 and b_rank == 1:
+            end = f"{a_dims[0]} - 1 + {lb}"
+            lines.append(f"{'    ' * indent}for (npy_intp {k} = {lb}; {k} <= {end}; {k}++) {{\n")
+            lines.append(
+                f"{'    ' * (indent + 1)}{temp} += {self._render_expr_at(a, [k])} * {self._render_expr_at(b, [k])};\n"
+            )
+            lines.append(f"{'    ' * indent}}}\n")
+            return temp, lines
+        if a_rank == 2 and b_rank == 2:
+            i, j = target_indices
+            end = f"{a_dims[1]} - 1 + {lb}"
+            lines.append(f"{'    ' * indent}for (npy_intp {k} = {lb}; {k} <= {end}; {k}++) {{\n")
+            lines.append(
+                f"{'    ' * (indent + 1)}{temp} += {self._render_expr_at(a, [i, k])} * {self._render_expr_at(b, [k, j])};\n"
+            )
+            lines.append(f"{'    ' * indent}}}\n")
+            return temp, lines
+        if a_rank == 2 and b_rank == 1:
+            i = target_indices[0]
+            end = f"{a_dims[1]} - 1 + {lb}"
+            lines.append(f"{'    ' * indent}for (npy_intp {k} = {lb}; {k} <= {end}; {k}++) {{\n")
+            lines.append(
+                f"{'    ' * (indent + 1)}{temp} += {self._render_expr_at(a, [i, k])} * {self._render_expr_at(b, [k])};\n"
+            )
+            lines.append(f"{'    ' * indent}}}\n")
+            return temp, lines
+        if a_rank == 1 and b_rank == 2:
+            j = target_indices[0]
+            end = f"{b_dims[0]} - 1 + {lb}"
+            lines.append(f"{'    ' * indent}for (npy_intp {k} = {lb}; {k} <= {end}; {k}++) {{\n")
+            lines.append(
+                f"{'    ' * (indent + 1)}{temp} += {self._render_expr_at(a, [k])} * {self._render_expr_at(b, [k, j])};\n"
+            )
+            lines.append(f"{'    ' * indent}}}\n")
+            return temp, lines
+        raise NotImplementedError("matmul supports 1-D or 2-D arrays only")
+
+    def _render_transpose(
+        self, expr: IntrinsicFunction, target_indices: Sequence[str]
+    ) -> tuple[str, list[str]]:
+        arg = expr.arguments[0]
+        if len(target_indices) != 2:
+            raise NotImplementedError("transpose only supports 2-D arrays")
+        i, j = target_indices
+        return self._render_expr_at(arg, [j, i]), []
+
+    def _render_max_min(
+        self,
+        expr: IntrinsicFunction,
+        target_indices: Sequence[str],
+        target_dims: Sequence[str],
+        indent: int,
+    ) -> tuple[str, list[str]]:
+        setups: list[str] = []
+        rendered_args: list[str] = []
+        for arg in expr.arguments:
+            rendered, setup = self._render_expr_for_target(arg, target_indices, target_dims, indent)
+            setups.extend(setup)
+            rendered_args.append(rendered)
+
+        def pick(a, b):
+            op = ">" if expr.token == "max" else "<"
+            return f"(({a}) {op} ({b}) ? ({a}) : ({b}))"
+
+        current = rendered_args[0]
+        for arg in rendered_args[1:]:
+            current = pick(current, arg)
+        return current, setups
+
+    def _render_scalar_max_min(self, expr: IntrinsicFunction) -> str:
+        rendered_args = [self._render_expr(arg) for arg in expr.arguments]
+
+        def pick(a, b):
+            op = ">" if expr.token == "max" else "<"
+            return f"(({a}) {op} ({b}) ? ({a}) : ({b}))"
+
+        current = rendered_args[0]
+        for arg in rendered_args[1:]:
+            current = pick(current, arg)
+        return current
+
+    def _bit_width(self, expr) -> int:
+        dtype = self._safe_dtype_from_ftype(expr)
+        if dtype is None:
+            return 64
+        np_type = dtype.get_numpy()
+        return np.dtype(np_type).itemsize * 8
 
     def _map_ftype_to_ctype(self, variable: Variable) -> str:
         ftype = variable._ftype
