@@ -162,6 +162,17 @@ class Transpose(UnaryIntrinsicFunction):
     token = "transpose"
 
     @property
+    def _shape(self):
+        arg_shape = self.arguments[0]._shape
+        if arg_shape is SCALAR:
+            raise ValueError("Cannot transpose a scalar.")
+        if arg_shape is UNKNOWN:
+            raise ValueError("Cannot transpose a variable with unknown shape.")
+        if len(arg_shape.dims) != 2:
+            raise ValueError("Transpose can only be applied to 2-D arrays.")
+        return ArrayShape(arg_shape.dims[::-1], fortran_order=arg_shape.fortran_order)
+
+    @property
     def shape(self):
         if self.arguments[0]._shape is SCALAR:
             raise ValueError("Cannot transpose a scalar.")

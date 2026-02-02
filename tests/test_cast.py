@@ -47,7 +47,7 @@ def test_cast_getitem(dtype, backend):
         )
 
 
-def test_cast_struct(backend, backend):
+def test_cast_struct(backend):
 
     dtype = np.dtype([("a", np.float64), ("b", np.int64)])
 

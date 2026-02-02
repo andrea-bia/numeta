@@ -2,7 +2,7 @@ import numpy as np
 import numeta as nm
 
 
-def test_disable_array_descriptor(backend, backend):
+def test_disable_array_descriptor(backend):
 
     nm.settings.unset_add_shape_descriptors()
 

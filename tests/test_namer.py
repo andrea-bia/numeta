@@ -2,8 +2,8 @@ import numeta as nm
 import numpy as np
 
 
-def test_custom_namer(backend, backend):
-    @nm.jit(backend=backend, namer=lambda length, *_: f"spec_{length}")
+def test_custom_namer(backend):
+    @nm.jit(backend=backend, namer=lambda length, *_: f"spec_{length}_{backend}")
     def fill(length: nm.comptime, a):
         for i in range(length):
             a[i] = i
@@ -11,5 +11,5 @@ def test_custom_namer(backend, backend):
     arr = np.zeros(5, dtype=np.int64)
     fill(3, arr)
 
-    assert fill.get_symbolic_functions()[0].name == "spec_3"
+    assert fill.get_symbolic_functions()[0].name == f"spec_3_{backend}"
     np.testing.assert_allclose(arr[:3], np.arange(3))

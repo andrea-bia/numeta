@@ -18,7 +18,7 @@ def test_scalar_array(dtype, backend):
     np.testing.assert_allclose(a, np.array([2]).astype(dtype))
 
 
-def test_scalar(backend, backend):
+def test_scalar(backend):
 
     @nm.jit(backend=backend)
     def fill(a, b):

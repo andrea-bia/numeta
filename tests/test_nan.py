@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 
-def test_nan(backend, backend):
+def test_nan(backend):
 
     @nm.jit(backend=backend)
     def check_nan(a, is_nan):

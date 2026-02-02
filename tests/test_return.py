@@ -350,7 +350,7 @@ def test_inline_returning_function_array(dtype, backend):
         np.testing.assert_allclose(array, expected_array, rtol=10e2 * np.finfo(dtype).eps)
 
 
-def test_return_external_function(backend, backend):
+def test_return_external_function(backend):
     import ctypes.util
     import os
 

@@ -2,7 +2,7 @@ import numpy as np
 import numeta as nm
 
 
-def test_cases(backend, backend):
+def test_cases(backend):
     @nm.jit(backend=backend)
     def cases(a) -> None:
         a[:] = 0.0

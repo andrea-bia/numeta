@@ -24,6 +24,7 @@ from numeta.syntax.statements import (
     Assignment,
     Call,
     Case,
+    Comment,
     Cycle,
     Deallocate,
     Do,
@@ -105,6 +106,7 @@ class CCodegen:
         lines.append("#include <numpy/npy_math.h>\n")
         lines.append("#include <complex.h>\n")
         lines.append("#include <stdlib.h>\n")
+        lines.append("#include <omp.h>\n")
         if self._requires_math:
             lines.append("#include <math.h>\n")
         lines.append("\n")
@@ -230,6 +232,21 @@ class CCodegen:
             walk_stmt(stmt)
 
     def _register_array_argument(self, variable: Variable) -> None:
+        if variable._shape is UNKNOWN:
+            ctype = self._map_ftype_to_ctype(variable)
+            self._arg_specs.append(CArg(variable.name, ctype, True, variable.intent == "in"))
+            self._pointer_args[variable.name] = True
+            self._array_info[variable.name] = ArrayInfo(
+                name=variable.name,
+                ctype=ctype,
+                rank=1,
+                fortran_order=False,
+                dims_exprs=["1"],
+                dims_name=None,
+                is_argument=True,
+                is_pointer=True,
+            )
+            return
         rank = variable._shape.rank
         ctype = self._map_ftype_to_ctype(variable)
         fortran_order = variable._shape.fortran_order
@@ -241,7 +258,7 @@ class CCodegen:
         has_shape_exprs = any(hasattr(dim, "get_code_blocks") for dim in variable._shape.dims)
         if has_shape_descriptor and not has_shape_exprs:
             dims_name = f"{variable.name}_dims"
-            self._arg_specs.append(CArg(dims_name, "npy_intp", True, True))
+            self._arg_specs.append(CArg(dims_name, "npy_intp", True, variable.intent == "in"))
             dims_exprs = [f"{dims_name}[{i}]" for i in range(rank)]
         else:
             dims_exprs = [self._render_dim(dim) for dim in variable._shape.dims]
@@ -318,6 +335,19 @@ class CCodegen:
     def _register_local_array(self, variable: Variable) -> None:
         if variable.name in self._array_info:
             return
+        if variable._shape is UNKNOWN:
+            ctype = self._map_ftype_to_ctype(variable)
+            self._array_info[variable.name] = ArrayInfo(
+                name=variable.name,
+                ctype=ctype,
+                rank=1,
+                fortran_order=False,
+                dims_exprs=["1"],
+                dims_name=None,
+                is_argument=False,
+                is_pointer=True,
+            )
+            return
         rank = variable._shape.rank
         ctype = self._map_ftype_to_ctype(variable)
         fortran_order = variable._shape.fortran_order
@@ -348,6 +378,8 @@ class CCodegen:
         return lines
 
     def _render_statement(self, stmt, indent: int) -> list[str]:
+        if isinstance(stmt, Comment):
+            return self._render_comment(stmt, indent)
         if isinstance(stmt, Assignment):
             return self._render_assignment_statement(stmt, indent)
         if isinstance(stmt, If):
@@ -386,6 +418,14 @@ class CCodegen:
         if isinstance(stmt, (ElseIf, Else, Case)):
             raise NotImplementedError("Unexpected standalone block statement in C backend")
         raise NotImplementedError(f"C backend does not support statement {type(stmt).__name__}")
+
+    def _render_comment(self, stmt: Comment, indent: int) -> list[str]:
+        comment = stmt.comment
+        if isinstance(comment, list):
+            text = "".join(str(part) for part in comment)
+        else:
+            text = str(comment)
+        return [f"{'    ' * indent}/* {text} */\n"]
 
     def _render_assignment_statement(self, stmt: Assignment, indent: int) -> list[str]:
         target = stmt.target
@@ -478,35 +518,36 @@ class CCodegen:
             self._register_local_array(stmt.target)
         info = self._array_info[stmt.target.name]
         dims = [self._render_expr(dim) for dim in stmt.shape]
-        if not info.fortran_order:
-            dims = dims[::-1]
         size = self._render_product(dims)
         lines = []
         if info.dims_name is not None:
             for i, dim in enumerate(dims):
                 lines.append(f"{'    ' * indent}{info.dims_name}[{i}] = {dim};\n")
         lines.append(
-            f"{'    ' * indent}{stmt.target.name} = ({info.ctype}*)PyDataMem_NEW(sizeof({info.ctype}) * {size});\n"
+            f"{'    ' * indent}{stmt.target.name} = ({info.ctype}*)malloc(sizeof({info.ctype}) * {size});\n"
         )
         return lines
 
     def _render_deallocate(self, stmt: Deallocate, indent: int) -> list[str]:
         if not isinstance(stmt.array, Variable):
             raise NotImplementedError("C backend only supports deallocate on variables")
-        return [f"{'    ' * indent}PyDataMem_FREE({stmt.array.name});\n"]
+        return [f"{'    ' * indent}free({stmt.array.name});\n"]
 
     def _render_pointer_assignment(self, stmt: PointerAssignment, indent: int) -> list[str]:
         if not isinstance(stmt.pointer, Variable):
             raise NotImplementedError("C backend only supports pointer assignment to variables")
         lines: list[str] = []
+        info = self._array_info.get(stmt.pointer.name)
+        if info is None:
+            self._register_local_array(stmt.pointer)
+            info = self._array_info[stmt.pointer.name]
         if stmt.pointer_shape is not None:
             shape = stmt.pointer_shape
             if not isinstance(shape, ArrayShape):
-                shape = ArrayShape(tuple(shape), fortran_order=True)
-            info = self._array_info.get(stmt.pointer.name)
-            if info is None:
-                self._register_local_array(stmt.pointer)
-                info = self._array_info[stmt.pointer.name]
+                dims = list(shape)
+                if info is not None and not info.fortran_order:
+                    dims = list(reversed(dims))
+                shape = ArrayShape(tuple(dims), fortran_order=info.fortran_order if info else True)
             if info.dims_name is not None:
                 for i, dim in enumerate(shape.dims):
                     dim_expr = self._render_dim(dim)
@@ -517,7 +558,7 @@ class CCodegen:
 
     def _render_call(self, stmt: Call, indent: int) -> tuple[str, list[str], list[str]]:
         function = stmt.function
-        name = function if isinstance(function, str) else function.name
+        name = function if isinstance(function, str) else self._call_name(function)
         arg_values: list[str] = []
         pre_lines: list[str] = []
         post_lines: list[str] = []
@@ -556,7 +597,17 @@ class CCodegen:
                 temp = f"_nm_arg{self._temp_counter}"
                 self._temp_counter += 1
                 ctype = self._map_ftype_to_ctype(callee_arg)
-                pre_lines = [f"{'    ' * indent}{ctype} {temp} = {self._render_expr(arg)};\n"]
+                rhs = self._render_expr(arg)
+                if ctype == "char":
+                    if (
+                        isinstance(arg, LiteralNode)
+                        and isinstance(arg.value, str)
+                        and len(arg.value) == 1
+                    ):
+                        rhs = f"'{arg.value}'"
+                    elif isinstance(arg, str) and len(arg) == 1:
+                        rhs = f"'{arg}'"
+                pre_lines = [f"{'    ' * indent}{ctype} {temp} = {rhs};\n"]
                 return [f"&{temp}"], pre_lines, []
             return [self._render_expr(arg)], [], []
 
@@ -567,8 +618,35 @@ class CCodegen:
                 info = self._array_info[arg.name]
             args: list[str] = []
             pre_lines: list[str] = []
+            has_shape_descriptor = (
+                nm_settings.add_shape_descriptors
+                and callee_arg._shape.has_comptime_undefined_dims()
+            )
+            has_shape_exprs = False
+            if callee_arg._shape is not UNKNOWN:
+                has_shape_exprs = any(
+                    hasattr(dim, "get_code_blocks") for dim in callee_arg._shape.dims
+                )
+            if has_shape_descriptor and not has_shape_exprs:
+                if info.dims_name is not None:
+                    args.append(info.dims_name)
+                else:
+                    dims_tmp = f"{arg.name}_dims"
+                    pre_lines.append(
+                        f"{'    ' * indent}npy_intp {dims_tmp}[{info.rank}] = {{{', '.join(info.dims_exprs)}}};\n"
+                    )
+                    args.append(dims_tmp)
             args.append(arg.name)
             return args, pre_lines, []
+        if isinstance(arg, ArrayConstructor):
+            ctype = self._map_ftype_to_ctype(callee_arg)
+            temp = f"_nm_dims{self._temp_counter}"
+            self._temp_counter += 1
+            elements = ", ".join(self._render_expr(el) for el in arg.elements)
+            pre_lines = [
+                f"{'    ' * indent}{ctype} {temp}[{len(arg.elements)}] = {{{elements}}};\n"
+            ]
+            return [temp], pre_lines, []
         if isinstance(arg, (GetItem, GetAttr)):
             return self._render_slice_arg(arg, callee_arg, indent)
         if callee_arg.intent != "in":
@@ -593,7 +671,9 @@ class CCodegen:
         has_shape_descriptor = (
             nm_settings.add_shape_descriptors and callee_arg._shape.has_comptime_undefined_dims()
         )
-        has_shape_exprs = any(hasattr(dim, "get_code_blocks") for dim in callee_arg._shape.dims)
+        has_shape_exprs = False
+        if callee_arg._shape is not UNKNOWN:
+            has_shape_exprs = any(hasattr(dim, "get_code_blocks") for dim in callee_arg._shape.dims)
         if has_shape_descriptor and not has_shape_exprs:
             dims_name = f"{temp}_dims"
             pre_lines.append(
@@ -703,9 +783,34 @@ class CCodegen:
         if not isinstance(fptr, Variable):
             raise NotImplementedError("c_f_pointer target must be a variable")
         ctype = self._map_ftype_to_ctype(fptr)
+        lines: list[str] = []
         if fptr.pointer:
-            return [f"{'    ' * indent}{fptr.name} = ({ctype}*){cptr_expr};\n"]
-        return [f"{'    ' * indent}{fptr.name} = *({ctype}*){cptr_expr};\n"]
+            lines.append(f"{'    ' * indent}{fptr.name} = ({ctype}*){cptr_expr};\n")
+        else:
+            lines.append(f"{'    ' * indent}{fptr.name} = *({ctype}*){cptr_expr};\n")
+
+        if len(stmt.arguments) >= 3 and isinstance(fptr, Variable):
+            info = self._array_info.get(fptr.name)
+            if info is not None and info.dims_name is not None:
+                shape_arg = stmt.arguments[2]
+                lb = syntax_settings.array_lower_bound
+                if isinstance(shape_arg, ArrayConstructor):
+                    elements = shape_arg.elements
+                    if len(elements) != info.rank:
+                        raise NotImplementedError("c_f_pointer shape must match target rank")
+                    for i, element in enumerate(elements):
+                        dim_expr = self._render_expr(element)
+                        lines.append(f"{'    ' * indent}{info.dims_name}[{i}] = {dim_expr};\n")
+                else:
+                    for i in range(info.rank):
+                        index_expr = str(i + lb)
+                        if isinstance(shape_arg, (Variable, GetItem, GetAttr)):
+                            dim_expr = self._render_expr_at(shape_arg, [index_expr])
+                        else:
+                            dim_expr = self._render_expr(shape_arg)
+                        lines.append(f"{'    ' * indent}{info.dims_name}[{i}] = {dim_expr};\n")
+
+        return lines
 
     def _render_c_loc(self, expr) -> str:
         if isinstance(expr, Variable):
@@ -772,7 +877,8 @@ class CCodegen:
         if target_shape is UNKNOWN:
             raise NotImplementedError("C backend does not support assignments to unknown shapes")
         loop_dims, target_indices = self._build_target_indices(target)
-        rhs_is_scalar = stmt.value._shape is SCALAR
+        rhs_rank, _ = self._expr_rank_dims(stmt.value)
+        rhs_is_scalar = rhs_rank == 0
         target_dim_exprs = self._target_dim_exprs(target, loop_dims)
         if not rhs_is_scalar:
             self._validate_broadcast(stmt.value, target_dim_exprs)
@@ -915,6 +1021,30 @@ class CCodegen:
                 raise NotImplementedError("C backend only supports broadcastable shapes")
 
     def _expr_rank_dims(self, expr) -> tuple[int, list[str]]:
+        if isinstance(expr, BinaryOperationNode):
+            left_rank, left_dims = self._expr_rank_dims(expr.left)
+            right_rank, right_dims = self._expr_rank_dims(expr.right)
+            if left_rank == 0:
+                return right_rank, right_dims
+            if right_rank == 0:
+                return left_rank, left_dims
+            return left_rank, left_dims
+        if isinstance(expr, GetItem):
+            rank, dims_exprs, _, _ = self._array_expr_info(expr.variable)
+            slices = expr.sliced if isinstance(expr.sliced, tuple) else (expr.sliced,)
+            slices = list(slices)
+            if len(slices) < rank:
+                slices.extend([slice(None)] * (rank - len(slices)))
+            out_dims: list[str] = []
+            for i, slice_ in enumerate(slices):
+                if isinstance(slice_, slice):
+                    start, end = self._slice_bounds(slice_, dims_exprs[i])
+                    if slice_.step is None:
+                        out_dims.append(f"({end} - {start} + 1)")
+                    else:
+                        step = self._render_expr(slice_.step)
+                        out_dims.append(f"(({end} - {start})/({step}) + 1)")
+            return len(out_dims), out_dims
         shape = expr._shape
         if shape is SCALAR:
             return 0, []
@@ -955,9 +1085,15 @@ class CCodegen:
     ) -> tuple[str, list[str]]:
         if isinstance(expr, IntrinsicFunction):
             return self._render_intrinsic_for_target(expr, target_indices, target_dims, indent)
-        if expr._shape is SCALAR:
-            # Special case for scalar expressions that might involve reductions
-            # We need to walk the expression tree to find reductions and hoist them
+        expr_rank, _ = self._expr_rank_dims(expr)
+        if expr_rank == 0:
+            # If it's a scalar expression that might contain reductions (which generate setup code),
+            # we need to handle it carefully.
+            # Currently _render_expr doesn't return setup code.
+            # This path is usually taken for simple scalar RHS.
+            # If the scalar RHS is complex (e.g. reduction + reduction), we need a better lowering strategy
+            # that lifts reductions out.
+            # For now, let's try to detect if we can simply render it.
             return self._render_scalar_expr_with_setup(expr, indent)
         if isinstance(expr, ArrayConstructor):
             return self._render_array_constructor_expr(expr, target_indices, target_dims, indent)
@@ -1206,10 +1342,31 @@ class CCodegen:
             args = ", ".join(self._render_expr(arg) for arg in expr.arguments)
             return f"{name}({args})"
         if isinstance(expr, IntrinsicFunction):
+            if expr.token in {"sum", "maxval", "minval", "all", "dot_product"}:
+                # These reductions return a scalar but need setup loops
+                val, setup = self._render_intrinsic_for_target(expr, [], [], indent=0)
+                # If there are setup lines (loops), we can't embed this in an expression.
+                # This simplistic check isn't enough for nested expressions.
+                # However, _render_expr currently assumes pure expressions without side-effects/setup.
+                # If we have setup, we must have been called via _render_expr_for_target at statement level.
+                if not setup:
+                    return val
+                raise NotImplementedError(
+                    "Intrinsic reduction inside complex expression not yet fully supported in C backend"
+                )
             return self._render_intrinsic(expr, indices)
         if isinstance(expr, GetAttr):
             return self._render_getattr(expr)
         raise NotImplementedError(f"C backend does not support expression {type(expr).__name__}")
+
+    def _render_array_element_from_expr(self, expr, indices: Sequence[str]) -> str:
+        if isinstance(expr, GetItem):
+            return self._render_getitem(expr, indices)
+        rank, dims_exprs, fortran_order, base = self._array_expr_info(expr)
+        if len(indices) != rank:
+            raise ValueError("Index rank does not match array rank")
+        linear = self._linear_index(indices, dims_exprs, fortran_order)
+        return f"({base})[{linear}]"
 
     def _render_expr(self, expr) -> str:
         if isinstance(expr, (int, float, complex, bool, np.generic)):
@@ -1258,6 +1415,8 @@ class CCodegen:
             raise NotImplementedError(
                 "C backend does not support array constructors in expressions"
             )
+        if isinstance(expr, slice):
+            return self._render_slice_expr(expr)
         raise NotImplementedError(f"C backend does not support expression {type(expr).__name__}")
 
     def _render_intrinsic(
@@ -1414,186 +1573,6 @@ class CCodegen:
         if token in {"sum", "maxval", "minval", "all", "dot_product", "matmul", "transpose"}:
             raise NotImplementedError("Array intrinsics should be lowered in array context")
         raise NotImplementedError(f"C backend does not support intrinsic {token}")
-
-    def _render_getitem(self, expr: GetItem, indices: Sequence[str] | None = None) -> str:
-        variable = expr.variable
-        if not isinstance(variable, (Variable, GetAttr)):
-            raise NotImplementedError(
-                "C backend only supports getitem on variables or struct fields"
-            )
-        rank, dims_exprs, fortran_order, base = self._array_expr_info(variable)
-        slices = expr.sliced if isinstance(expr.sliced, tuple) else (expr.sliced,)
-        slices = list(slices)
-        if len(slices) < rank:
-            slices.extend([slice(None)] * (rank - len(slices)))
-        out_indices: list[str] = []
-        index_iter = None
-        if indices is not None:
-            slice_count = sum(1 for slice_ in slices if isinstance(slice_, slice))
-            if len(indices) == slice_count:
-                index_iter = iter(indices)
-            elif len(indices) == len(slices):
-                filtered = [
-                    idx for idx, slice_ in zip(indices, slices) if isinstance(slice_, slice)
-                ]
-                index_iter = iter(filtered)
-            else:
-                filtered = []
-                idx_iter = iter(indices)
-                for slice_ in slices:
-                    if isinstance(slice_, slice):
-                        try:
-                            filtered.append(next(idx_iter))
-                        except StopIteration:
-                            break
-                index_iter = iter(filtered)
-        for i, slice_ in enumerate(slices):
-            if isinstance(slice_, slice):
-                if index_iter is None:
-                    raise NotImplementedError("C backend requires indices for sliced getitem")
-                start, _ = self._slice_bounds(slice_, dims_exprs[i])
-                step = slice_.step
-                if step is None:
-                    out_indices.append(f"({start} + {next(index_iter)})")
-                else:
-                    step_expr = self._render_expr(step)
-                    out_indices.append(f"({start} + ({step_expr}) * {next(index_iter)})")
-            else:
-                idx = self._render_expr(slice_)
-                out_indices.append(idx)
-        linear = self._linear_index(out_indices, dims_exprs, fortran_order)
-        return f"({base})[{linear}]"
-
-    def _render_array_element_from_expr(self, expr, indices: Sequence[str]) -> str:
-        if isinstance(expr, GetItem):
-            return self._render_getitem(expr, indices)
-        rank, dims_exprs, fortran_order, base = self._array_expr_info(expr)
-        if len(indices) != rank:
-            raise ValueError("Index rank does not match array rank")
-        linear = self._linear_index(indices, dims_exprs, fortran_order)
-        return f"({base})[{linear}]"
-
-    def _render_getattr(self, expr: GetAttr) -> str:
-        base = expr.variable
-        if isinstance(base, Variable):
-            if self._pointer_args.get(base.name, False) or base.pointer:
-                return f"{base.name}->{expr.attr}"
-            return f"{base.name}.{expr.attr}"
-        if isinstance(base, GetItem):
-            return f"{self._render_getitem(base)}.{expr.attr}"
-        if isinstance(base, GetAttr):
-            return f"{self._render_getattr(base)}.{expr.attr}"
-        raise NotImplementedError("C backend only supports getattr on variables or struct elements")
-
-    def _render_array_element(self, variable: Variable, indices: Sequence[str]) -> str:
-        info = self._array_info.get(variable.name)
-        if info is None:
-            raise NotImplementedError("C backend requires array metadata for element access")
-        if len(indices) != info.rank:
-            raise ValueError("Index rank does not match array rank")
-        linear = self._linear_index(indices, info.dims_exprs, info.fortran_order)
-        return f"{variable.name}[{linear}]"
-
-    def _linear_index(
-        self, indices: Sequence[str], dims: Sequence[str], fortran_order: bool
-    ) -> str:
-        if len(indices) == 1:
-            return self._normalize_index(indices[0])
-        if fortran_order:
-            stride = "1"
-            terms = []
-            for i, idx in enumerate(indices):
-                term = f"({self._normalize_index(idx)})"
-                if stride != "1":
-                    term = f"({term})*({stride})"
-                terms.append(term)
-                stride = f"({stride})*({dims[i]})"
-            return " + ".join(terms)
-        stride = "1"
-        terms = []
-        for i in range(len(indices) - 1, -1, -1):
-            term = f"({self._normalize_index(indices[i])})"
-            if stride != "1":
-                term = f"({term})*({stride})"
-            terms.append(term)
-            stride = f"({stride})*({dims[i]})"
-        return " + ".join(reversed(terms))
-
-    def _slice_bounds(self, slice_: slice, dim_expr: str) -> tuple[str, str]:
-        lb = syntax_settings.array_lower_bound
-        start = slice_.start
-        stop = slice_.stop
-        if start is None:
-            start_expr = str(lb)
-        else:
-            start_expr = self._render_expr(start)
-        if stop is None:
-            stop_expr = f"({dim_expr} - 1 + {lb})"
-        else:
-            stop_expr = self._render_expr(stop)
-            if syntax_settings.c_like_bounds:
-                stop_expr = f"({stop_expr} - 1)"
-        return start_expr, stop_expr
-
-    def _render_slice_expr(self, slice_: slice) -> str:
-        parts = []
-        if slice_.start is not None:
-            parts.append(self._render_expr(slice_.start))
-        parts.append(":")
-        if slice_.stop is not None:
-            parts.append(self._render_expr(slice_.stop))
-        if slice_.step is not None:
-            parts.append(":")
-            parts.append(self._render_expr(slice_.step))
-        return "".join(parts)
-
-    def _render_literal(self, value) -> str:
-        if isinstance(value, (bool, np.bool_)):
-            return "1" if value else "0"
-        if isinstance(value, np.integer):
-            return str(int(value))
-        if isinstance(value, np.floating):
-            return repr(float(value))
-        if isinstance(value, (int, float)):
-            return repr(value)
-        if isinstance(value, np.complexfloating):
-            self._requires_math = True
-            real = value.real
-            imag = value.imag
-            if value.dtype == np.complex64:
-                return f"npy_cpackf((float){real}, (float){imag})"
-            return f"npy_cpack((double){real}, (double){imag})"
-        if isinstance(value, complex):
-            self._requires_math = True
-            return f"npy_cpack((double){value.real}, (double){value.imag})"
-        if isinstance(value, str):
-            return f'"{value}"'
-        raise NotImplementedError("C backend only supports int/float/bool/complex/string literals")
-
-    def _render_variable(self, variable: Variable, as_pointer: bool) -> str:
-        if self._pointer_args.get(variable.name, False):
-            return variable.name if as_pointer else f"*{variable.name}"
-        if variable.pointer and variable._shape is SCALAR:
-            return variable.name if as_pointer else f"*{variable.name}"
-        return variable.name
-
-    def _is_pointer_arg(self, variable: Variable) -> bool:
-        if variable._shape is not SCALAR:
-            return True
-        dtype = self._safe_dtype_from_ftype(variable)
-        if dtype is not None and variable.intent == "in" and dtype.can_be_value():
-            return False
-        return True
-
-    def _is_complex_expr(self, expr) -> bool:
-        ftype = getattr(expr, "_ftype", None)
-        return ftype is not None and ftype.type == "complex"
-
-    def _is_complex64(self, expr) -> bool:
-        dtype = self._safe_dtype_from_ftype(expr)
-        if dtype is None:
-            return False
-        return dtype.get_numpy() is np.complex64
 
     def _render_complex_binop(
         self, expr: BinaryOperationNode, indices: Sequence[str] | None
@@ -1893,6 +1872,8 @@ class CCodegen:
             ftype = ftype._ftype
         if ftype is None:
             raise NotImplementedError("C backend requires a concrete type")
+        if ftype.type == "character":
+            return "char"
         if ftype.type == "type" and getattr(ftype.kind, "name", None) == "c_ptr":
             return "void*"
         dtype = DataType.from_ftype(ftype)
@@ -1902,6 +1883,8 @@ class CCodegen:
         ftype = getattr(expr, "_ftype", None)
         if ftype is None:
             raise NotImplementedError("C backend requires a concrete type")
+        if ftype.type == "character":
+            return "char"
         if ftype.type == "type" and getattr(ftype.kind, "name", None) == "c_ptr":
             return "void"
         dtype = DataType.from_ftype(ftype)
@@ -1916,9 +1899,33 @@ class CCodegen:
         except Exception:
             return None
 
+    def _is_complex_expr(self, expr) -> bool:
+        if isinstance(expr, LiteralNode):
+            return isinstance(expr.value, (complex, np.complexfloating))
+        if isinstance(expr, (complex, np.complexfloating)):
+            return True
+        dtype = self._safe_dtype_from_ftype(expr)
+        if dtype is None:
+            return False
+        np_type = dtype.get_numpy()
+        return np_type in {np.complex64, np.complex128}
+
+    def _is_complex64(self, expr) -> bool:
+        if isinstance(expr, LiteralNode):
+            return isinstance(expr.value, np.complexfloating) and expr.value.dtype == np.complex64
+        if isinstance(expr, np.complexfloating):
+            return expr.dtype == np.complex64
+        dtype = self._safe_dtype_from_ftype(expr)
+        if dtype is None:
+            return False
+        return dtype.get_numpy() == np.complex64
+
     def _render_dim(self, dim) -> str:
         if isinstance(dim, (int, np.integer)):
             return str(dim)
+        if isinstance(dim, slice):
+            if dim.stop is not None:
+                return self._render_expr(dim.stop)
         return self._render_expr(dim)
 
     def _render_product(self, terms: Sequence[str]) -> str:
@@ -1928,6 +1935,59 @@ class CCodegen:
         for term in terms[1:]:
             result = f"({result})*({term})"
         return result
+
+    def _render_variable(self, variable: Variable, as_pointer: bool = False) -> str:
+        if variable._shape is not SCALAR:
+            return variable.name
+        is_pointer = variable.pointer or self._pointer_args.get(variable.name, False)
+        if as_pointer:
+            return variable.name if is_pointer else f"&{variable.name}"
+        return f"*{variable.name}" if is_pointer else variable.name
+
+    def _linear_index(
+        self, indices: Sequence[str], dims_exprs: Sequence[str], fortran_order: bool
+    ) -> str:
+        if len(indices) != len(dims_exprs):
+            raise ValueError("Index rank does not match array rank")
+        if not indices:
+            return "0"
+        normalized = [self._normalize_index(idx) for idx in indices]
+        if fortran_order:
+            linear = normalized[0]
+            stride = dims_exprs[0]
+            for i in range(1, len(normalized)):
+                linear = f"({linear}) + ({stride})*({normalized[i]})"
+                stride = f"({stride})*({dims_exprs[i]})"
+            return linear
+        linear = normalized[-1]
+        stride = dims_exprs[-1]
+        for i in range(len(normalized) - 2, -1, -1):
+            linear = f"({linear}) + ({stride})*({normalized[i]})"
+            stride = f"({stride})*({dims_exprs[i]})"
+        return linear
+
+    def _render_array_element(self, variable: Variable, indices: Sequence[str]) -> str:
+        rank, dims_exprs, fortran_order, base = self._array_expr_info(variable)
+        if len(indices) != rank:
+            raise ValueError("Index rank does not match array rank")
+        linear = self._linear_index(indices, dims_exprs, fortran_order)
+        return f"({base})[{linear}]"
+
+    def _slice_bounds(self, slice_: slice, dim_expr: str) -> tuple[str, str]:
+        lb = syntax_settings.array_lower_bound
+        if slice_.start is None:
+            start = str(lb)
+        else:
+            start = self._render_expr(slice_.start)
+        if slice_.stop is None:
+            end = f"{dim_expr} - 1 + {lb}"
+        else:
+            stop = self._render_expr(slice_.stop)
+            if syntax_settings.c_like_bounds:
+                end = f"({stop} - 1)"
+            else:
+                end = stop
+        return start, end
 
     def _normalize_index(self, idx: str) -> str:
         lb = syntax_settings.array_lower_bound
@@ -1979,9 +2039,17 @@ class CCodegen:
         for sub in self._collect_called_subroutines():
             if sub.name == self.subroutine.name:
                 continue
+            name = self._call_name(sub)
             args = ", ".join(self._render_prototype_arg(sub, var) for var in sub.arguments.values())
-            prototypes.append(f"void {sub.name}({args});\n")
+            prototypes.append(f"void {name}({args});\n")
         return prototypes
+
+    def _call_name(self, function) -> str:
+        if isinstance(function, Subroutine):
+            if not function.bind_c:
+                return f"{function.name}_"
+            return function.name
+        return function.name
 
     def _collect_called_subroutines(self) -> list[Subroutine]:
         seen = set()
@@ -2065,6 +2133,9 @@ class CCodegen:
             is_const = variable.intent == "in"
             is_pointer = self._is_pointer_arg(variable)
             return CArg(variable.name, ctype, is_pointer, is_const).render()
+        if variable._shape is UNKNOWN:
+            ctype = self._map_ftype_to_ctype(variable)
+            return CArg(variable.name, ctype, True, variable.intent == "in").render()
         ctype = self._map_ftype_to_ctype(variable)
         args = []
         has_shape_descriptor = (
@@ -2120,3 +2191,116 @@ class CCodegen:
         info = (shape.rank, dims_exprs, shape.fortran_order, name)
         self._global_arrays[name] = info
         return info
+
+    def _render_slice_expr(self, slice_: slice) -> str:
+        parts = []
+        if slice_.start is not None:
+            parts.append(self._render_expr(slice_.start))
+        parts.append(":")
+        if slice_.stop is not None:
+            parts.append(self._render_expr(slice_.stop))
+        if slice_.step is not None:
+            parts.append(":")
+            parts.append(self._render_expr(slice_.step))
+        return "".join(parts)
+
+    def _render_getitem(self, expr: GetItem, indices: Sequence[str] | None = None) -> str:
+        variable = expr.variable
+        if not isinstance(variable, (Variable, GetAttr)):
+            raise NotImplementedError(
+                "C backend only supports getitem on variables or struct fields"
+            )
+        rank, dims_exprs, fortran_order, base = self._array_expr_info(variable)
+        slices = expr.sliced if isinstance(expr.sliced, tuple) else (expr.sliced,)
+        slices = list(slices)
+        if len(slices) < rank:
+            slices.extend([slice(None)] * (rank - len(slices)))
+        out_indices: list[str] = []
+        index_iter = None
+        if indices is not None:
+            slice_count = sum(1 for slice_ in slices if isinstance(slice_, slice))
+            if len(indices) == slice_count:
+                index_iter = iter(indices)
+            elif len(indices) == len(slices):
+                filtered = [
+                    idx for idx, slice_ in zip(indices, slices) if isinstance(slice_, slice)
+                ]
+                index_iter = iter(filtered)
+            else:
+                filtered = []
+                idx_iter = iter(indices)
+                for slice_ in slices:
+                    if isinstance(slice_, slice):
+                        try:
+                            filtered.append(next(idx_iter))
+                        except StopIteration:
+                            break
+                index_iter = iter(filtered)
+        for i, slice_ in enumerate(slices):
+            if isinstance(slice_, slice):
+                if index_iter is None:
+                    raise NotImplementedError("C backend requires indices for sliced getitem")
+                start, _ = self._slice_bounds(slice_, dims_exprs[i])
+                step = slice_.step
+                if step is None:
+                    out_indices.append(f"({start} + {next(index_iter)})")
+                else:
+                    step_expr = self._render_expr(step)
+                    out_indices.append(f"({start} + ({step_expr}) * {next(index_iter)})")
+            else:
+                idx = self._render_expr(slice_)
+                out_indices.append(idx)
+        linear = self._linear_index(out_indices, dims_exprs, fortran_order)
+        return f"({base})[{linear}]"
+
+    def _render_getattr(self, expr: GetAttr) -> str:
+        base = expr.variable
+        if isinstance(base, Variable):
+            if self._pointer_args.get(base.name, False) or base.pointer:
+                return f"{base.name}->{expr.attr}"
+            return f"{base.name}.{expr.attr}"
+        if isinstance(base, GetItem):
+            return f"{self._render_getitem(base)}.{expr.attr}"
+        if isinstance(base, GetAttr):
+            return f"{self._render_getattr(base)}.{expr.attr}"
+        raise NotImplementedError("C backend only supports getattr on variables or struct elements")
+
+    def _render_array_element_from_expr(self, expr, indices: Sequence[str]) -> str:
+        if isinstance(expr, GetItem):
+            return self._render_getitem(expr, indices)
+        rank, dims_exprs, fortran_order, base = self._array_expr_info(expr)
+        if len(indices) != rank:
+            raise ValueError("Index rank does not match array rank")
+        linear = self._linear_index(indices, dims_exprs, fortran_order)
+        return f"({base})[{linear}]"
+
+    def _render_literal(self, value) -> str:
+        if isinstance(value, (bool, np.bool_)):
+            return "1" if value else "0"
+        if isinstance(value, np.integer):
+            return str(int(value))
+        if isinstance(value, np.floating):
+            return repr(float(value))
+        if isinstance(value, (int, float)):
+            return repr(value)
+        if isinstance(value, np.complexfloating):
+            self._requires_math = True
+            real = value.real
+            imag = value.imag
+            if value.dtype == np.complex64:
+                return f"npy_cpackf((float){real}, (float){imag})"
+            return f"npy_cpack((double){real}, (double){imag})"
+        if isinstance(value, complex):
+            self._requires_math = True
+            return f"npy_cpack((double){value.real}, (double){value.imag})"
+        if isinstance(value, str):
+            return f'"{value}"'
+        raise NotImplementedError("C backend only supports int/float/bool/complex/string literals")
+
+    def _is_pointer_arg(self, variable: Variable) -> bool:
+        if variable._shape is not SCALAR:
+            return True
+        dtype = self._safe_dtype_from_ftype(variable)
+        if dtype is not None and variable.intent == "in" and dtype.can_be_value():
+            return False
+        return True

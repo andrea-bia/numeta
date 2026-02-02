@@ -9,7 +9,7 @@ from numeta.pyc_extension import PyCExtension
 
 
 def test_library_save_and_load(tmp_path, backend):
-    lib = nm.NumetaLibrary("save_and_load")
+    lib = nm.NumetaLibrary(f"save_and_load_{backend}")
 
     @nm.jit(backend=backend, library=lib)
     def add(a):
@@ -21,7 +21,7 @@ def test_library_save_and_load(tmp_path, backend):
 
 
 def test_library_write_code(tmp_path, backend):
-    lib = nm.NumetaLibrary("write_code")
+    lib = nm.NumetaLibrary(f"write_code_{backend}")
 
     @nm.jit(backend=backend, library=lib)
     def add(a):
@@ -44,14 +44,22 @@ def test_library_write_code(tmp_path, backend):
         )
 
     for name in compiled_names:
-        src = Path(tmp_path) / f"{name}_src.f90"
-        assert src.exists()
-        code = src.read_text().lower()
-        assert f"subroutine {name}" in code
+        if backend == "fortran":
+            src = Path(tmp_path) / f"{name}_src.f90"
+            assert src.exists()
+            code = src.read_text().lower()
+            assert f"subroutine {name}" in code
+        elif backend == "c":
+            src = Path(tmp_path) / f"{name}_src.c"
+            assert src.exists()
+            code = src.read_text().lower()
+            assert f"void {name}" in code
+        else:
+            raise ValueError(f"Unsupported backend: {backend}")
 
 
 def test_library_save_and_load_with_dep(tmp_path, backend):
-    lib = nm.NumetaLibrary("save_and_load_with_dep")
+    lib = nm.NumetaLibrary(f"save_and_load_with_dep_{backend}")
 
     @nm.jit(backend=backend, library=lib)
     def set_zero(a):
@@ -70,7 +78,7 @@ def test_library_save_and_load_with_dep(tmp_path, backend):
 
     set_zero.clear()
     add.clear()
-    lib_loaded = nm.NumetaLibrary.load("save_and_load_with_dep", tmp_path)
+    lib_loaded = nm.NumetaLibrary.load(f"save_and_load_with_dep_{backend}", tmp_path)
     assert len(lib_loaded._entries) == 2
 
     array = np.zeros(4, dtype=np.int64)
@@ -79,7 +87,7 @@ def test_library_save_and_load_with_dep(tmp_path, backend):
 
 
 def test_library_save_and_load_with_dep_2(tmp_path, backend):
-    lib = nm.NumetaLibrary("save_and_load_with_dep_2")
+    lib = nm.NumetaLibrary(f"save_and_load_with_dep_2_{backend}")
 
     @nm.jit(backend=backend)
     def set_zero(a):
@@ -98,7 +106,7 @@ def test_library_save_and_load_with_dep_2(tmp_path, backend):
 
     set_zero.clear()
     add.clear()
-    lib_loaded = nm.NumetaLibrary.load("save_and_load_with_dep_2", tmp_path)
+    lib_loaded = nm.NumetaLibrary.load(f"save_and_load_with_dep_2_{backend}", tmp_path)
     assert len(lib_loaded._entries) == 1
 
     array = np.zeros(4, dtype=np.int64)
@@ -107,7 +115,7 @@ def test_library_save_and_load_with_dep_2(tmp_path, backend):
 
 
 def test_library_save_and_load_use_dep(tmp_path, backend):
-    lib = nm.NumetaLibrary("save_and_load_use_dep")
+    lib = nm.NumetaLibrary(f"save_and_load_use_dep_{backend}")
 
     @nm.jit(backend=backend, library=lib)
     def set_zero(a):
@@ -125,7 +133,7 @@ def test_library_save_and_load_use_dep(tmp_path, backend):
 
     set_zero.clear()
     add.clear()
-    lib_loaded = nm.NumetaLibrary.load("save_and_load_use_dep", tmp_path)
+    lib_loaded = nm.NumetaLibrary.load(f"save_and_load_use_dep_{backend}", tmp_path)
 
     @nm.jit(backend=backend)
     def minus(a):
@@ -138,7 +146,7 @@ def test_library_save_and_load_use_dep(tmp_path, backend):
 
 
 def test_library_global_variable_dep(tmp_path, backend):
-    lib = nm.NumetaLibrary("global_variable_dep")
+    lib = nm.NumetaLibrary(f"global_variable_dep_{backend}")
 
     global_constant_var = nm.declare_global_constant(
         (2, 1), np.float64, value=np.array([2.0, -1.0]), name="global_constant_var"
@@ -156,7 +164,7 @@ def test_library_global_variable_dep(tmp_path, backend):
     lib.save(tmp_path, "")
 
     set.clear()
-    lib_loaded = nm.NumetaLibrary.load("global_variable_dep", tmp_path)
+    lib_loaded = nm.NumetaLibrary.load(f"global_variable_dep_{backend}", tmp_path)
 
     a = np.empty(2, dtype=np.float64)
     lib.set(a)
@@ -165,7 +173,7 @@ def test_library_global_variable_dep(tmp_path, backend):
 
 def test_library_name_conflict(tmp_path, backend):
 
-    lib = nm.NumetaLibrary("name_conflict")
+    lib = nm.NumetaLibrary(f"name_conflict_{backend}")
 
     @nm.jit(backend=backend, library=lib)
     def set_zero(a):
@@ -183,9 +191,9 @@ def test_library_name_conflict(tmp_path, backend):
 
     set_zero.clear()
     add.clear()
-    lib_loaded_1 = nm.NumetaLibrary.load("name_conflict", tmp_path)
+    lib_loaded_1 = nm.NumetaLibrary.load(f"name_conflict_{backend}", tmp_path)
     try:
-        lib_loaded_2 = nm.NumetaLibrary.load("name_conflict", tmp_path)
+        lib_loaded_2 = nm.NumetaLibrary.load(f"name_conflict_{backend}", tmp_path)
     except ValueError:
         pass
 
@@ -198,7 +206,7 @@ def test_library_external_dep(tmp_path, backend):
     import ctypes.util
     import os
 
-    lib = nm.NumetaLibrary("external_dep")
+    lib = nm.NumetaLibrary(f"external_dep_{backend}")
 
     if ctypes.util.find_library("blas") is None:
         pytest.skip("BLAS library not found")
@@ -254,14 +262,14 @@ def test_library_external_dep(tmp_path, backend):
     lib.save(tmp_path)
 
     matmul.clear()
-    lib_loaded = nm.NumetaLibrary.load("external_dep", tmp_path)
+    lib_loaded = nm.NumetaLibrary.load(f"external_dep_{backend}", tmp_path)
 
     lib_loaded.matmul(a, b, c)
     np.testing.assert_allclose(c, np.dot(a, b))
 
 
-def test_library_public_api(backend, backend):
-    lib = nm.NumetaLibrary("public_api")
+def test_library_public_api(backend):
+    lib = nm.NumetaLibrary(f"public_api_{backend}")
 
     @nm.jit(backend=backend)
     def add(a):
@@ -280,8 +288,8 @@ def test_library_public_api(backend, backend):
     assert len(lib) == 0
 
 
-def test_library_register_rejects_reserved_name(backend, backend):
-    lib = nm.NumetaLibrary("public_api_reserved")
+def test_library_register_rejects_reserved_name(backend):
+    lib = nm.NumetaLibrary(f"public_api_reserved_{backend}")
 
     with pytest.raises(ValueError, match="reserved"):
 
@@ -296,9 +304,9 @@ def test_library_load_collision_warns(tmp_path, backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     NumetaFunction.used_compiled_names.clear()
     try:
-        lib_dir = tmp_path / "collision_lib"
+        lib_dir = tmp_path / f"collision_lib_{backend}"
         lib_dir.mkdir()
-        lib = nm.NumetaLibrary("collision_lib")
+        lib = nm.NumetaLibrary(f"collision_lib_{backend}")
 
         @nm.jit(backend=backend, library=lib)
         def add(a):
@@ -318,7 +326,7 @@ def test_library_load_collision_warns(tmp_path, backend):
         add(array)
 
         with pytest.warns(RuntimeWarning, match="collision"):
-            lib_loaded = nm.NumetaLibrary.load("collision_lib", lib_dir)
+            lib_loaded = nm.NumetaLibrary.load(f"collision_lib_{backend}", lib_dir)
 
     finally:
         NumetaFunction.used_compiled_names.clear()
@@ -333,7 +341,7 @@ def test_library_reserved_suffix_rejected(tmp_path, backend):
         nm.NumetaLibrary.load(reserved_name, tmp_path)
 
 
-def test_library_wrapper_module_collision(backend, backend):
+def test_library_wrapper_module_collision(backend):
     wrapper_module = f"collision{PyCExtension.SUFFIX}"
     sys.modules[wrapper_module] = object()
     try:

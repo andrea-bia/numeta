@@ -1,27 +1,28 @@
 import os
+import sys
 
-import numeta as nm
 import pytest
 
 
-_BACKEND = os.getenv("NUMETA_BACKEND")
-_BACKEND_PARAMS = [_BACKEND] if _BACKEND else ["fortran", "c"]
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 
-@pytest.fixture(params=_BACKEND_PARAMS, autouse=True)
-def backend(request, monkeypatch):
-    """
-    Parametrized fixture that runs tests on both 'fortran' and 'c' backends.
-    It monkeypatches numeta.jit to use the current backend by default,
-    but tests can also request the 'backend' argument explicitly.
-    """
-    current_backend = request.param
-    original_jit = nm.jit
+def pytest_addoption(parser):
+    parser.addoption(
+        "--backend",
+        action="store",
+        default="all",
+        help="Backend to run tests on: 'fortran', 'c', or 'all' (default)",
+    )
 
-    def jit_wrapper(*args, **kwargs):
-        if "backend" not in kwargs:
-            kwargs["backend"] = current_backend
-        return original_jit(*args, **kwargs)
 
-    monkeypatch.setattr(nm, "jit", jit_wrapper)
-    return current_backend
+def pytest_generate_tests(metafunc):
+    if "backend" in metafunc.fixturenames:
+        option = metafunc.config.getoption("backend")
+        if option == "all":
+            params = ["fortran", "c"]
+        else:
+            params = [option]
+        metafunc.parametrize("backend", params)

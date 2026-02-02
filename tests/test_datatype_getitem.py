@@ -1,7 +1,7 @@
 import numeta as nm
 
 
-def test_datatype_getitem(backend, backend):
+def test_datatype_getitem(backend):
     arr = nm.int32[2, 3]
     assert isinstance(arr, nm.datatype.ArrayType)
     assert arr.dtype is nm.int32

@@ -109,8 +109,17 @@ class NumetaLibrary:
         directory.mkdir(parents=True, exist_ok=True)
         for nm_function in self._entries.values():
             for compiled_target in nm_function._compiled_functions.values():
-                fortran_src = directory / f"{compiled_target.name}_src.f90"
-                fortran_src.write_text(compiled_target.symbolic_function.get_code())
+                if compiled_target.backend == "fortran":
+                    fortran_src = directory / f"{compiled_target.name}_src.f90"
+                    fortran_src.write_text(compiled_target.symbolic_function.get_code())
+                elif compiled_target.backend == "c":
+                    from .c_syntax import CCodegen
+
+                    c_src = directory / f"{compiled_target.name}_src.c"
+                    codegen = CCodegen(compiled_target.symbolic_function)
+                    c_src.write_text(codegen.render())
+                else:
+                    raise ValueError(f"Unsupported backend: {compiled_target.backend}")
 
     def save(
         self,

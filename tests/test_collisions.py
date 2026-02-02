@@ -7,7 +7,7 @@ from numeta.numeta_library import NumetaLibrary
 from numeta.pyc_extension import PyCExtension
 
 
-def test_compiled_name_collision_warns(backend, backend):
+def test_compiled_name_collision_warns(backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     NumetaFunction.used_compiled_names.clear()
     NumetaFunction.used_compiled_names.add("add_1")
@@ -25,7 +25,7 @@ def test_compiled_name_collision_warns(backend, backend):
         NumetaFunction.used_compiled_names.update(original_names)
 
 
-def test_custom_namer_collision_raises(backend, backend):
+def test_custom_namer_collision_raises(backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     NumetaFunction.used_compiled_names.clear()
     try:
@@ -51,7 +51,7 @@ def test_custom_namer_collision_raises(backend, backend):
         NumetaFunction.used_compiled_names.update(original_names)
 
 
-def test_compiled_name_reserved_suffix_raises(backend, backend):
+def test_compiled_name_reserved_suffix_raises(backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     NumetaFunction.used_compiled_names.clear()
     try:
@@ -71,7 +71,7 @@ def test_compiled_name_reserved_suffix_raises(backend, backend):
         NumetaFunction.used_compiled_names.update(original_names)
 
 
-def test_compiled_name_loaded_library_collision(backend, backend):
+def test_compiled_name_loaded_library_collision(backend):
     original_names = NumetaFunction.used_compiled_names.copy()
     original_loaded = NumetaLibrary.loaded.copy()
     NumetaFunction.used_compiled_names.clear()

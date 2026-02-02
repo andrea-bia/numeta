@@ -2,7 +2,7 @@ import numpy as np
 import numeta as nm
 
 
-def test_cond(backend, backend):
+def test_cond(backend):
     @nm.jit(backend=backend)
     def cond(a) -> None:
         a[:] = 0.0

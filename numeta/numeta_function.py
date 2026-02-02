@@ -326,7 +326,7 @@ class NumetaFunction:
 
                     array_shape = ArrayShape(tuple([None] * rank))
 
-                    if settings.use_numpy_allocator:
+                    if settings.use_numpy_allocator or self.backend == "c":
                         from numeta.external_modules.iso_c_binding import FPointer_c, iso_c
 
                         out_ptr = builder.generate_local_variables(
@@ -360,9 +360,8 @@ class NumetaFunction:
                 symbolic_fun(*full_runtime_args, *return_arguments)
 
             for out_ptr, out_array, shape_var, rank in return_pointers:
-                if rank == 1:
-                    shape_fortran = shape_var
-                else:
+                shape_fortran = shape_var
+                if self.backend == "fortran" and rank != 1:
                     shape_fortran = shape_var[rank - 1 : 1 : -1]
                 from numeta.external_modules.iso_c_binding import iso_c
 

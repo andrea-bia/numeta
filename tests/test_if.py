@@ -2,7 +2,7 @@ import numpy as np
 import numeta as nm
 
 
-def test_cond(backend, backend):
+def test_cond(backend):
     @nm.jit(backend=backend)
     def cond(a) -> None:
         a[:] = 0.0
@@ -79,3 +79,17 @@ def test_cond(backend, backend):
 
     cond(a)
     np.testing.assert_allclose(a, np.array(range(n), dtype=np.float64))
+
+
+def test_if_else(backend):
+    @nm.jit(backend=backend)
+    def choose(a, b, flag):
+        out = nm.scalar(nm.i8)
+        with nm.If(flag):
+            out[:] = a
+        with nm.Else():
+            out[:] = b
+        return out
+
+    np.testing.assert_equal(choose(3, 7, True), 3)
+    np.testing.assert_equal(choose(3, 7, False), 7)

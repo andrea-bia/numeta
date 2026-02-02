@@ -2,7 +2,7 @@
 # import numeta as nm
 #
 #
-# def test_constant_scalar(backend, backend):
+# def test_constant_scalar(backend):
 #    @nm.jit(backend=backend)
 #    def fill(a):
 #        c = nm.constant(5)
@@ -13,7 +13,7 @@
 #    assert arr[0] == 5
 #
 #
-# def test_constant_array(backend, backend):
+# def test_constant_array(backend):
 #    @nm.jit(backend=backend)
 #    def fill(a):
 #        c = nm.constant([1, 2, 3])

@@ -2,7 +2,7 @@ import numpy as np
 import numeta as nm
 
 
-def test_call_array_scalar(backend, backend):
+def test_call_array_scalar(backend):
 
     @nm.jit(backend=backend)
     def callee(n, a):
@@ -20,7 +20,7 @@ def test_call_array_scalar(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_call_array(backend, backend):
+def test_call_array(backend):
 
     @nm.jit(backend=backend)
     def callee(n, a):
@@ -38,7 +38,7 @@ def test_call_array(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getitem_scalar(backend, backend):
+def test_call_getitem_scalar(backend):
 
     @nm.jit(backend=backend)
     def callee(n, a):
@@ -56,7 +56,7 @@ def test_call_getitem_scalar(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getitem_slice(backend, backend):
+def test_call_getitem_slice(backend):
 
     @nm.jit(backend=backend)
     def callee(n, a):
@@ -80,7 +80,7 @@ def test_call_getitem_slice(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getitem_slice_runtime_dep(backend, backend):
+def test_call_getitem_slice_runtime_dep(backend):
 
     @nm.jit(backend=backend)
     def callee(n, a):
@@ -108,7 +108,7 @@ def test_call_getitem_slice_runtime_dep(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getattr_scalar(backend, backend):
+def test_call_getattr_scalar(backend):
 
     @nm.jit(backend=backend)
     def callee(n, a):
@@ -128,7 +128,7 @@ def test_call_getattr_scalar(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_call_getattr_array(backend, backend):
+def test_call_getattr_array(backend):
 
     @nm.jit(backend=backend)
     def callee(n, a):
@@ -148,7 +148,7 @@ def test_call_getattr_array(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_call_matmul(backend, backend):
+def test_call_matmul(backend):
 
     @nm.jit(backend=backend)
     def callee(a, d):
@@ -168,7 +168,7 @@ def test_call_matmul(backend, backend):
     np.testing.assert_allclose(c, expected)
 
 
-def test_call_matmul_fortran_order(backend, backend):
+def test_call_matmul_fortran_order(backend):
 
     @nm.jit(backend=backend)
     def callee(a, d):
@@ -188,7 +188,35 @@ def test_call_matmul_fortran_order(backend, backend):
     np.testing.assert_allclose(c, expected)
 
 
-def test_nested_calls(backend, backend):
+def test_intrinsics_dot_matmul_transpose(backend):
+    @nm.jit(backend=backend)
+    def dot(a, b):
+        return nm.dot_product(a, b)
+
+    @nm.jit(backend=backend)
+    def matmul_ab(a, b, out):
+        out[:] = nm.matmul(a, b)
+
+    @nm.jit(backend=backend)
+    def trans(a, out):
+        out[:] = nm.transpose(a)
+
+    a = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    b = np.array([3.0, 2.0, 1.0], dtype=np.float64)
+    np.testing.assert_allclose(dot(a, b), np.dot(a, b))
+
+    m = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64, order="F")
+    n = np.array([[5.0, 6.0], [7.0, 8.0]], dtype=np.float64, order="F")
+    out = np.zeros((2, 2), dtype=np.float64, order="F")
+    matmul_ab(m, n, out)
+    np.testing.assert_allclose(out, m @ n)
+
+    out_t = np.zeros((2, 2), dtype=np.float64, order="F")
+    trans(m, out_t)
+    np.testing.assert_allclose(out_t, m.T)
+
+
+def test_nested_calls(backend):
     @nm.jit(backend=backend)
     def inner(n, arr):
         arr[0] = n
@@ -209,7 +237,7 @@ def test_nested_calls(backend, backend):
     np.testing.assert_equal(arr, expected)
 
 
-def test_nested_calls_with_literals(backend, backend):
+def test_nested_calls_with_literals(backend):
     @nm.jit(backend=backend)
     def inner(n, arr):
         arr[0] = n
@@ -228,3 +256,15 @@ def test_nested_calls_with_literals(backend, backend):
 
     expected = np.array([2, 4], dtype=np.int64)
     np.testing.assert_equal(arr, expected)
+
+
+def test_nested_calls_arithmetic(backend):
+    @nm.jit(backend=backend)
+    def inner(a, b):
+        return a + b
+
+    @nm.jit(backend=backend)
+    def outer(a, b, c):
+        return inner(a, b) * c
+
+    np.testing.assert_equal(outer(2, 4, 3), 18)

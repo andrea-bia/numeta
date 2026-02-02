@@ -8,7 +8,7 @@ import numeta as nm
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
 @pytest.mark.parametrize("shape", [(), (5,), (2, 3)])
-def test_variable_number_of_arguments(n_args, dtype, shape):
+def test_variable_number_of_arguments(n_args, dtype, shape, backend):
     @nm.jit(backend=backend)
     def fill(*args):
         for i, arg in enumerate(args):
@@ -22,7 +22,7 @@ def test_variable_number_of_arguments(n_args, dtype, shape):
         np.testing.assert_allclose(arg, expected)
 
 
-def test_no_args(backend, backend):
+def test_no_args(backend):
     @nm.jit(backend=backend)
     def no_op(*args):
         pass

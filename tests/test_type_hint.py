@@ -27,7 +27,7 @@ def test_CompTime(dtype, backend):
         np.testing.assert_allclose(c, np.dot(a, b), rtol=float(10e2 * np.finfo(dtype).eps))
 
 
-def test_struct_array(backend, backend):
+def test_struct_array(backend):
     n = 2
     m = 3
 
@@ -49,7 +49,7 @@ def test_struct_array(backend, backend):
     np.testing.assert_equal(a, b)
 
 
-def test_struct(backend, backend):
+def test_struct(backend):
     n = 2
     m = 3
 

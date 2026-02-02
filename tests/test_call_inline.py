@@ -7,7 +7,7 @@ def assert_inline_dependency(caller, caller_signature, *, expected):
     assert (len(dependencies) > 0) is expected
 
 
-def test_inline_array_scalar(backend, backend):
+def test_inline_array_scalar(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(n, a):
@@ -25,7 +25,7 @@ def test_inline_array_scalar(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_array(backend, backend):
+def test_inline_array(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(n, a):
@@ -43,7 +43,7 @@ def test_inline_array(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_getitem_scalar(backend, backend):
+def test_inline_getitem_scalar(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(n, a):
@@ -61,7 +61,7 @@ def test_inline_getitem_scalar(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_getitem_slice(backend, backend):
+def test_inline_getitem_slice(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(n, a):
@@ -85,7 +85,7 @@ def test_inline_getitem_slice(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_getitem_slice_runtime_dep(backend, backend):
+def test_inline_getitem_slice_runtime_dep(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(n, a):
@@ -113,7 +113,7 @@ def test_inline_getitem_slice_runtime_dep(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_getattr_scalar(backend, backend):
+def test_inline_getattr_scalar(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(n, a):
@@ -133,7 +133,7 @@ def test_inline_getattr_scalar(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_getattr_array(backend, backend):
+def test_inline_getattr_array(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(n, a):
@@ -153,7 +153,7 @@ def test_inline_getattr_array(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_matmul(backend, backend):
+def test_inline_matmul(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(a, d):
@@ -173,7 +173,7 @@ def test_inline_matmul(backend, backend):
     np.testing.assert_allclose(c, expected)
 
 
-def test_inline_nested_calls(backend, backend):
+def test_inline_nested_calls(backend):
     @nm.jit(backend=backend, inline=True)
     def inner(n, arr):
         arr[0] = n
@@ -194,7 +194,7 @@ def test_inline_nested_calls(backend, backend):
     np.testing.assert_equal(arr, expected)
 
 
-def test_inline_nested_calls_dependencies(backend, backend):
+def test_inline_nested_calls_dependencies(backend):
     """Test to check that inline nested calls propagate dependencies correctly."""
 
     @nm.jit(backend=backend)
@@ -217,7 +217,7 @@ def test_inline_nested_calls_dependencies(backend, backend):
     np.testing.assert_equal(arr, expected)
 
 
-def test_inline_matmul_fortran_order(backend, backend):
+def test_inline_matmul_fortran_order(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(a, d):
@@ -237,7 +237,7 @@ def test_inline_matmul_fortran_order(backend, backend):
     np.testing.assert_allclose(c, expected)
 
 
-def test_inline_loop_matmul(backend, backend):
+def test_inline_loop_matmul(backend):
     @nm.jit(backend=backend, inline=True)
     def callee(n, a, b, c):
         for i in nm.range(n):
@@ -258,7 +258,7 @@ def test_inline_loop_matmul(backend, backend):
     np.testing.assert_allclose(c, expected)
 
 
-def test_inline_loop_if(backend, backend):
+def test_inline_loop_if(backend):
     @nm.jit(backend=backend, inline=True)
     def callee(n, arr):
         for i in nm.range(n):
@@ -281,7 +281,7 @@ def test_inline_loop_if(backend, backend):
     np.testing.assert_equal(arr, expected)
 
 
-def test_inline_jit_threshold_inline(backend, backend):
+def test_inline_jit_threshold_inline(backend):
     @nm.jit(backend=backend, inline=2)
     def callee(a):
         a[:] = 1
@@ -301,7 +301,7 @@ def test_inline_jit_threshold_inline(backend, backend):
     assert_inline_dependency(caller, signature, expected=False)
 
 
-def test_inline_jit_threshold_call(backend, backend):
+def test_inline_jit_threshold_call(backend):
     @nm.jit(backend=backend, inline=1)
     def callee(a):
         a[:] = 1
@@ -321,7 +321,7 @@ def test_inline_jit_threshold_call(backend, backend):
     assert_inline_dependency(caller, signature, expected=True)
 
 
-def test_inline_jit_threshold_loop_inline(backend, backend):
+def test_inline_jit_threshold_loop_inline(backend):
     @nm.jit(backend=backend, inline=3)
     def callee(n, a):
         for i in nm.range(n):
@@ -342,7 +342,7 @@ def test_inline_jit_threshold_loop_inline(backend, backend):
     assert_inline_dependency(caller, signature, expected=False)
 
 
-def test_inline_jit_threshold_loop_call(backend, backend):
+def test_inline_jit_threshold_loop_call(backend):
     @nm.jit(backend=backend, inline=2)
     def callee(n, a):
         for i in nm.range(n):
@@ -363,7 +363,7 @@ def test_inline_jit_threshold_loop_call(backend, backend):
     assert_inline_dependency(caller, signature, expected=True)
 
 
-def test_inline_jit_threshold_if_inline(backend, backend):
+def test_inline_jit_threshold_if_inline(backend):
     @nm.jit(backend=backend, inline=5)
     def callee(n, a):
         for i in nm.range(n):
@@ -387,7 +387,7 @@ def test_inline_jit_threshold_if_inline(backend, backend):
     assert_inline_dependency(caller, signature, expected=False)
 
 
-def test_inline_jit_threshold_if_call(backend, backend):
+def test_inline_jit_threshold_if_call(backend):
     @nm.jit(backend=backend, inline=4)
     def callee(n, a):
         for i in nm.range(n):
@@ -411,7 +411,7 @@ def test_inline_jit_threshold_if_call(backend, backend):
     assert_inline_dependency(caller, signature, expected=True)
 
 
-def test_inline_tmp_scalar(backend, backend):
+def test_inline_tmp_scalar(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(n, a):
@@ -431,7 +431,7 @@ def test_inline_tmp_scalar(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_name_mangling(backend, backend):
+def test_inline_name_mangling(backend):
     """
     To test if the local variables are properly renamed.
     """
@@ -454,7 +454,7 @@ def test_inline_name_mangling(backend, backend):
     np.testing.assert_equal(a, expected)
 
 
-def test_inline_slice_composition(backend, backend):
+def test_inline_slice_composition(backend):
 
     @nm.jit(backend=backend, inline=True)
     def callee(arr):

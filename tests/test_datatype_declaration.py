@@ -70,7 +70,7 @@ def test_array_call_3d(dtype, backend):
     np.testing.assert_allclose(out, expected)
 
 
-def test_variable_declaration_syntax(backend, backend):
+def test_variable_declaration_syntax(backend):
 
     a = nm.float64(name="a")
     from numeta.syntax.statements import VariableDeclaration

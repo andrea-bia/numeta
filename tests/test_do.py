@@ -27,3 +27,16 @@ def test_do(dtype, backend):
             np.array([i * 2 for i in range(n)]).astype(dtype),
             rtol=10e2 * np.finfo(dtype).eps,
         )
+
+
+def test_do_loop(backend):
+    @nm.jit(backend=backend)
+    def sum_to(n):
+        s = nm.scalar(nm.i8, 0)
+        i = nm.scalar(nm.i8)
+        with nm.do(i, 0, n - 1):
+            s[:] = s + i
+        return s
+
+    result = sum_to(5)
+    np.testing.assert_equal(result, 10)

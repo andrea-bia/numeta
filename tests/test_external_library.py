@@ -5,7 +5,7 @@ import pytest
 import os
 
 
-def test_libc_getpagesize(backend, backend):
+def test_libc_getpagesize(backend):
     if ctypes.util.find_library("c") is None:
         pytest.skip("libc library not found")
     libc = nm.ExternalLibraryWrapper("c")
@@ -25,7 +25,7 @@ def test_libc_getpagesize(backend, backend):
     assert pagesize == os.sysconf("SC_PAGE_SIZE")
 
 
-def test_blas(backend, backend):
+def test_blas(backend):
     if ctypes.util.find_library("blas") is None:
         pytest.skip("BLAS library not found")
     blas = nm.ExternalLibraryWrapper("blas")

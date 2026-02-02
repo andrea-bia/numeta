@@ -2,7 +2,7 @@ import numeta as nm
 import numpy as np
 
 
-def test_comptime_type_hint(backend, backend):
+def test_comptime_type_hint(backend):
 
     n = 100
     m = 3

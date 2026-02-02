@@ -2,7 +2,7 @@
 # import numeta as nm
 #
 #
-# def test_numpy_mem_jit(backend, backend):
+# def test_numpy_mem_jit(backend):
 #
 #    nm.settings.set_default_from_datatype(nm.size_t, iso_c=True)
 #

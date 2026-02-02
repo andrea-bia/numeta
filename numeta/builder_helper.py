@@ -23,7 +23,7 @@ class BuilderHelper:
         self.prefix_counter = {}
         self.allocated_arrays = {}
 
-        if settings.use_numpy_allocator:
+        if self.numeta_function.backend == "c" or settings.use_numpy_allocator:
             self.allocate_array = self._allocate_array_numpy
             self.deallocate_array = self._deallocate_array_numpy
         else:
@@ -148,7 +148,8 @@ class BuilderHelper:
                     self.symbolic_function.add_variable(shape)
                     # add to the symbolic function
                     shape[:] = Shape(var)
-                    shape[:] = shape[rank - 1 : 1 : -1]  # reverse the shape for Fortran order
+                    if self.numeta_function.backend == "fortran":
+                        shape[:] = shape[rank - 1 : 1 : -1]  # reverse the shape for Fortran order
 
                     ptr = self.allocated_arrays.pop(var.name)
                     ptr.intent = "out"
@@ -210,7 +211,7 @@ class BuilderHelper:
                 tmp_shape[:] = Shape(expr)
 
                 alloc_dims = [tmp_shape[i] for i in range(rank)]
-                if not expr_shape.fortran_order:
+                if self.numeta_function.backend == "fortran" and not expr_shape.fortran_order:
                     alloc_dims = alloc_dims[::-1]
 
                 from .wrappers import empty
@@ -222,10 +223,11 @@ class BuilderHelper:
                 )
 
                 shape[:] = tmp_shape
-                # Reverse the shape for the C interface after materializing the
-                # temporary buffer so the allocation happens with the original
-                # extents.
-                shape[:] = shape[rank - 1 : 1 : -1]
+                if self.numeta_function.backend == "fortran":
+                    # Reverse the shape for the C interface after materializing the
+                    # temporary buffer so the allocation happens with the original
+                    # extents.
+                    shape[:] = shape[rank - 1 : 1 : -1]
                 tmp[:] = expr
 
                 ptr = self.allocated_arrays.pop(tmp.name)

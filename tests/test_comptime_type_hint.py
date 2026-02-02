@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 
-def test_comptime_type_hint(backend, backend):
+def test_comptime_type_hint(backend):
     n = 100
 
     dtype = np.float64

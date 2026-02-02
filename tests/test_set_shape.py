@@ -2,7 +2,7 @@ import numpy as np
 import numeta as nm
 
 
-def test_set_shape_literal(backend, backend):
+def test_set_shape_literal(backend):
 
     nm.settings.unset_add_shape_descriptors()
 
@@ -22,7 +22,7 @@ def test_set_shape_literal(backend, backend):
     nm.settings.set_add_shape_descriptors()
 
 
-def test_set_shape_variable(backend, backend):
+def test_set_shape_variable(backend):
 
     nm.settings.unset_add_shape_descriptors()
 

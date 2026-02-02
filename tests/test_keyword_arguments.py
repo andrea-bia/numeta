@@ -3,7 +3,7 @@ import pytest
 import numeta as nm
 
 
-def test_optional_argument(backend, backend):
+def test_optional_argument(backend):
     @nm.jit(backend=backend)
     def fill(a, value=1.0):
         a[:] = value
@@ -19,7 +19,7 @@ def test_optional_argument(backend, backend):
     assert len(fill.get_symbolic_functions()) == 1
 
 
-def test_optional_comptime_argument(backend, backend):
+def test_optional_comptime_argument(backend):
     @nm.jit(backend=backend)
     def fill(a, value: nm.comptime = 1.0):
         a[:] = value
@@ -35,7 +35,7 @@ def test_optional_comptime_argument(backend, backend):
     assert len(fill.get_symbolic_functions()) == 3
 
 
-def test_optional_argument_mixed(backend, backend):
+def test_optional_argument_mixed(backend):
     @nm.jit(backend=backend)
     def fill(a, value=1.0, value2=-2.0):
         a[:] = value
@@ -80,7 +80,7 @@ def test_optional_argument_mixed(backend, backend):
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
 @pytest.mark.parametrize("shape", [(), (5,), (2, 3)])
-def test_keyword_arguments(n_args, dtype, shape):
+def test_keyword_arguments(n_args, dtype, shape, backend):
     @nm.jit(backend=backend)
     def fill(**kwargs):
         for i, arg in kwargs.items():
@@ -96,7 +96,7 @@ def test_keyword_arguments(n_args, dtype, shape):
 
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
-def test_variable_positional_and_keyword_arguments(n_args, n_kwargs):
+def test_variable_positional_and_keyword_arguments(n_args, n_kwargs, backend):
     @nm.jit(backend=backend)
     def fill(*args, **kwargs):
         for i, arg in enumerate(args):
@@ -118,7 +118,7 @@ def test_variable_positional_and_keyword_arguments(n_args, n_kwargs):
 
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
-def test_positional_and_variable_positional_and_keyword_arguments(n_args, n_kwargs):
+def test_positional_and_variable_positional_and_keyword_arguments(n_args, n_kwargs, backend):
     @nm.jit(backend=backend)
     def fill(a, *args, **kwargs):
         for i, arg in enumerate(args):
@@ -147,7 +147,9 @@ def test_positional_and_variable_positional_and_keyword_arguments(n_args, n_kwar
 
 @pytest.mark.parametrize("n_args", range(1, 4))
 @pytest.mark.parametrize("n_kwargs", range(1, 4))
-def test_positional_and_variable_positional_and_optional_and_keyword_arguments(n_args, n_kwargs):
+def test_positional_and_variable_positional_and_optional_and_keyword_arguments(
+    n_args, n_kwargs, backend
+):
     @nm.jit(backend=backend)
     def fill(a, *args, b=2.0, **kwargs):
         for i, arg in enumerate(args):
@@ -176,7 +178,7 @@ def test_positional_and_variable_positional_and_optional_and_keyword_arguments(n
     np.testing.assert_allclose(a, expected_a)
 
 
-def test_optional_array_argument(backend, backend):
+def test_optional_array_argument(backend):
     @nm.jit(backend=backend)
     def fill(a, b=np.zeros((5,), dtype=np.float64)):
         for i in nm.range(a.shape[0]):
@@ -212,7 +214,7 @@ def test_all_keyword_permutations(order, backend):
     np.testing.assert_allclose(a, np.full((), 5.0))
 
 
-def test_optional_keyword_only_comptime_argument(backend, backend):
+def test_optional_keyword_only_comptime_argument(backend):
 
     @nm.jit(backend=backend)
     def fill(a, *, length: nm.comptime = 4):
@@ -232,7 +234,7 @@ def test_optional_keyword_only_comptime_argument(backend, backend):
     np.testing.assert_allclose(b, expected)
 
 
-def test_keyword_arguments_have_unique_signature(backend, backend):
+def test_keyword_arguments_have_unique_signature(backend):
     @nm.jit(backend=backend)
     def fill(**kwargs):
         for i, arg in kwargs.items():
@@ -253,7 +255,7 @@ def test_keyword_arguments_have_unique_signature(backend, backend):
     assert len(fill.get_symbolic_functions()) == 1
 
 
-def test_keyword_arguments_have_unique_signature_unordered(backend, backend):
+def test_keyword_arguments_have_unique_signature_unordered(backend):
 
     from numeta.settings import settings
 

@@ -121,8 +121,8 @@ class Print(Statement):
 
 
 class Allocate(Statement):
-    def __init__(self, target, *shape):
-        super().__init__()
+    def __init__(self, target, *shape, add_to_scope=True):
+        super().__init__(add_to_scope=add_to_scope)
         self.target = check_node(target)
         self.shape = [check_node(child) for child in shape]
 

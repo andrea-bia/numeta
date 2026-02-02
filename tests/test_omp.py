@@ -2,7 +2,7 @@ import numeta as nm
 import numpy as np
 
 
-def test_omp(backend, backend):
+def test_omp(backend):
     @nm.jit(backend=backend)
     def test_mul(a, b, c):
         n_threads = nm.scalar(nm.i8, nm.omp.omp_get_max_threads())
@@ -32,6 +32,3 @@ def test_omp(backend, backend):
     test_mul(a, b, c)
 
     np.testing.assert_allclose(c, a.dot(b))
-
-
-test_omp()
