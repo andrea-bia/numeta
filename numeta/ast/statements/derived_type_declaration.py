@@ -1,7 +1,6 @@
 from .statement import StatementWithScope
 from .variable_declaration import VariableDeclaration
 from numeta.ast.variable import Variable
-from numeta.ast.settings import settings
 
 
 class DerivedTypeDeclaration(StatementWithScope):
@@ -16,11 +15,3 @@ class DerivedTypeDeclaration(StatementWithScope):
     def get_statements(self):
         for name, fortran_type, shape in self.derived_type.fields:
             yield VariableDeclaration(Variable(name, ftype=fortran_type, shape=shape))
-
-    def get_start_code_blocks(self):
-        if settings.derived_type_bind_c:
-            return ["type", ", ", "bind(C)", " ", "::", " ", self.derived_type.name]
-        return ["type", " ", "::", " ", self.derived_type.name]
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "type", " ", self.derived_type.name]

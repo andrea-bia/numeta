@@ -22,16 +22,6 @@ class FunctionCall(ExpressionNode):
     def _shape(self):
         return self.function._shape
 
-    def get_code_blocks(self):
-        result = [self.function.name, "("]
-        for argument in self.arguments:
-            result.extend(argument.get_code_blocks())
-            result.append(", ")
-        if result[-1] == ", ":
-            result.pop()
-        result.append(")")
-        return result
-
     def extract_entities(self):
         yield self.function
         for arg in self.arguments:

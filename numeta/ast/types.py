@@ -9,9 +9,6 @@ class Type(Node):
         self.kind = kind
         self.parent = None
 
-    def get_code_blocks(self):
-        return [str(self.type)]
-
     def extract_entities(self):
         if isinstance(self.kind, NamedEntity):
             yield self.kind

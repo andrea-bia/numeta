@@ -88,7 +88,10 @@ class NumetaCompiledFunction(ExternalLibrary):
                 from .ast.module import Module
 
                 if isinstance(self.symbolic_function, Module):
-                    fortran_src.write_text(self.symbolic_function.get_code())
+                    from numeta.fortran.fortran_syntax import render_stmt_lines
+
+                    lines = render_stmt_lines(self.symbolic_function.get_declaration(), indent=0)
+                    fortran_src.write_text("".join(lines))
                 else:
                     ir_proc = lower_subroutine(self.symbolic_function)
                     emitter = FortranEmitter()

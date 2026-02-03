@@ -37,25 +37,3 @@ class FunctionInterfaceDeclaration(StatementWithScope):
         yield from derived_types_dec.values()
 
         yield from variables_dec.values()
-
-    def get_start_code_blocks(self):
-        result = ["function", " ", self.function.name, "("]
-
-        for variable in self.function.arguments:
-            result.extend(variable.get_code_blocks())
-            result.append(", ")
-
-        if result[-1] == ", ":
-            result.pop()
-        result.append(")")
-
-        result_variable = self.function.get_result_variable()
-        result.extend([" ", "result", "(", result_variable.name, ")"])
-
-        if self.function.bind_c:
-            result.extend([" ", f"bind(C, name='{self.function.name}')"])
-
-        return result
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "function", " ", self.function.name]

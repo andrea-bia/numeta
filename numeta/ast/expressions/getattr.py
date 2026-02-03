@@ -22,9 +22,6 @@ class GetAttr(ExpressionNode):
                 return shape
         raise ValueError(f"Attribute '{self.attr}' not found in derived type '{derived_type.name}'")
 
-    def get_code_blocks(self):
-        return [*self.variable.get_code_blocks(), "%", self.attr]
-
     def extract_entities(self):
         yield from self.variable.extract_entities()
 

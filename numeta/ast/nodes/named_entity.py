@@ -17,8 +17,6 @@ class NamedEntity(Node, ABC):
     -------
     extract_entities():
         Extract the entity itself.
-    get_code_blocks():
-        Return the code blocks representing the entity.
     """
 
     def __init__(self, name, parent=None) -> None:
@@ -31,9 +29,6 @@ class NamedEntity(Node, ABC):
     @abstractmethod
     def get_declaration(self):
         pass
-
-    def get_code_blocks(self):
-        return [self.name]
 
     def extract_entities(self):
         yield self

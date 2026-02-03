@@ -68,67 +68,6 @@ class GetItem(ExpressionNode):
 
         yield from extract_entities(self.sliced)
 
-    def get_code_blocks(self):
-        result = self.variable.get_code_blocks()
-
-        def get_block(block):
-            if hasattr(block, "get_code_blocks"):
-                return block.get_code_blocks()
-            else:
-                return [str(block)]
-
-        def convert_slice(slice_):
-            result = []
-
-            if slice_.start is not None:
-                result += get_block(slice_.start)
-
-            result.append(":")
-
-            if slice_.stop is not None:
-                stop = slice_.stop - 1 if settings.c_like_bounds else slice_.stop
-                result += get_block(stop)
-
-            if slice_.step is not None:
-                result.append(":")
-                result += get_block(slice_.step)
-
-            return result
-
-        result.append("(")
-        if isinstance(self.sliced, tuple):
-            dims = []
-            if hasattr(self.sliced[0], "get_code_blocks"):
-                dims.append(self.sliced[0].get_code_blocks())
-            elif isinstance(self.sliced[0], slice):
-                dims.append(convert_slice(self.sliced[0]))
-            else:
-                dims.append([str(self.sliced[0])])
-            for element in self.sliced[1:]:
-                if hasattr(element, "get_code_blocks"):
-                    dims.append(element.get_code_blocks())
-                elif isinstance(element, slice):
-                    dims.append(convert_slice(element))
-                else:
-                    dims.append([str(element)])
-            if not self.variable._shape.fortran_order:
-                dims = dims[::-1]
-
-            result += dims[0]
-            for dim in dims[1:]:
-                result += [",", " "]
-                result += dim
-
-        else:
-            if hasattr(self.sliced, "get_code_blocks"):
-                result += self.sliced.get_code_blocks()
-            elif isinstance(self.sliced, slice):
-                result += convert_slice(self.sliced)
-            else:
-                result += [str(self.sliced)]
-        result.append(")")
-        return result
-
     def __setitem__(self, key, value):
         from numeta.ast.statements import Assignment
 

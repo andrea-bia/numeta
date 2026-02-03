@@ -67,12 +67,6 @@ class Module(NamedEntity):
 
         return ModuleDeclaration(self)
 
-    def print_lines(self, indent=0):
-        return self.get_declaration().print_lines(indent=indent)
-
-    def get_code(self):
-        return "".join(self.print_lines())
-
     def get_dependencies(self):
         return self.get_declaration().dependencies
 

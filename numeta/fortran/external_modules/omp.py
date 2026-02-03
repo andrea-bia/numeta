@@ -12,16 +12,12 @@ class OmpModule(ExternalModule):
 
     def do(self, *args, **kwargs):
         from numeta.ast import Do, Comment
-        from numeta.ast.statements.tools import print_block
         from numeta.fortran.fortran_syntax import render_expr_blocks
 
         class OmpComment(Comment):
             """
             Hack to handle OpenMP statements
             """
-
-            def print_lines(self, indent=0):
-                return [print_block(self.comment, indent=indent, prefix="!$omp ")]
 
             def __init__(self, comment, add_to_scope=False):
                 super().__init__(comment, add_to_scope=add_to_scope)

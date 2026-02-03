@@ -1,6 +1,5 @@
 from numeta.ast.nodes import Node
 from numeta.ast.scope import Scope
-from .tools import print_block
 
 
 class Statement(Node):
@@ -12,11 +11,6 @@ class Statement(Node):
     extract_entities():
         Extract entities referenced within the statement that have to be defined outside.
 
-    get_code_blocks():
-        Return the code blocks representing the statement.
-
-    print_lines(indent=0):
-        Print the statement as a list of formatted strings.
     """
 
     def __init__(self, add_to_scope=True):
@@ -30,20 +24,10 @@ class Statement(Node):
             f"Subclass '{self.__class__.__name__}' must implement the 'children' property."
         )
 
-    def get_code_blocks(self):
-        """Return the code blocks for this statement."""
-        raise NotImplementedError(
-            f"Subclass '{self.__class__.__name__}' must implement 'get_code_blocks'."
-        )
-
     def extract_entities(self):
         """Recursively extract all entities within the statement's child nodes."""
         for child in self.children:
             yield from child.extract_entities()
-
-    def print_lines(self, indent=0):
-        """Print the statement, formatted with the given indent level."""
-        return [print_block(self.get_code_blocks(), indent=indent)]
 
     def count_statements(self):
         """Return 1 for simple statements."""
@@ -65,17 +49,6 @@ class StatementWithScope(Statement):
     extract_entities():
         Extract entities referenced in the scope.
 
-    get_start_code_blocks():
-        Get the starting code blocks of the scope.
-
-    get_statements():
-        Get the list of statements within the scope.
-
-    get_end_code_blocks():
-        Get the ending code blocks of the scope.
-
-    print_lines(indent=0):
-        Print the statement, including its body, as a list of formatted strings.
     """
 
     def __init__(self, add_to_scope=True, enter_scope=True):
@@ -86,39 +59,14 @@ class StatementWithScope(Statement):
 
     @property
     def children(self):
-        """Return the child nodes in the start code and end code block."""
+        """Return the child nodes in the statement."""
         raise NotImplementedError(
             f"Subclass '{self.__class__.__name__}' must implement the 'children' property."
         )
 
-    def get_start_code_blocks(self):
-        """Return the code blocks that start this scoped statement."""
-        raise NotImplementedError(
-            f"Subclass '{self.__class__.__name__}' must implement 'get_start_code_blocks'."
-        )
-
-    def get_end_code_blocks(self):
-        """Return the code blocks that end this scoped statement."""
-        raise NotImplementedError(
-            f"Subclass '{self.__class__.__name__}' must implement 'get_end_code_blocks'."
-        )
-
-    def __str__(self):
-        """Return the string representation of the scoped statement."""
-        return "".join(self.print_lines(indent=0))
-
     def get_statements(self):
         """Return the list of statements within the scope."""
         return self.scope.get_statements()
-
-    def print_lines(self, indent=0):
-        """Print the entire scoped statement, including all nested statements."""
-        result = [print_block(self.get_start_code_blocks(), indent=indent)]
-        for statement in self.get_statements():
-            result.extend(statement.print_lines(indent=indent + 1))
-        if len(last_statement := self.get_end_code_blocks()) > 0:
-            result.append(print_block(last_statement, indent=indent))
-        return result
 
     def extract_entities(self):
         """Extract all the visible from outside entities within this statement and its scoped statements."""

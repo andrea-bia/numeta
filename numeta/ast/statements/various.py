@@ -1,7 +1,5 @@
 from numeta.ast.tools import check_node
 from numeta.ast.scope import Scope
-from numeta.ast.settings import settings
-from .tools import print_block, get_shape_blocks
 from .statement import Statement, StatementWithScope
 
 
@@ -16,10 +14,6 @@ class Comment(Statement):
     def children(self):
         return []
 
-    def print_lines(self, indent=0):
-        """Print the statement, formatted with the given indent level."""
-        return [print_block(self.comment, indent=indent, prefix="! ")]
-
 
 class Use(Statement):
     def __init__(self, module, only=None, add_to_scope=True):
@@ -31,12 +25,6 @@ class Use(Statement):
     def children(self):
         return []
 
-    def get_code_blocks(self):
-        result = ["use", " ", self.module.name]
-        if self.only is not None:
-            result += [", ", "only", ": ", self.only.name]
-        return result
-
 
 class Implicit(Statement):
     def __init__(self, implicit_type="none", add_to_scope=True):
@@ -46,9 +34,6 @@ class Implicit(Statement):
     @property
     def children(self):
         return []
-
-    def get_code_blocks(self):
-        return ["implicit", " ", self.implicit_type]
 
 
 class Assignment(Statement):
@@ -61,12 +46,6 @@ class Assignment(Statement):
     def children(self):
         return [self.target, self.value]
 
-    def get_code_blocks(self):
-        result = self.target.get_code_blocks()
-        result.append("=")
-        result += self.value.get_code_blocks()
-        return result
-
 
 class SimpleStatement(Statement):
     token = ""
@@ -77,9 +56,6 @@ class SimpleStatement(Statement):
     @property
     def children(self):
         return []
-
-    def get_code_blocks(self):
-        return [self.__class__.token]
 
 
 class Cycle(SimpleStatement):
@@ -107,18 +83,6 @@ class Print(Statement):
     def children(self):
         return self.to_print
 
-    def get_code_blocks(self):
-        result = ["print *, "]
-        for child in self.children:
-            if isinstance(child, str):
-                protected_child = child.replace('"', '""')
-                result.append(f'"{protected_child}"')
-            else:
-                result += child.get_code_blocks()
-            result.append(", ")
-        result.pop()
-        return result
-
 
 class Allocate(Statement):
     def __init__(self, target, *shape, add_to_scope=True):
@@ -130,42 +94,6 @@ class Allocate(Statement):
     def children(self):
         return [self.target] + self.shape
 
-    def get_code_blocks(self):
-        result = ["allocate", "("]
-
-        result += self.target.get_code_blocks()
-
-        dims = []
-        for argument in self.shape:
-            if (lbound := settings.array_lower_bound) != 1:
-                dims.append([str(lbound), ":", *(argument + (lbound - 1)).get_code_blocks()])
-            else:
-                dims.append([*(argument).get_code_blocks()])
-
-        if not self.target._shape.fortran_order:
-            dims = dims[::-1]
-
-        result.append("(")
-        result += dims[0]
-        for dim in dims[1:]:
-            result += [",", " "]
-            result += dim
-        result.append(")")
-
-        result.append(")")
-
-        return result
-
-        # contains some lists
-        # new_result = []
-        # for element in result:
-        #    if type(element) is list:
-        #        new_result += element
-        #    else:
-        #        new_result.append(element)
-
-        # return new_result
-
 
 class Deallocate(Statement):
     def __init__(self, array, add_to_scope=True):
@@ -175,10 +103,6 @@ class Deallocate(Statement):
     @property
     def children(self):
         return [self.array]
-
-    def get_code_blocks(self):
-        result = ["deallocate", "(", *self.array.get_code_blocks(), ")"]
-        return result
 
 
 class Do(StatementWithScope):
@@ -195,22 +119,6 @@ class Do(StatementWithScope):
             [self.step] if self.step is not None else []
         )
 
-    def get_start_code_blocks(self):
-        result = ["do", " "]
-        result += self.iterator.get_code_blocks()
-        result += [" ", "=", " "]
-        result += self.start.get_code_blocks()
-        result.append(", ")
-        result += self.end.get_code_blocks()
-        if len(self.children) == 4:
-            result.append(", ")
-            result += self.step.get_code_blocks()
-
-        return result
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "do"]
-
 
 class DoWhile(StatementWithScope):
     def __init__(self, condition, /, *, add_to_scope=True, enter_scope=True):
@@ -220,12 +128,6 @@ class DoWhile(StatementWithScope):
     @property
     def children(self):
         return [self.condition]
-
-    def get_start_code_blocks(self):
-        return ["do while", " ", "(", *self.condition.get_code_blocks(), ")"]
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "do"]
 
 
 class If(StatementWithScope):
@@ -240,22 +142,6 @@ class If(StatementWithScope):
 
     def get_statements(self):
         return self.scope.get_statements() + self.orelse
-
-    def print_lines(self, indent=0):
-        """Print the entire scoped statement, including all nested statements."""
-        result = [print_block(self.get_start_code_blocks(), indent=indent)]
-        for statement in self.scope.get_statements():
-            result.extend(statement.print_lines(indent=indent + 1))
-        for statement in self.orelse:
-            result.extend(statement.print_lines(indent=indent))
-        result.append(print_block(self.get_end_code_blocks(), indent=indent))
-        return result
-
-    def get_start_code_blocks(self):
-        return ["if", "(", *self.condition.get_code_blocks(), ")", "then"]
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "if"]
 
     def get_with_updated_variables(self, variables_couples):
         new_children = [
@@ -284,12 +170,6 @@ class ElseIf(StatementWithScope):
     def children(self):
         return [self.condition]
 
-    def get_start_code_blocks(self):
-        return ["elseif", "(", *self.condition.get_code_blocks(), ")", "then"]
-
-    def get_end_code_blocks(self):
-        return []
-
 
 class Else(StatementWithScope):
     def __init__(self, /, *, add_to_scope=True, enter_scope=True):
@@ -307,12 +187,6 @@ class Else(StatementWithScope):
     def children(self):
         return []
 
-    def get_start_code_blocks(self):
-        return ["else"]
-
-    def get_end_code_blocks(self):
-        return []
-
 
 class SelectCase(StatementWithScope):
     def __init__(self, value, add_to_scope=True):
@@ -322,12 +196,6 @@ class SelectCase(StatementWithScope):
     @property
     def children(self):
         return [self.value]
-
-    def get_start_code_blocks(self):
-        return ["select", " ", "case", " ", "(", *self.value.get_code_blocks(), ")"]
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "select"]
 
 
 class Case(StatementWithScope):
@@ -339,15 +207,6 @@ class Case(StatementWithScope):
     def children(self):
         return [self.value]
 
-    def get_start_code_blocks(self):
-        result = ["case", " ", "("]
-        result += self.value.get_code_blocks()
-        result.append(")")
-        return result
-
-    def get_end_code_blocks(self):
-        return []
-
 
 class Contains(Statement):
     def __init__(self, add_to_scope=True):
@@ -356,9 +215,6 @@ class Contains(Statement):
     @property
     def children(self):
         return []
-
-    def get_code_blocks(self):
-        return ["contains"]
 
 
 class Interface(StatementWithScope):
@@ -375,12 +231,6 @@ class Interface(StatementWithScope):
         for method in self.methods:
             result.append(method.get_interface_declaration())
         return result
-
-    def get_start_code_blocks(self):
-        return ["interface"]
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "interface"]
 
 
 class PointerAssignment(Statement):
@@ -456,11 +306,3 @@ class PointerAssignment(Statement):
             new_target_shape,
             add_to_scope=False,
         )
-
-    def get_code_blocks(self):
-        return [
-            *self.pointer.get_code_blocks(),
-            *get_shape_blocks(self.pointer_shape),
-            "=>",
-            *self.target.get_code_blocks(),
-        ]

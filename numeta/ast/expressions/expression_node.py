@@ -27,10 +27,6 @@ class ExpressionNode(Node):
     def extract_entities(self):
         """Extract the nested entities of the expression."""
 
-    @abstractmethod
-    def get_code_blocks(self):
-        """Return the code blocks that represent the expression."""
-
     def get_with_updated_variables(self, variables_couples):
         return self
 

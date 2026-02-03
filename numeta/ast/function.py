@@ -21,16 +21,6 @@ class Function(NamedEntity):
         for arg in self.arguments:
             yield from arg.extract_entities()
 
-    def get_code_blocks(self):
-        result = [self.name, "("]
-        for argument in self.arguments:
-            result.extend(argument.get_code_blocks())
-            result.append(", ")
-        if result[-1] == ", ":
-            result.pop()
-        result.append(")")
-        return result
-
     def get_declaration(self):
         raise NotImplementedError("Function declaration is not supported")
 

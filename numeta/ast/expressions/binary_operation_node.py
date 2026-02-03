@@ -38,24 +38,6 @@ class BinaryOperationNode(ExpressionNode):
         else:
             return self.left._shape
 
-    def get_code_blocks(self):
-        result = ["("]
-        # if hasattr(self.left, "get_code_blocks"):
-        #    result += self.left.get_code_blocks()
-        # else:
-        #    from .literal_node import LiteralNode
-        #    result += LiteralNode(self.left).get_code_blocks()
-        result += self.left.get_code_blocks()
-        result.append(self.op)
-        # if hasattr(self.right, "get_code_blocks"):
-        #    result += self.right.get_code_blocks()
-        # else:
-        #    from .literal_node import LiteralNode
-        #    result += LiteralNode(self.right).get_code_blocks()
-        result += self.right.get_code_blocks()
-        result.append(")")
-        return result
-
     def get_with_updated_variables(self, variables_couples):
         return BinaryOperationNode(
             self.left.get_with_updated_variables(variables_couples),
@@ -73,8 +55,7 @@ class BinaryOperationNode(ExpressionNode):
 
 
 class BinaryOperationNodeNoPar(BinaryOperationNode):
-    def get_code_blocks(self):
-        return [*self.left.get_code_blocks(), self.op, *self.right.get_code_blocks()]
+    pass
 
 
 class EqBinaryNode(BinaryOperationNode):

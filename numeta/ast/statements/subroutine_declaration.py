@@ -95,37 +95,6 @@ class SubroutineDeclaration(StatementWithScope):
 
         yield from self.subroutine.scope.get_statements()
 
-    def get_start_code_blocks(self):
-        result = []
-
-        if self.subroutine.pure:
-            result.append("pure")
-            result.append(" ")
-
-        if self.subroutine.elemental:
-            result.append("elemental")
-            result.append(" ")
-
-        result.extend(["subroutine", " ", self.subroutine.name, "("])
-
-        for variable in self.subroutine.arguments.values():
-            # TODO to remove dependency on the indent
-            if variable.intent is not None:
-                result.extend(variable.get_code_blocks())
-                result.append(", ")
-
-        if result[-1] == ", ":
-            result.pop()
-        result.append(")")
-
-        if self.subroutine.bind_c:
-            result.extend([" ", f"bind(C, name='{self.subroutine.name}')"])
-
-        return result
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "subroutine", " ", self.subroutine.name]
-
 
 class InterfaceDeclaration(StatementWithScope):
     def __init__(self, subroutine):
@@ -160,32 +129,3 @@ class InterfaceDeclaration(StatementWithScope):
         yield from derived_types_dec.values()
 
         yield from variables_dec.values()
-
-    def get_start_code_blocks(self):
-        result = []
-
-        if self.subroutine.pure:
-            result.append("pure")
-            result.append(" ")
-
-        if self.subroutine.elemental:
-            result.append("elemental")
-            result.append(" ")
-
-        result.extend(["subroutine", " ", self.subroutine.name, "("])
-
-        for variable in self.subroutine.arguments.values():
-            result.extend(variable.get_code_blocks())
-            result.append(", ")
-
-        if result[-1] == ", ":
-            result.pop()
-        result.append(")")
-
-        if self.subroutine.bind_c:
-            result.extend([" ", f"bind(C, name='{self.subroutine.name}')"])
-
-        return result
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "subroutine", " ", self.subroutine.name]

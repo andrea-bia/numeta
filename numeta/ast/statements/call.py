@@ -24,19 +24,3 @@ class Call(Statement):
             arg.get_with_updated_variables(variables_couples) for arg in self.arguments
         ]
         return Call(self.function, *new_arguments, add_to_scope=False)
-
-    def get_code_blocks(self):
-        if isinstance(self.function, str):
-            result = ["call", " ", self.function]
-        else:
-            result = ["call", " ", self.function.name]
-
-        result += ["("]
-        for arg in self.arguments:
-            result += arg.get_code_blocks()
-            result += [", "]
-        if result[-1] == ", ":
-            result.pop()
-        result += [")"]
-
-        return result

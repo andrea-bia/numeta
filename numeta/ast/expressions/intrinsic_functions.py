@@ -10,16 +10,6 @@ class IntrinsicFunction(ExpressionNode):
     def __init__(self, *arguments):
         self.arguments = [check_node(arg) for arg in arguments]
 
-    def get_code_blocks(self):
-        result = [self.token, "("]
-        for argument in self.arguments:
-            result.extend(argument.get_code_blocks())
-            result.append(", ")
-        if result[-1] == ", ":
-            result.pop()
-        result.append(")")
-        return result
-
     def extract_entities(self):
         for arg in self.arguments:
             yield from arg.extract_entities()

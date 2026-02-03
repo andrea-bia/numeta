@@ -16,9 +16,6 @@ class Re(ExpressionNode):
     def _shape(self):
         return self.variable._shape
 
-    def get_code_blocks(self):
-        return [*self.variable.get_code_blocks(), "%", "re"]
-
     def extract_entities(self):
         yield from self.variable.extract_entities()
 
@@ -37,9 +34,6 @@ class Im(ExpressionNode):
     @property
     def _shape(self):
         return self.variable._shape
-
-    def get_code_blocks(self):
-        return [*self.variable.get_code_blocks(), "%", "im"]
 
     def extract_entities(self):
         yield from self.variable.extract_entities()
@@ -68,19 +62,6 @@ class ArrayConstructor(ExpressionNode):
     @property
     def _shape(self):
         return ArrayShape((len(self.elements),))
-
-    def get_code_blocks(self):
-        result = ["["]
-        for element in self.elements:
-            if element is None:
-                result.append("None")
-            else:
-                result.extend(element.get_code_blocks())
-            result.append(", ")
-        if result[-1] == ", ":
-            result.pop()
-        result.append("]")
-        return result
 
     def extract_entities(self):
         for e in self.elements:

@@ -69,9 +69,3 @@ class ModuleDeclaration(StatementWithScope):
 
         for subroutine in self.module.subroutines.values():
             yield subroutine.get_declaration()
-
-    def get_start_code_blocks(self):
-        return ["module", " ", self.module.name]
-
-    def get_end_code_blocks(self):
-        return ["end", " ", "module", " ", self.module.name]
