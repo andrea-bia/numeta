@@ -149,7 +149,7 @@ def test_library_global_variable_dep(tmp_path, backend):
     lib = nm.NumetaLibrary(f"global_variable_dep_{backend}")
 
     global_constant_var = nm.declare_global_constant(
-        (2, 1), np.float64, value=np.array([2.0, -1.0]), name="global_constant_var"
+        (2, 1), np.float64, value=np.array([2.0, -1.0]), name="global_constant_var", backend=backend
     )
 
     @nm.jit(backend=backend, library=lib)

@@ -11,6 +11,10 @@ class FunctionCall(ExpressionNode):
         self.arguments = [check_node(arg) for arg in arguments]
 
     @property
+    def dtype(self):
+        return getattr(self.function, "dtype", None)
+
+    @property
     def _ftype(self):
         return self.function._ftype
 

@@ -14,6 +14,7 @@ def declare_global_constant(
     name=None,
     value=None,
     directory=None,
+    backend="fortran",
 ):
     if order not in ["C", "F"]:
         raise ValueError(f"Invalid order: {order}, must be 'C' or 'F'")
@@ -24,10 +25,15 @@ def declare_global_constant(
             shape = (shape,)
         shape = ArrayShape(shape, fortran_order=fortran_order)
 
+    dtype_arg = None
     if isinstance(dtype, FortranType):
         ftype = dtype
     else:
-        ftype = get_datatype(dtype).get_fortran()
+        if backend == "c":
+            ftype = None
+            dtype_arg = get_datatype(dtype)
+        else:
+            ftype = get_datatype(dtype).get_fortran()
 
     if name is None:
         global _n_global_constant
@@ -40,6 +46,7 @@ def declare_global_constant(
     var = Variable(
         name=name,
         ftype=ftype,
+        dtype=dtype_arg,
         shape=shape,
         assign=value,
         # TODO
@@ -52,6 +59,7 @@ def declare_global_constant(
         f"{name}_module",
         global_constant_var_module,
         path=directory,
+        backend=backend,
     )
     global_constant_var_module.parent = module_library
     return var

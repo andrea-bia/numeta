@@ -150,6 +150,68 @@ class CEmitter:
 
         return list(defs.values())
 
+    def emit_module(self, module: Module) -> tuple[str, bool]:
+        self._array_info = {}
+        self._pointer_args = {}
+        self._shape_arg_map = {}
+        self._tmp_counter = 0
+        self._pointer_locals = set()
+        self._requires_math = False
+        self._reduction_helpers = {}
+
+        lines: list[str] = []
+        lines.append("#include <Python.h>\n")
+        lines.append("#include <numpy/arrayobject.h>\n")
+        lines.append("#include <numpy/npy_math.h>\n")
+        lines.append("#include <complex.h>\n")
+        lines.append("#include <stdlib.h>\n")
+        lines.append("#include <omp.h>\n")
+        lines.append("\n")
+
+        # Collect global variables from the module
+        for var in module.variables.values():
+            if var.assign is not None:
+                lines.extend(self._render_global_variable(var))
+
+        return "".join(lines), self._requires_math
+
+    def _render_global_variable(self, var: Variable) -> list[str]:
+        lines = []
+        shape = var._shape
+        dtype = DataType.from_ftype(var._ftype) if var.has_ftype else var.dtype
+        if dtype is None:
+            return []
+        ctype = dtype.get_cnumpy()
+        assign = var.assign
+
+        if shape is None or shape.rank == 0:
+            value = self._render_literal(assign)
+            lines.append(f"const {ctype} {var.name} = {value};\n")
+            return lines
+
+        if shape.dims is None:
+            return []
+
+        fortran_order = shape.fortran_order
+        values: list[str] = []
+        if isinstance(assign, np.ndarray):
+            flat = assign.ravel(order="F" if fortran_order else "C")
+            for v in flat:
+                values.append(self._render_literal(v))
+        elif isinstance(assign, (int, float, complex, bool, str, np.generic)):
+            values.append(self._render_literal(assign))
+        else:
+            return []
+
+        if not values:
+            return []
+
+        size = len(values)
+        lines.append(f"const {ctype} {var.name}[{size}] = {{")
+        lines.append(", ".join(values))
+        lines.append("};\n")
+        return lines
+
     def _collect_global_constants(self, proc: IRProcedure) -> list[str]:
         constants: dict[str, dict[str, Any]] = {}
 
@@ -229,46 +291,46 @@ class CEmitter:
 
         lines: list[str] = []
         for name, item in constants.items():
-            ir_var = item["var"]
             source = item["source"]
-            shape = ir_var.vtype.shape if ir_var.vtype is not None else None
-            dtype = self._dtype_from_irvar(ir_var)
-            if dtype is None:
-                continue
-            ctype = dtype.get_cnumpy()
-            assign = source.assign
-            if shape is None or shape.rank == 0:
-                value = self._render_literal(assign)
-                lines.append(f"static const {ctype} {name} = {value};\n")
+            rendered = self._render_global_variable(source)
+            if not rendered:
                 continue
 
-            if shape.dims is None:
-                continue
-            fortran_order = shape.order == "F"
-            values: list[str] = []
-            if isinstance(assign, np.ndarray):
-                flat = assign.ravel(order="F" if fortran_order else "C")
-                for v in flat:
-                    values.append(self._render_literal(v))
-            elif isinstance(assign, (int, float, complex, bool, str, np.generic)):
-                values.append(self._render_literal(assign))
-            else:
-                continue
-            if not values:
-                continue
-            size = len(values)
-            lines.append(f"static const {ctype} {name}[{size}] = {{")
-            lines.append(", ".join(values))
-            lines.append("};\n")
-            dims_exprs = [self._render_dim(dim) for dim in shape.dims]
-            self._array_info[name] = {
-                "name": name,
-                "ctype": ctype,
-                "rank": len(dims_exprs),
-                "fortran_order": fortran_order,
-                "dims_exprs": dims_exprs,
-                "dims_name": None,
-            }
+            # Since _render_global_variable is generic, we might need to adjust for static/const
+            # if we want strictly static const inside the function scope,
+            # but usually global constants are extern/global.
+            # However, the original code used `static const`.
+            # Let's adjust the rendered lines to be `static const` if they are not already.
+
+            # Actually, reusing _render_global_variable which emits `const ...`
+            # and prefixing `static` here is tricky with list of strings.
+            # But wait, the previous code emitted `static const`.
+            # My new _render_global_variable emits `const`.
+            # I should probably pass a modifier to _render_global_variable.
+
+            lines.extend([l.replace("const ", "static const ", 1) for l in rendered])
+
+            # We also need to populate self._array_info for arrays so they can be used
+            # This logic was inside the loop before.
+            shape = source._shape
+            if shape is not None and shape.rank > 0 and shape.dims is not None:
+                # We need to reconstruct what _render_global_variable did to get array info
+                # or better, have _render_global_variable populate it if asked?
+                # Or just manually populate it here since we have the source.
+
+                dtype = DataType.from_ftype(source._ftype) if source.has_ftype else source.dtype
+                if dtype is None:
+                    continue
+                ctype = dtype.get_cnumpy()
+                dims_exprs = [self._render_dim(dim) for dim in shape.dims]
+                self._array_info[name] = {
+                    "name": name,
+                    "ctype": ctype,
+                    "rank": len(dims_exprs),
+                    "fortran_order": shape.fortran_order,
+                    "dims_exprs": dims_exprs,
+                    "dims_name": None,
+                }
 
         return lines
 
@@ -1653,6 +1715,9 @@ class CEmitter:
     def _map_irvar_to_ctype(self, var: IRVar) -> str:
         source: Any = var.source
         if source is not None:
+            dtype = getattr(source, "dtype", None)
+            if dtype is not None:
+                return dtype.get_cnumpy()
             ftype = getattr(source, "_ftype", None)
         else:
             ftype = None

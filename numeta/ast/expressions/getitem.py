@@ -18,6 +18,10 @@ class GetItem(ExpressionNode):
         self.variable.target = value
 
     @property
+    def dtype(self):
+        return getattr(self.variable, "dtype", None)
+
+    @property
     def _ftype(self):
         return self.variable._ftype
 

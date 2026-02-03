@@ -102,12 +102,16 @@ class NumetaCompiledFunction(ExternalLibrary):
                 import sysconfig
                 from numeta.c.emitter import CEmitter
                 from .ir import lower_subroutine
+                from .ast.module import Module
 
                 compiler = Compiler("gcc", self.compile_flags)
                 c_src = self._path / f"{self.name}_src.c"
-                ir_proc = lower_subroutine(self.symbolic_function)
                 emitter = CEmitter()
-                c_code, requires_math = emitter.emit_subroutine(ir_proc)
+                if isinstance(self.symbolic_function, Module):
+                    c_code, requires_math = emitter.emit_module(self.symbolic_function)
+                else:
+                    ir_proc = lower_subroutine(self.symbolic_function, backend="c")
+                    c_code, requires_math = emitter.emit_subroutine(ir_proc)
                 c_src.write_text(c_code)
                 self._requires_math = requires_math
                 sources = [c_src]
@@ -429,22 +433,42 @@ class NumetaFunction:
             """
             Converts an ArgumentSpec to a Variable.
             """
-            ftype = arg_spec.datatype.get_fortran()
+            ftype = None
+            dtype = None
+            if self.backend == "c":
+                dtype = arg_spec.datatype
+            else:
+                ftype = arg_spec.datatype.get_fortran()
+
             if arg_spec.rank == 0:
-                return Variable(arg_spec.name, ftype=ftype, shape=SCALAR, intent=arg_spec.intent)
+                return Variable(
+                    arg_spec.name, ftype=ftype, dtype=dtype, shape=SCALAR, intent=arg_spec.intent
+                )
             elif arg_spec.shape is UNKNOWN:
                 return Variable(
                     arg_spec.name,
                     ftype=ftype,
+                    dtype=dtype,
                     shape=UNKNOWN,
                     intent=arg_spec.intent,
                 )
             elif arg_spec.shape.has_comptime_undefined_dims():
                 if settings.add_shape_descriptors:
+                    dim_ftype = None
+                    dim_dtype = None
+                    dim_use_c_types = False
+                    if self.backend == "c":
+                        dim_dtype = size_t
+                        dim_use_c_types = True
+                    else:
+                        dim_ftype = size_t.get_fortran(bind_c=True)
+
                     # The shape will to be passed as a separate argument
                     dim_var = Variable(
                         f"shape_{arg_spec.name}",
-                        ftype=size_t.get_fortran(bind_c=True),
+                        ftype=dim_ftype,
+                        dtype=dim_dtype,
+                        use_c_types=dim_use_c_types,
                         shape=ArrayShape((arg_spec.rank,)),
                         intent="in",
                     )
@@ -459,6 +483,7 @@ class NumetaFunction:
                 return Variable(
                     arg_spec.name,
                     ftype=ftype,
+                    dtype=dtype,
                     shape=shape,
                     intent=arg_spec.intent,
                 )
@@ -467,6 +492,7 @@ class NumetaFunction:
                 return Variable(
                     arg_spec.name,
                     ftype=ftype,
+                    dtype=dtype,
                     shape=arg_spec.shape,
                     intent=arg_spec.intent,
                 )

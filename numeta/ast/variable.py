@@ -7,7 +7,7 @@ class Variable(NamedEntity, ExpressionNode):
     def __init__(
         self,
         name,
-        ftype,
+        ftype=None,
         shape=SCALAR,
         intent=None,
         pointer=False,
@@ -17,9 +17,13 @@ class Variable(NamedEntity, ExpressionNode):
         assign=None,
         parent=None,
         bind_c=False,
+        dtype=None,
+        use_c_types=False,
     ):
         super().__init__(name, parent=parent)
         self.__ftype = ftype
+        self.dtype = dtype
+        self.use_c_types = use_c_types
         if not isinstance(shape, ArrayShape):
             self.__shape = ArrayShape(shape, fortran_order=True)
         else:
@@ -39,8 +43,17 @@ class Variable(NamedEntity, ExpressionNode):
             self.parent.add_variable(self)
 
     @property
+    def has_ftype(self):
+        return self.__ftype is not None
+
+    @property
     def _ftype(self):
-        return self.__ftype
+        if self.__ftype is not None:
+            return self.__ftype
+        if self.dtype is not None:
+            self.__ftype = self.dtype.get_fortran(bind_c=self.use_c_types)
+            return self.__ftype
+        return None
 
     @property
     def _shape(self):
@@ -137,4 +150,6 @@ class Variable(NamedEntity, ExpressionNode):
             parameter=self.parameter,
             assign=self.assign,
             parent=self.parent,
+            dtype=self.dtype,
+            use_c_types=self.use_c_types,
         )

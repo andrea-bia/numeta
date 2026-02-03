@@ -13,7 +13,12 @@ class VariableDeclaration(Statement):
         self.variable = variable
 
     def extract_entities(self):
-        yield from self.variable._ftype.extract_entities()
+        if getattr(self.variable, "has_ftype", True):
+            yield from self.variable._ftype.extract_entities()
+        elif self.variable.dtype is not None and self.variable.dtype.is_struct():
+            # If it is a struct we might need to extract entities from the struct definition
+            # But the struct definition is usually self contained or handled by module dependencies
+            pass
 
         if settings.array_lower_bound != 1:
             # HACK: Non stardard array lower bound so we have to shift it

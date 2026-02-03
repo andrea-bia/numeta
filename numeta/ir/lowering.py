@@ -79,14 +79,38 @@ _BINARY_OPS: dict[str, str] = {
 }
 
 
-def lower_subroutine(subroutine: Subroutine) -> IRProcedure:
+def _lower_value_type_from_dtype(dtype, shape) -> IRValueType:
+    # Used for C backend to avoid FortranType dependency
+    ir_type = IRType(name=dtype.name, kind=None)
+    if shape is SCALAR:
+        return IRValueType(dtype=ir_type, shape=None)
+    if shape is UNKNOWN:
+        return IRValueType(dtype=ir_type, shape=IRShape(rank=None, dims=None, order="C"))
+    dims = tuple(shape.dims)
+    order = "F" if getattr(shape, "fortran_order", False) else "C"
+    return IRValueType(dtype=ir_type, shape=IRShape(rank=len(dims), dims=dims, order=order))
+
+
+def lower_subroutine(subroutine: Subroutine, backend: str = "fortran") -> IRProcedure:
     var_cache: dict[int, IRVar] = {}
+
+    def _get_vtype(expr, shape=None):
+        if shape is None:
+            shape = _safe_shape(expr)
+        if backend == "c":
+            dtype = getattr(expr, "dtype", None)
+            if dtype is not None:
+                return _lower_value_type_from_dtype(dtype, shape)
+        return _lower_value_type(expr._ftype, shape)
 
     def lower_var(var: Variable, *, is_arg: bool) -> IRVar:
         key = id(var)
         if key in var_cache:
             return var_cache[key]
-        vtype = _lower_value_type(var._ftype, var._shape)
+        if backend == "c" and var.dtype is not None:
+            vtype = _lower_value_type_from_dtype(var.dtype, var._shape)
+        else:
+            vtype = _lower_value_type(var._ftype, var._shape)
         storage = "value"
         if getattr(var, "allocatable", False):
             storage = "allocatable"
@@ -118,13 +142,13 @@ def lower_subroutine(subroutine: Subroutine) -> IRProcedure:
         if isinstance(expr, LiteralNode):
             return IRLiteral(
                 value=expr.value,
-                vtype=_lower_value_type(expr._ftype, expr._shape),
+                vtype=_get_vtype(expr),
                 source=expr,
             )
         if isinstance(expr, Variable):
             return IRVarRef(
                 var=lower_var(expr, is_arg=expr.name in subroutine.arguments),
-                vtype=_lower_value_type(expr._ftype, expr._shape),
+                vtype=_get_vtype(expr),
                 source=expr,
             )
         if isinstance(expr, BinaryOperationNode):
@@ -133,14 +157,14 @@ def lower_subroutine(subroutine: Subroutine) -> IRProcedure:
                 op=op,
                 left=lower_expr(expr.left),
                 right=lower_expr(expr.right),
-                vtype=_lower_value_type(expr._ftype, expr._shape),
+                vtype=_get_vtype(expr),
                 source=expr,
             )
         if isinstance(expr, FunctionCall):
             return IRCallExpr(
                 callee=lower_expr(expr.function),
                 args=[lower_expr(arg) for arg in expr.arguments],
-                vtype=_lower_value_type(expr._ftype, expr._shape),
+                vtype=_get_vtype(expr),
                 source=expr,
             )
         if isinstance(expr, GetItem):
@@ -149,21 +173,21 @@ def lower_subroutine(subroutine: Subroutine) -> IRProcedure:
             return IRGetItem(
                 base=lower_expr(expr.variable),
                 indices=indices,
-                vtype=_lower_value_type(expr._ftype, shape),
+                vtype=_get_vtype(expr, shape),
                 source=expr,
             )
         if isinstance(expr, GetAttr):
             return IRGetAttr(
                 base=lower_expr(expr.variable),
                 name=expr.attr,
-                vtype=_lower_value_type(expr._ftype, expr._shape),
+                vtype=_get_vtype(expr),
                 source=expr,
             )
         if isinstance(expr, ArrayConstructor):
             return IRIntrinsic(
                 name="array_constructor",
                 args=[lower_expr(arg) for arg in expr.elements],
-                vtype=_lower_value_type(expr._ftype, expr._shape),
+                vtype=_get_vtype(expr),
                 source=expr,
             )
         if isinstance(expr, IntrinsicFunction):
@@ -173,20 +197,20 @@ def lower_subroutine(subroutine: Subroutine) -> IRProcedure:
                 return IRUnary(
                     op="neg",
                     operand=args[0],
-                    vtype=_lower_value_type(expr._ftype, expr._shape),
+                    vtype=_get_vtype(expr),
                     source=expr,
                 )
             if token == ".not." and len(args) == 1:
                 return IRUnary(
                     op="not",
                     operand=args[0],
-                    vtype=_lower_value_type(expr._ftype, expr._shape),
+                    vtype=_get_vtype(expr),
                     source=expr,
                 )
             return IRIntrinsic(
                 name=token,
                 args=args,
-                vtype=_lower_value_type(expr._ftype, expr._shape),
+                vtype=_get_vtype(expr),
                 source=expr,
             )
         return IROpaqueExpr(payload=expr, source=expr)

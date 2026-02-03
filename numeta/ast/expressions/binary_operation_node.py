@@ -14,6 +14,10 @@ class BinaryOperationNode(ExpressionNode):
         self.right = check_node(right)
 
     @property
+    def dtype(self):
+        return getattr(self.left, "dtype", None)
+
+    @property
     def _ftype(self):
         """Return the Fortran type of the expression."""
         # This is a simplification. In reality, the type of the result
