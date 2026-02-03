@@ -1,4 +1,4 @@
-from numeta.syntax import PointerAssignment
+from numeta.ast import PointerAssignment
 from numeta.builder_helper import BuilderHelper
 from numeta.array_shape import ArrayShape
 

@@ -1,4 +1,5 @@
-from numeta.syntax import Variable, FortranType, ExternalModule
+from numeta.ast import Variable, ExternalModule
+from numeta.fortran.fortran_type import FortranType
 from numeta.external_library import ExternalLibrary
 from numeta.datatype import DataType, ArrayType
 from numeta.array_shape import SCALAR

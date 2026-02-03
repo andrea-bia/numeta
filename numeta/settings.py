@@ -1,4 +1,5 @@
-from .syntax.settings import settings as syntax_settings
+from .fortran.settings import settings as syntax_settings
+from .ast.settings import settings as ast_settings
 
 
 class Settings:
@@ -52,11 +53,13 @@ class Settings:
 
         ftype = dtype.get_fortran(bind_c=iso_c)
         syntax_settings.set_default_fortran_type(ftype)
+        ast_settings.set_default_type(ftype)
 
     def set_iso_C(self):
         """Set the ISO C compatibility mode."""
         self.iso_C = True
         syntax_settings.set_c_like()
+        ast_settings.set_c_like()
         from .datatype import (
             int64,
             float64,
@@ -76,6 +79,7 @@ class Settings:
         """Unset the ISO C compatibility mode."""
         self.iso_C = False
         syntax_settings.unset_c_like()
+        ast_settings.unset_c_like()
         from .datatype import (
             int64,
             float64,

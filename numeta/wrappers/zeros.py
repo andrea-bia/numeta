@@ -1,6 +1,6 @@
 import numpy as np
 from numeta.datatype import DataType, float64
-from numeta.syntax import FortranType
+from numeta.fortran.fortran_type import FortranType
 from .empty import empty
 
 

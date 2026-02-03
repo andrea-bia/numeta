@@ -1,7 +1,7 @@
 import numeta as nm
 import numpy as np
 import pytest
-from numeta.syntax.expressions import ArrayConstructor
+from numeta.ast.expressions import ArrayConstructor
 
 
 @pytest.mark.parametrize(

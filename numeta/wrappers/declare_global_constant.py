@@ -1,5 +1,5 @@
 import numpy as np
-from numeta.syntax import Variable, Module
+from numeta.ast import Variable, Module
 from numeta.datatype import DataType, float64, FortranType, get_datatype
 from numeta.array_shape import ArrayShape
 from numeta.numeta_function import NumetaCompiledFunction

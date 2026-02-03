@@ -1,6 +1,6 @@
 import numpy as np
 import numeta as nm
-from numeta.syntax.settings import settings
+from numeta.ast.settings import settings
 
 
 def test_slice_exclusive_bounds(backend):

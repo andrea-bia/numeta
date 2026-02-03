@@ -1,7 +1,8 @@
 import numpy as np
 from dataclasses import dataclass
-from .external_modules.iso_c_binding import iso_c
-from .syntax import FortranType, DerivedType
+from .fortran.external_modules.iso_c_binding import iso_c
+from .fortran.fortran_type import FortranType
+from .ast import DerivedType
 from .array_shape import ArrayShape, SCALAR, UNKNOWN
 
 
@@ -95,6 +96,10 @@ class DataType(metaclass=DataTypeMeta):
     @classmethod
     def from_ftype(cls, ftype):
         """Get the DataType class from a FortranType."""
+        from numeta.ast.types import Type as AstType
+
+        if isinstance(ftype, AstType):
+            ftype = FortranType(ftype.type, ftype.kind)
         if ftype in DataTypeMeta._ftype_bind_c:
             return DataTypeMeta._ftype_bind_c[ftype]
         return DataTypeMeta._ftype[ftype]

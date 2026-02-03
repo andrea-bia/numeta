@@ -1,6 +1,6 @@
 from numeta.builder_helper import BuilderHelper
 from numeta.settings import syntax_settings
-from numeta.external_modules.omp import omp
+from numeta.fortran.external_modules.omp import omp
 
 
 def prange(*args, **kwargs):

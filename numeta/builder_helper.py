@@ -1,4 +1,4 @@
-from .syntax import Variable, Scope, Subroutine
+from .ast import Variable, Scope, Subroutine
 from .settings import settings
 
 
@@ -56,7 +56,7 @@ class BuilderHelper:
         )
 
     def _allocate_array(self, name, shape, **kwargs):
-        from .syntax import Allocate, If, Allocated, Not
+        from .ast import Allocate, If, Allocated, Not
         from .array_shape import ArrayShape
 
         alloc_shape = ArrayShape(tuple([None] * shape.rank), fortran_order=shape.fortran_order)
@@ -67,16 +67,16 @@ class BuilderHelper:
         return variable
 
     def _deallocate_array(self, array):
-        from numeta.syntax import Deallocate, If, Allocated
+        from numeta.ast import Deallocate, If, Allocated
 
         with If(Allocated(array)):
             Deallocate(array)
 
     def _allocate_array_numpy(self, name, shape, **kwargs):
-        from .syntax import PointerAssignment
-        from .syntax.expressions import ArrayConstructor
+        from .ast import PointerAssignment
+        from .ast.expressions import ArrayConstructor
         from .wrappers import numpy_mem
-        from .external_modules.iso_c_binding import FPointer_c, iso_c
+        from .fortran.external_modules.iso_c_binding import FPointer_c, iso_c
         from .array_shape import ArrayShape
         from .datatype import DataType
 
@@ -120,25 +120,78 @@ class BuilderHelper:
 
         old_scope = Scope.current_scope
         self.symbolic_function.scope.enter()
+        try:
+            return_variables = self.numeta_function.run_symbolic(*args, **kwargs)
 
-        return_variables = self.numeta_function.run_symbolic(*args, **kwargs)
+            if return_variables is None:
+                return_variables = []
+            elif not isinstance(return_variables, (list, tuple)):
+                return_variables = [return_variables]
 
-        if return_variables is None:
-            return_variables = []
-        elif not isinstance(return_variables, (list, tuple)):
-            return_variables = [return_variables]
+            from .array_shape import ArrayShape, SCALAR, UNKNOWN
+            from .ast import Shape
+            from .datatype import DataType, size_t
 
-        from .array_shape import ArrayShape, SCALAR, UNKNOWN
-        from .syntax import Shape
-        from .datatype import DataType, size_t
+            ret = []
+            for i, var in enumerate(return_variables):
+                expr = None
+                if isinstance(var, Variable):
+                    if var.name in self.allocated_arrays:
 
-        ret = []
-        for i, var in enumerate(return_variables):
-            expr = None
-            if isinstance(var, Variable):
-                if var.name in self.allocated_arrays:
+                        rank = var._shape.rank
+                        shape = Variable(
+                            f"fc_out_shape_{i}",
+                            ftype=size_t.get_fortran(bind_c=True),
+                            shape=ArrayShape((rank,)),
+                            intent="out",
+                        )
+                        self.symbolic_function.add_variable(shape)
+                        # add to the symbolic function
+                        shape[:] = Shape(var)
+                        if self.numeta_function.backend == "fortran":
+                            shape[:] = shape[rank - 1 : 1 : -1]  # reverse the shape
 
-                    rank = var._shape.rank
+                        ptr = self.allocated_arrays.pop(var.name)
+                        ptr.intent = "out"
+                        self.symbolic_function.add_variable(ptr)
+
+                        ret.append((DataType.from_ftype(var._ftype), rank))
+                    elif var._shape is SCALAR and var.name not in self.symbolic_function.arguments:
+
+                        var.intent = "out"
+                        self.symbolic_function.add_variable(var)
+
+                        ret.append((DataType.from_ftype(var._ftype), 0))
+                    else:
+                        if var._shape is SCALAR:
+                            tmp = BuilderHelper.generate_local_variables("fc_s", ftype=var._ftype)
+                            tmp[:] = var
+                            tmp.intent = "out"
+                            self.symbolic_function.add_variable(tmp)
+                            ret.append((DataType.from_ftype(var._ftype), 0))
+                            continue
+                        expr = var
+                else:
+                    # it is an expression
+                    expr = var
+
+                if expr is not None:
+                    # We have to copy the expression in a new array
+                    expr_shape = expr._shape
+                    if expr_shape is SCALAR:
+                        tmp = BuilderHelper.generate_local_variables("fc_s", ftype=expr._ftype)
+                        tmp[:] = expr
+                        tmp.intent = "out"
+                        self.symbolic_function.add_variable(tmp)
+                        ret.append((DataType.from_ftype(expr._ftype), 0))
+                        continue
+
+                    if expr_shape is UNKNOWN:
+                        raise NotImplementedError(
+                            "Returning arrays with unknown shape is not supported yet."
+                        )
+
+                    rank = expr_shape.rank
                     shape = Variable(
                         f"fc_out_shape_{i}",
                         ftype=size_t.get_fortran(bind_c=True),
@@ -146,105 +199,51 @@ class BuilderHelper:
                         intent="out",
                     )
                     self.symbolic_function.add_variable(shape)
-                    # add to the symbolic function
-                    shape[:] = Shape(var)
-                    if self.numeta_function.backend == "fortran":
-                        shape[:] = shape[rank - 1 : 1 : -1]  # reverse the shape for Fortran order
 
-                    ptr = self.allocated_arrays.pop(var.name)
+                    # Cache the expression shape in a local array so we can reuse it
+                    # both for allocating the temporary buffer and to report the
+                    # extents back through the C API.
+                    tmp_shape = Variable(
+                        f"fc_out_shape_{i}_tmp",
+                        ftype=size_t.get_fortran(bind_c=True),
+                        shape=ArrayShape((rank,)),
+                    )
+                    tmp_shape[:] = Shape(expr)
+
+                    alloc_dims = [tmp_shape[i] for i in range(rank)]
+                    if self.numeta_function.backend == "fortran" and not expr_shape.fortran_order:
+                        alloc_dims = alloc_dims[::-1]
+
+                    from .wrappers import empty
+
+                    tmp = empty(
+                        alloc_dims,
+                        dtype=expr._ftype,
+                        order="F" if expr_shape.fortran_order else "C",
+                    )
+
+                    shape[:] = tmp_shape
+                    if self.numeta_function.backend == "fortran":
+                        # Reverse the shape for the C interface after materializing the
+                        # temporary buffer so the allocation happens with the original
+                        # extents.
+                        shape[:] = shape[rank - 1 : 1 : -1]
+                    tmp[:] = expr
+
+                    ptr = self.allocated_arrays.pop(tmp.name)
                     ptr.intent = "out"
                     self.symbolic_function.add_variable(ptr)
 
-                    ret.append((DataType.from_ftype(var._ftype), rank))
-                elif var._shape is SCALAR and var.name not in self.symbolic_function.arguments:
+                    ret.append((DataType.from_ftype(expr._ftype), rank))
 
-                    var.intent = "out"
-                    self.symbolic_function.add_variable(var)
+            for array in self.allocated_arrays.values():
+                self.deallocate_array(array)
 
-                    ret.append((DataType.from_ftype(var._ftype), 0))
-                else:
-                    if var._shape is SCALAR:
-                        tmp = BuilderHelper.generate_local_variables("fc_s", ftype=var._ftype)
-                        tmp[:] = var
-                        tmp.intent = "out"
-                        self.symbolic_function.add_variable(tmp)
-                        ret.append((DataType.from_ftype(var._ftype), 0))
-                        continue
-                    expr = var
-            else:
-                # it is an expression
-                expr = var
-
-            if expr is not None:
-                # We have to copy the expression in a new array
-                expr_shape = expr._shape
-                if expr_shape is SCALAR:
-                    tmp = BuilderHelper.generate_local_variables("fc_s", ftype=expr._ftype)
-                    tmp[:] = expr
-                    tmp.intent = "out"
-                    self.symbolic_function.add_variable(tmp)
-                    ret.append((DataType.from_ftype(expr._ftype), 0))
-                    continue
-
-                if expr_shape is UNKNOWN:
-                    raise NotImplementedError(
-                        "Returning arrays with unknown shape is not supported yet."
-                    )
-
-                rank = expr_shape.rank
-                shape = Variable(
-                    f"fc_out_shape_{i}",
-                    ftype=size_t.get_fortran(bind_c=True),
-                    shape=ArrayShape((rank,)),
-                    intent="out",
-                )
-                self.symbolic_function.add_variable(shape)
-
-                # Cache the expression shape in a local array so we can reuse it
-                # both for allocating the temporary buffer and to report the
-                # extents back through the C API.
-                tmp_shape = Variable(
-                    f"fc_out_shape_{i}_tmp",
-                    ftype=size_t.get_fortran(bind_c=True),
-                    shape=ArrayShape((rank,)),
-                )
-                tmp_shape[:] = Shape(expr)
-
-                alloc_dims = [tmp_shape[i] for i in range(rank)]
-                if self.numeta_function.backend == "fortran" and not expr_shape.fortran_order:
-                    alloc_dims = alloc_dims[::-1]
-
-                from .wrappers import empty
-
-                tmp = empty(
-                    alloc_dims,
-                    dtype=expr._ftype,
-                    order="F" if expr_shape.fortran_order else "C",
-                )
-
-                shape[:] = tmp_shape
-                if self.numeta_function.backend == "fortran":
-                    # Reverse the shape for the C interface after materializing the
-                    # temporary buffer so the allocation happens with the original
-                    # extents.
-                    shape[:] = shape[rank - 1 : 1 : -1]
-                tmp[:] = expr
-
-                ptr = self.allocated_arrays.pop(tmp.name)
-                ptr.intent = "out"
-                self.symbolic_function.add_variable(ptr)
-
-                ret.append((DataType.from_ftype(expr._ftype), rank))
-
-        for array in self.allocated_arrays.values():
-            self.deallocate_array(array)
-
-        self.symbolic_function.scope.exit()
-        Scope.current_scope = old_scope
-
-        self.set_current_builder(old_builder)
-
-        return ret
+            return ret
+        finally:
+            self.symbolic_function.scope.exit()
+            Scope.current_scope = old_scope
+            self.set_current_builder(old_builder)
 
     def inline(self, function, *arguments):
         """Inline ``function`` with the given ``arguments`` into the current scope."""
@@ -252,7 +251,7 @@ class BuilderHelper:
         if not isinstance(function, Subroutine):
             raise TypeError("Unsupported function type for inline call")
 
-        from .syntax.tools import check_node
+        from .ast.tools import check_node
 
         args = [check_node(arg) for arg in arguments]
         if len(args) != len(function.arguments):

@@ -1,5 +1,5 @@
 from numeta.builder_helper import BuilderHelper
-from numeta.syntax import Do
+from numeta.ast import Do
 from numeta.settings import syntax_settings
 
 

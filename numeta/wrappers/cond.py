@@ -1,6 +1,6 @@
 import ast
 import inspect
-from numeta.syntax import IF, ELSE, ELSEIF, Scope
+from numeta.ast import IF, ELSE, ELSEIF, Scope
 
 
 class CondHelper:

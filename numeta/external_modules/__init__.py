@@ -1,2 +1,3 @@
-from .iso_c_binding import iso_c
-from .omp import omp
+from numeta.fortran.external_modules import iso_c, omp
+
+__all__ = ["iso_c", "omp"]

@@ -73,15 +73,20 @@ def test_array_call_3d(dtype, backend):
 def test_variable_declaration_syntax(backend):
 
     a = nm.float64(name="a")
-    from numeta.syntax.statements import VariableDeclaration
+    from numeta.ast.statements import VariableDeclaration
+    from numeta.fortran.fortran_syntax import render_stmt_lines
 
     dec = VariableDeclaration(a)
-    assert dec.print_lines() == ["real(c_double) :: a\n"]
+    assert render_stmt_lines(dec, indent=0) == ["real(c_double) :: a\n"]
 
     array = nm.int32[10, 20](name="array")
     dec = VariableDeclaration(array)
-    assert dec.print_lines() == ["integer(c_int32_t), dimension(0:19, 0:9) :: array\n"]
+    assert render_stmt_lines(dec, indent=0) == [
+        "integer(c_int32_t), dimension(0:19, 0:9) :: array\n"
+    ]
 
     array_unknown = nm.int32[None](name="array_unknown")
     dec = VariableDeclaration(array_unknown)
-    assert dec.print_lines() == ["integer(c_int32_t), dimension(0:*) :: array_unknown\n"]
+    assert render_stmt_lines(dec, indent=0) == [
+        "integer(c_int32_t), dimension(0:*) :: array_unknown\n"
+    ]

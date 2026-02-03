@@ -2,7 +2,7 @@ import numpy as np
 
 from numeta.builder_helper import BuilderHelper
 from numeta.datatype import DataType, FortranType, get_datatype
-from numeta.external_modules.iso_c_binding import iso_c
+from numeta.fortran.external_modules.iso_c_binding import iso_c
 
 
 def cast(variable, dtype: DataType | FortranType | np.generic):

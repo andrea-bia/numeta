@@ -3,11 +3,16 @@ import numpy as np
 
 import numeta as nm
 from numeta.array_shape import ArrayShape, SCALAR
-from numeta.syntax import Variable, Assignment, LiteralNode, DerivedType
-from numeta.syntax.expressions import GetAttr
-from numeta.syntax import Do, DoWhile, If, ElseIf, Else
-from numeta.syntax.statements.tools import print_block
-from numeta.syntax.expressions import (
+from numeta.ast import Variable, Assignment, LiteralNode, DerivedType
+from numeta.ast.expressions import GetAttr
+from numeta.ast import Do, DoWhile, If, ElseIf, Else
+from numeta.ast.statements.tools import print_block
+from numeta.fortran.fortran_syntax import render_expr_blocks, render_stmt_lines
+from numeta.c.c_syntax import (
+    render_expr_blocks as render_expr_blocks_c,
+    render_stmt_lines as render_stmt_lines_c,
+)
+from numeta.ast.expressions import (
     Abs,
     Neg,
     Not,
@@ -51,15 +56,42 @@ from numeta.syntax.expressions import (
     Matmul,
     ArrayConstructor,
 )
-from numeta.syntax.statements import VariableDeclaration, Call
-from numeta.syntax import Subroutine, Module, Scope
-from numeta.syntax.settings import settings as syntax_settings
+from numeta.ast.statements import VariableDeclaration, Call
+from numeta.ast import Subroutine, Module, Scope
+from numeta.ast.settings import settings as syntax_settings
 from numeta.settings import settings
 
 
-def render(expr):
+def render_expr(expr, backend):
     """Return a string representation of an expression."""
-    return print_block(expr.get_code_blocks())
+    blocks = render_expr_blocks_c(expr) if backend == "c" else render_expr_blocks(expr)
+    return print_block(blocks)
+
+
+def render_blocks(expr, backend):
+    return render_expr_blocks_c(expr) if backend == "c" else render_expr_blocks(expr)
+
+
+def render_stmt(stmt, backend):
+    if backend == "c":
+        return render_stmt_lines_c(stmt, indent=0)
+    return render_stmt_lines(stmt, indent=0)
+
+
+def expected_for_backend(backend, fortran, c=None):
+    if backend == "c":
+        return fortran if c is None else c
+    return fortran
+
+
+def assert_render(expr, backend, *, fortran, c=None):
+    expected = expected_for_backend(backend, fortran, c)
+    assert render_expr(expr, backend) == expected
+
+
+def assert_render_stmt(stmt, backend, *, fortran, c=None):
+    expected = expected_for_backend(backend, fortran, c)
+    assert render_stmt(stmt, backend) == expected
 
 
 def test_simple_assignment_syntax(backend):
@@ -67,59 +99,79 @@ def test_simple_assignment_syntax(backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     stmt = Assignment(x, y, add_to_scope=False)
-    assert stmt.print_lines() == ["x=y\n"]
+    assert_render_stmt(
+        stmt,
+        backend,
+        fortran=["x=y\n"],
+        c=["x = y;\n"],
+    )
 
 
 def test_literal_node(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     lit = LiteralNode(5)
-    assert render(lit) == "5_c_int64_t\n"
+    assert_render(lit, backend, fortran="5_c_int64_t\n", c="5\n")
 
 
 def test_binary_operation_node(backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     expr = x + y
-    assert render(expr) == "(x+y)\n"
+    assert_render(expr, backend, fortran="(x+y)\n", c="(x + y)\n")
 
 
 def test_getattr_node(backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = GetAttr(x, "tag")
-    assert render(expr) == "x%tag\n"
+    assert_render(expr, backend, fortran="x%tag\n", c="x.tag\n")
 
 
 def test_getitem_node(backend):
     arr = Variable("a", syntax_settings.DEFAULT_REAL, shape=(10, 10))
     expr = arr[1, 2]
-    assert render(expr) == "a(1, 2)\n"
+    assert_render(expr, backend, fortran="a(1, 2)\n", c="a[1][2]\n")
 
 
 def test_unary_neg_node(backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     expr = -x
-    assert render(expr) == "-(x)\n"
+    assert_render(expr, backend, fortran="-(x)\n")
 
 
 def test_eq_ne_nodes(backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
-    assert render(x == y) == "(x.eq.y)\n"
-    assert render(x != y) == "(x.ne.y)\n"
+    assert_render(x == y, backend, fortran="(x.eq.y)\n", c="(x == y)\n")
+    assert_render(x != y, backend, fortran="(x.ne.y)\n", c="(x != y)\n")
 
 
 def test_re_im_nodes(backend):
     z = Variable("z", syntax_settings.DEFAULT_COMPLEX)
-    assert render(z.real) == "z%re\n"
-    assert render(z.imag) == "z%im\n"
+    assert_render(z.real, backend, fortran="z%re\n", c="creal(z)\n")
+    assert_render(z.imag, backend, fortran="z%im\n", c="cimag(z)\n")
 
 
 def test_array_constructor(backend):
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     arr = Variable("arr", syntax_settings.DEFAULT_INTEGER, shape=(10, 10))
-    expr = ArrayConstructor(arr[1, 1], 5, i).get_code_blocks()
-    expected = ["[", "arr", "(", "1", ",", " ", "1", ")", ", ", "5_c_int64_t", ", ", "i", "]"]
-    assert expr == expected
+    expr = render_blocks(ArrayConstructor(arr[1, 1], 5, i), backend)
+    expected_fortran = [
+        "[",
+        "arr",
+        "(",
+        "1",
+        ",",
+        " ",
+        "1",
+        ")",
+        ", ",
+        "5_c_int64_t",
+        ", ",
+        "i",
+        "]",
+    ]
+    expected_c = ["{", "arr", "[", "1", "]", "[", "1", "]", ", ", "5", ", ", "i", "}"]
+    assert expr == expected_for_backend(backend, expected_fortran, expected_c)
 
 
 def test_complex_function_default(backend):
@@ -129,7 +181,7 @@ def test_complex_function_default(backend):
     a = Variable("a", syntax_settings.DEFAULT_REAL)
     b = Variable("b", syntax_settings.DEFAULT_REAL)
     expr = Complex(a, b)
-    assert render(expr) == "cmplx(a, b, c_double_complex)\n"
+    assert_render(expr, backend, fortran="cmplx(a, b, c_double_complex)\n")
 
 
 def test_complex_function(backend):
@@ -140,7 +192,7 @@ def test_complex_function(backend):
     a = Variable("a", syntax_settings.DEFAULT_REAL)
     b = Variable("b", syntax_settings.DEFAULT_REAL)
     expr = Complex(a, b, kind=8)
-    assert render(expr) == "cmplx(a, b, 8_c_int64_t)\n"
+    assert_render(expr, backend, fortran="cmplx(a, b, 8_c_int64_t)\n", c="cmplx(a, b, 8)\n")
 
 
 @pytest.mark.parametrize(
@@ -188,7 +240,7 @@ def test_complex_function(backend):
         (Matmul, 2, "matmul"),
     ],
 )
-def test_intrinsic_functions(func, nargs, token, backend):
+def test_intrinsic_functions_with_updated_variables(func, nargs, token, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
@@ -198,67 +250,107 @@ def test_intrinsic_functions(func, nargs, token, backend):
     expr = func(*args)
     expected_args = ["x"] if nargs == 1 else ["x", "y"]
     if func is Size:
-        expected_args[1] = "1_c_int64_t"
+        expected_args[1] = "1" if backend == "c" else "1_c_int64_t"
     expected = f"{token}({', '.join(expected_args)})\n"
-    assert render(expr) == expected
+    assert_render(expr, backend, fortran=expected, c=expected)
 
 
 def test_variable_declaration_scalar(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     dec = VariableDeclaration(x)
-    assert dec.print_lines() == ["integer(c_int64_t) :: x\n"]
+    assert_render_stmt(
+        dec,
+        backend,
+        fortran=["integer(c_int64_t) :: x\n"],
+        c=["npy_int64 x;\n"],
+    )
 
 
 def test_variable_declaration_array(backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     a = Variable("a", syntax_settings.DEFAULT_REAL, shape=(5,))
     dec = VariableDeclaration(a)
-    assert dec.print_lines() == ["real(c_double), dimension(0:4) :: a\n"]
+    assert_render_stmt(
+        dec,
+        backend,
+        fortran=["real(c_double), dimension(0:4) :: a\n"],
+        c=["npy_float64 a[5];\n"],
+    )
 
 
 def test_variable_declaration_pointer(backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     p = Variable("p", syntax_settings.DEFAULT_REAL, shape=(10, 10), pointer=True)
     dec = VariableDeclaration(p)
-    assert dec.print_lines() == ["real(c_double), pointer, dimension(:,:) :: p\n"]
+    assert_render_stmt(
+        dec,
+        backend,
+        fortran=["real(c_double), pointer, dimension(:,:) :: p\n"],
+        c=["npy_float64 *p;\n"],
+    )
 
 
 def test_variable_declaration_allocatable(backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     arr = Variable("arr", syntax_settings.DEFAULT_REAL, shape=(3, 3), allocatable=True)
     dec = VariableDeclaration(arr)
-    assert dec.print_lines() == ["real(c_double), allocatable, dimension(:,:) :: arr\n"]
+    assert_render_stmt(
+        dec,
+        backend,
+        fortran=["real(c_double), allocatable, dimension(:,:) :: arr\n"],
+        c=["npy_float64 *arr;\n"],
+    )
 
 
 def test_variable_declaration_intent(backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, intent="in")
     dec = VariableDeclaration(v)
-    assert dec.print_lines() == ["real(c_double), intent(in), value :: v\n"]
+    assert_render_stmt(
+        dec,
+        backend,
+        fortran=["real(c_double), intent(in), value :: v\n"],
+        c=["npy_float64 v;\n"],
+    )
 
 
 def test_variable_declaration_bind_c(backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, bind_c=True)
     dec = VariableDeclaration(v)
-    assert dec.print_lines() == ["real(c_double), bind(C, name='v') :: v\n"]
+    assert_render_stmt(
+        dec,
+        backend,
+        fortran=["real(c_double), bind(C, name='v') :: v\n"],
+        c=["npy_float64 v;\n"],
+    )
 
 
 def test_variable_declaration_assign_scalar(backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, assign=5.0)
     dec = VariableDeclaration(v)
-    assert dec.print_lines() == ["real(c_double) :: v; data v / 5.0_c_double /\n"]
+    assert_render_stmt(
+        dec,
+        backend,
+        fortran=["real(c_double) :: v; data v / 5.0_c_double /\n"],
+        c=["npy_float64 v = 5.0;\n"],
+    )
 
 
 def test_variable_declaration_assign_array(backend):
     settings.set_default_from_datatype(nm.float64, iso_c=True)
     v = Variable("v", syntax_settings.DEFAULT_REAL, shape=(2, 1), assign=np.array([3.0, 5.0]))
     dec = VariableDeclaration(v)
-    assert dec.print_lines() == [
-        "real(c_double), dimension(0:1, 0:0) :: v; data v / 3.0_c_double, 5.0_c_double /\n"
-    ]
+    assert_render_stmt(
+        dec,
+        backend,
+        fortran=[
+            "real(c_double), dimension(0:1, 0:0) :: v; data v / 3.0_c_double, 5.0_c_double /\n"
+        ],
+        c=["npy_float64 v[2][1] = {3.0, 5.0};\n"],
+    )
 
 
 def test_subroutine_print_lines(backend):
@@ -278,7 +370,16 @@ def test_subroutine_print_lines(backend):
         "    y=x\n",
         "end subroutine mysub\n",
     ]
-    assert sub.print_lines() == expected
+    expected_c = [
+        "void mysub(x, y) {\n",
+        "    /* use iso_c_binding, only c_int64_t */\n",
+        "    /* implicit none */\n",
+        "    npy_int64 x;\n",
+        "    npy_int64 y;\n",
+        "    y = x;\n",
+        "}\n",
+    ]
+    assert_render_stmt(sub.get_declaration(), backend, fortran=expected, c=expected_c)
 
 
 def test_module_print_code(backend):
@@ -298,7 +399,18 @@ def test_module_print_code(backend):
         "    end subroutine mysub\n",
         "end module mymod\n",
     ]
-    assert mod.print_lines() == expected
+    expected_c = [
+        "/* module mymod */\n",
+        "    /* implicit none */\n",
+        "    /* contains */\n",
+        "    void mysub(x) {\n",
+        "        /* use iso_c_binding, only c_int64_t */\n",
+        "        /* implicit none */\n",
+        "        npy_int64 x;\n",
+        "    }\n",
+        "/* end module mymod */\n",
+    ]
+    assert_render_stmt(mod.get_declaration(), backend, fortran=expected, c=expected_c)
 
 
 def test_derived_type_declaration(backend):
@@ -319,7 +431,14 @@ def test_derived_type_declaration(backend):
         "    real(c_double), dimension(0:4) :: arr\n",
         "end type point\n",
     ]
-    assert dt.get_declaration().print_lines() == expected
+    expected_c = [
+        "struct point {\n",
+        "    npy_int64 x;\n",
+        "    npy_int64 y;\n",
+        "    npy_float64 arr[5];\n",
+        "};\n",
+    ]
+    assert_render_stmt(dt.get_declaration(), backend, fortran=expected, c=expected_c)
 
 
 def test_do_statement(backend):
@@ -333,7 +452,14 @@ def test_do_statement(backend):
 
     expected = ["do i = 0_c_int64_t, 3_c_int64_t\n", "    x=(i+1_c_int64_t)\n", "end do\n"]
 
-    for l1, l2 in zip(do.print_lines(), expected):
+    expected_c = [
+        "for (i = 0; i <= 3; i += 1) {\n",
+        "    x = (i + 1);\n",
+        "}\n",
+    ]
+    for l1, l2 in zip(
+        render_stmt(do, backend), expected_for_backend(backend, expected, expected_c)
+    ):
         assert l1 == l2
 
 
@@ -363,7 +489,20 @@ def test_if_statement(backend):
         "end do\n",
     ]
 
-    for l1, l2 in zip(wrapper.print_lines(), expected):
+    expected_c = [
+        "for (i = 0; i <= 3; i += 1) {\n",
+        "    if ((i < 5)) {\n",
+        "        x = (i + 1);\n",
+        "    } else if ((i < 10)) {\n",
+        "        x = (i + 2);\n",
+        "    } else {\n",
+        "        x = 0;\n",
+        "    }\n",
+        "}\n",
+    ]
+    for l1, l2 in zip(
+        render_stmt(wrapper, backend), expected_for_backend(backend, expected, expected_c)
+    ):
         assert l1 == l2
 
 
@@ -378,7 +517,14 @@ def test_do_while_statement(backend):
 
     expected = ["do while ((i.lt.5_c_int64_t))\n", "    x=(i+1_c_int64_t)\n", "end do\n"]
 
-    for l1, l2 in zip(do.print_lines(), expected):
+    expected_c = [
+        "while ((i < 5)) {\n",
+        "    x = (i + 1);\n",
+        "}\n",
+    ]
+    for l1, l2 in zip(
+        render_stmt(do, backend), expected_for_backend(backend, expected, expected_c)
+    ):
         assert l1 == l2
 
 
@@ -390,7 +536,12 @@ def test_update_variables_simple_assignment(backend):
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
     stmt = stmt.get_with_updated_variables([(x, new_x), (y, new_y)])
-    assert stmt.print_lines() == ["new_x=new_y\n"]
+    assert_render_stmt(
+        stmt,
+        backend,
+        fortran=["new_x=new_y\n"],
+        c=["new_x = new_y;\n"],
+    )
 
 
 def test_update_variables_binary_operation_node(backend):
@@ -401,7 +552,7 @@ def test_update_variables_binary_operation_node(backend):
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
     expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
-    assert render(expr) == "(new_x+new_y)\n"
+    assert_render(expr, backend, fortran="(new_x+new_y)\n", c="(new_x + new_y)\n")
 
 
 def test_update_variables_simple_add(backend):
@@ -411,7 +562,7 @@ def test_update_variables_simple_add(backend):
 
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     expr = expr.get_with_updated_variables([(x, new_x)])
-    assert render(expr) == "(new_x+5_c_int64_t)\n"
+    assert_render(expr, backend, fortran="(new_x+5_c_int64_t)\n", c="(new_x + 5)\n")
 
 
 def test_update_variables_getattr_node(backend):
@@ -419,7 +570,7 @@ def test_update_variables_getattr_node(backend):
     expr = GetAttr(x, "tag")
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     expr = expr.get_with_updated_variables([(x, new_x)])
-    assert render(expr) == "new_x%tag\n"
+    assert_render(expr, backend, fortran="new_x%tag\n", c="new_x.tag\n")
 
 
 def test_update_variables_getitem_node(backend):
@@ -427,7 +578,7 @@ def test_update_variables_getitem_node(backend):
     expr = arr[1, 2]
     new_arr = Variable("new_a", syntax_settings.DEFAULT_REAL, shape=(40, 30))
     expr = expr.get_with_updated_variables([(arr, new_arr)])
-    assert render(expr) == "new_a(1, 2)\n"
+    assert_render(expr, backend, fortran="new_a(1, 2)\n", c="new_a[1][2]\n")
 
 
 def test_update_variables_withgetitem_node(backend):
@@ -436,7 +587,12 @@ def test_update_variables_withgetitem_node(backend):
     expr = Assignment(x, 5, add_to_scope=False)
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER, shape=(10,))
     expr = expr.get_with_updated_variables([(x, new_x[3])])
-    assert render(expr) == "new_x(3)=5_c_int64_t\n"
+    assert_render_stmt(
+        expr,
+        backend,
+        fortran=["new_x(3)=5_c_int64_t\n"],
+        c=["new_x[3] = 5;\n"],
+    )
 
 
 def test_update_variables_eq_ne_nodes(backend):
@@ -447,11 +603,11 @@ def test_update_variables_eq_ne_nodes(backend):
 
     expr = x == y
     expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
-    assert render(expr) == "(new_x.eq.new_y)\n"
+    assert_render(expr, backend, fortran="(new_x.eq.new_y)\n", c="(new_x == new_y)\n")
 
     expr = x != y
     expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
-    assert render(expr) == "(new_x.ne.new_y)\n"
+    assert_render(expr, backend, fortran="(new_x.ne.new_y)\n", c="(new_x != new_y)\n")
 
 
 def test_update_variables_re_im_nodes(backend):
@@ -464,8 +620,8 @@ def test_update_variables_re_im_nodes(backend):
     z_imag = z.imag
     z_imag = z_imag.get_with_updated_variables([(z, new_z)])
 
-    assert render(z_real) == "new_z%re\n"
-    assert render(z_imag) == "new_z%im\n"
+    assert_render(z_real, backend, fortran="new_z%re\n", c="creal(new_z)\n")
+    assert_render(z_imag, backend, fortran="new_z%im\n", c="cimag(new_z)\n")
 
 
 @pytest.mark.parametrize(
@@ -527,9 +683,9 @@ def test_intrinsic_functions(func, nargs, token, backend):
 
     expected_args = ["new_x"] if nargs == 1 else ["new_x", "new_y"]
     if func is Size:
-        expected_args[1] = "1_c_int64_t"
+        expected_args[1] = "1" if backend == "c" else "1_c_int64_t"
     expected = f"{token}({', '.join(expected_args)})\n"
-    assert render(expr) == expected
+    assert_render(expr, backend, fortran=expected, c=expected)
 
 
 def test_update_variables_do_statement(backend):
@@ -553,7 +709,14 @@ def test_update_variables_do_statement(backend):
         "end do\n",
     ]
 
-    for l1, l2 in zip(do.print_lines(), expected):
+    expected_c = [
+        "for (new_i = 0; new_i <= 3; new_i += 1) {\n",
+        "    new_x = (new_i + 1);\n",
+        "}\n",
+    ]
+    for l1, l2 in zip(
+        render_stmt(do, backend), expected_for_backend(backend, expected, expected_c)
+    ):
         assert l1 == l2
 
 
@@ -590,7 +753,20 @@ def test_update_variables_if_statement(backend):
         "end do\n",
     ]
 
-    for line1, line2 in zip(wrapper.print_lines(), expected):
+    expected_c = [
+        "for (new_i = 0; new_i <= 3; new_i += 1) {\n",
+        "    if ((new_i < 5)) {\n",
+        "        new_x = (new_i + 1);\n",
+        "    } else if ((new_i < 10)) {\n",
+        "        new_x = (new_i + 2);\n",
+        "    } else {\n",
+        "        new_x = 0;\n",
+        "    }\n",
+        "}\n",
+    ]
+    for line1, line2 in zip(
+        render_stmt(wrapper, backend), expected_for_backend(backend, expected, expected_c)
+    ):
         assert line1 == line2, f"Expected: {line2}, but got: {line1}"
 
 
@@ -615,7 +791,14 @@ def test_update_variables_do_while_statement(backend):
         "end do\n",
     ]
 
-    for l1, l2 in zip(do.print_lines(), expected):
+    expected_c = [
+        "while ((new_i < 5)) {\n",
+        "    new_x = (new_i + 1);\n",
+        "}\n",
+    ]
+    for l1, l2 in zip(
+        render_stmt(do, backend), expected_for_backend(backend, expected, expected_c)
+    ):
         assert l1 == l2
 
 
@@ -648,13 +831,33 @@ def test_call(backend):
         "    call callee(x, y)\n",
         "end subroutine caller\n",
     ]
-    for l1, l2 in zip(caller.print_lines(), expected):
+    expected_c = [
+        "void caller() {\n",
+        "    /* use iso_c_binding, only c_int64_t */\n",
+        "    /* implicit none */\n",
+        "    /* interface */\n",
+        "        void callee(x, y) {\n",
+        "            /* use iso_c_binding, only c_int64_t */\n",
+        "            /* implicit none */\n",
+        "            npy_int64 x;\n",
+        "            npy_int64 y;\n",
+        "        }\n",
+        "    /* end interface */\n",
+        "    npy_int64 x;\n",
+        "    npy_int64 y;\n",
+        "    callee(x, y);\n",
+        "}\n",
+    ]
+    for l1, l2 in zip(
+        render_stmt(caller.get_declaration(), backend),
+        expected_for_backend(backend, expected, expected_c),
+    ):
         assert l1 == l2
 
 
 def test_call_external_module(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
-    lib = nm.syntax.module.ExternalModule("module", None, hidden=True)
+    lib = nm.ExternalModule("module", None, hidden=True)
     lib.add_method("foo", [Variable("a", syntax_settings.DEFAULT_INTEGER)], None)
     foo = lib.foo
     sub = Subroutine("mysub")
@@ -678,5 +881,23 @@ def test_call_external_module(backend):
         "    call foo(x)\n",
         "end subroutine mysub\n",
     ]
-    for l1, l2 in zip(sub.print_lines(), expected):
+    expected_c = [
+        "void mysub() {\n",
+        "    /* use iso_c_binding, only c_int64_t */\n",
+        "    /* implicit none */\n",
+        "    /* interface */\n",
+        "        void foo(a) {\n",
+        "            /* use iso_c_binding, only c_int64_t */\n",
+        "            /* implicit none */\n",
+        "            npy_int64 a;\n",
+        "        }\n",
+        "    /* end interface */\n",
+        "    npy_int64 x;\n",
+        "    foo(x);\n",
+        "}\n",
+    ]
+    for l1, l2 in zip(
+        render_stmt(sub.get_declaration(), backend),
+        expected_for_backend(backend, expected, expected_c),
+    ):
         assert l1 == l2

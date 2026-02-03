@@ -7,8 +7,8 @@ import numpy as np
 from .array_shape import ArrayShape, SCALAR, UNKNOWN
 from .datatype import DataType, ArrayType, get_datatype
 from .settings import settings
-from .syntax import Variable
-from .syntax.expressions import ExpressionNode, GetAttr, GetItem
+from .ast import Variable
+from .ast.expressions import ExpressionNode, GetAttr, GetItem
 from .types_hint import comptime
 
 

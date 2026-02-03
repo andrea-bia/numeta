@@ -34,10 +34,10 @@ c16 = complex128
 logical1 = bool8
 b1 = bool8
 
-from .external_modules import iso_c, omp
+from .fortran.external_modules import iso_c, omp
 
 from .jit import jit
 from .numeta_library import NumetaLibrary
 from .wrappers import *
-from .syntax import *
+from .ast import *
 from .settings import settings

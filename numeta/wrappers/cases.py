@@ -1,4 +1,4 @@
-from numeta.syntax import SelectCase, Case
+from numeta.ast import SelectCase, Case
 
 
 def cases(select, cases_range: range):

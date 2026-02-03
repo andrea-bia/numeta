@@ -6,7 +6,7 @@ import warnings
 from .compiler import Compiler
 from .settings import settings
 from .builder_helper import BuilderHelper
-from .syntax import Subroutine, Variable
+from .ast import Subroutine, Variable
 from .datatype import size_t
 from .pyc_extension import PyCExtension
 from .array_shape import ArrayShape, SCALAR, UNKNOWN
@@ -54,12 +54,14 @@ class NumetaCompiledFunction(ExternalLibrary):
     def obj_files(self):
         if self._obj_files is None:
             self._obj_files, self._include = self.compile_obj()
+        assert self._obj_files is not None
         return [self._obj_files]
 
     @property
     def include(self):
         if self._obj_files is None:
             self._obj_files, self._include = self.compile_obj()
+        assert self._include is not None
         return [self._include]
 
     @property
@@ -74,7 +76,7 @@ class NumetaCompiledFunction(ExternalLibrary):
             self.compile()
         return str(self._rpath)
 
-    def compile_obj(self):
+    def compile_obj(self) -> tuple[Path, Path]:
         """
         Compile source files using the selected backend and return the object file.
         """
@@ -82,21 +84,32 @@ class NumetaCompiledFunction(ExternalLibrary):
             if self.backend == "fortran":
                 compiler = Compiler("gfortran", self.compile_flags)
                 fortran_src = self._path / f"{self.name}_src.f90"
-                fortran_src.write_text(self.symbolic_function.get_code())
+                from .ir import FortranEmitter, lower_subroutine
+                from .ast.module import Module
+
+                if isinstance(self.symbolic_function, Module):
+                    fortran_src.write_text(self.symbolic_function.get_code())
+                else:
+                    ir_proc = lower_subroutine(self.symbolic_function)
+                    emitter = FortranEmitter()
+                    fortran_src.write_text(emitter.emit_subroutine(ir_proc))
                 sources = [fortran_src]
                 include_dirs = []
                 additional_flags = []
                 obj_suffix = "_fortran.o"
             elif self.backend == "c":
-                from .c_syntax import CCodegen
                 import numpy as np
                 import sysconfig
+                from numeta.c.emitter import CEmitter
+                from .ir import lower_subroutine
 
                 compiler = Compiler("gcc", self.compile_flags)
                 c_src = self._path / f"{self.name}_src.c"
-                codegen = CCodegen(self.symbolic_function)
-                c_src.write_text(codegen.render())
-                self._requires_math = codegen.requires_math
+                ir_proc = lower_subroutine(self.symbolic_function)
+                emitter = CEmitter()
+                c_code, requires_math = emitter.emit_subroutine(ir_proc)
+                c_src.write_text(c_code)
+                self._requires_math = requires_math
                 sources = [c_src]
                 include_dirs = [
                     sysconfig.get_paths()["include"],
@@ -121,7 +134,7 @@ class NumetaCompiledFunction(ExternalLibrary):
                     else:
                         additional_flags.extend(list(lib.additional_flags))
 
-            return compiler.compile_to_obj(
+            self._obj_files, self._include = compiler.compile_to_obj(
                 name=self.name,
                 directory=self._path,
                 sources=sources,
@@ -129,6 +142,9 @@ class NumetaCompiledFunction(ExternalLibrary):
                 additional_flags=additional_flags,
                 obj_suffix=obj_suffix,
             )
+        assert self._obj_files is not None
+        assert self._include is not None
+        return self._obj_files, self._include
 
     def compile(self):
         """
@@ -285,7 +301,7 @@ class NumetaFunction:
 
             # first check the runtime arguments
             # they should be symbolic nodes
-            from .syntax.tools import check_node
+            from .ast.tools import check_node
 
             runtime_args = [check_node(arg) for arg in runtime_args]
 
@@ -327,13 +343,22 @@ class NumetaFunction:
                     array_shape = ArrayShape(tuple([None] * rank))
 
                     if settings.use_numpy_allocator or self.backend == "c":
-                        from numeta.external_modules.iso_c_binding import FPointer_c, iso_c
+                        from numeta.fortran.external_modules.iso_c_binding import (
+                            FPointer_c,
+                            iso_c,
+                        )
 
                         out_ptr = builder.generate_local_variables(
                             "fc_out_ptr",
                             ftype=FPointer_c,
                         )
                         return_arguments.append(out_ptr)
+
+                        if self.backend == "c":
+                            array_shape = ArrayShape(
+                                tuple(shape_var[i] for i in range(rank)),
+                                fortran_order=False,
+                            )
 
                         out_array = builder.generate_local_variables(
                             "fc_r",
@@ -363,7 +388,7 @@ class NumetaFunction:
                 shape_fortran = shape_var
                 if self.backend == "fortran" and rank != 1:
                     shape_fortran = shape_var[rank - 1 : 1 : -1]
-                from numeta.external_modules.iso_c_binding import iso_c
+                from numeta.fortran.external_modules.iso_c_binding import iso_c
 
                 iso_c.c_f_pointer(out_ptr, out_array, shape_fortran)
 

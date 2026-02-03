@@ -111,13 +111,20 @@ class NumetaLibrary:
             for compiled_target in nm_function._compiled_functions.values():
                 if compiled_target.backend == "fortran":
                     fortran_src = directory / f"{compiled_target.name}_src.f90"
-                    fortran_src.write_text(compiled_target.symbolic_function.get_code())
+                    from .ir import FortranEmitter, lower_subroutine
+
+                    ir_proc = lower_subroutine(compiled_target.symbolic_function)
+                    emitter = FortranEmitter()
+                    fortran_src.write_text(emitter.emit_subroutine(ir_proc))
                 elif compiled_target.backend == "c":
-                    from .c_syntax import CCodegen
+                    from numeta.c.emitter import CEmitter
+                    from .ir import lower_subroutine
 
                     c_src = directory / f"{compiled_target.name}_src.c"
-                    codegen = CCodegen(compiled_target.symbolic_function)
-                    c_src.write_text(codegen.render())
+                    ir_proc = lower_subroutine(compiled_target.symbolic_function)
+                    emitter = CEmitter()
+                    c_code, _requires_math = emitter.emit_subroutine(ir_proc)
+                    c_src.write_text(c_code)
                 else:
                     raise ValueError(f"Unsupported backend: {compiled_target.backend}")
 
@@ -129,6 +136,8 @@ class NumetaLibrary:
         directory = Path(directory).absolute()
         directory.mkdir(parents=True, exist_ok=True)
 
+        if self.name is None:
+            raise ValueError("Library name must be set before saving")
         name = self.name
 
         #
@@ -154,7 +163,8 @@ class NumetaLibrary:
 
         class RewritingPickler(pickle.Pickler):
 
-            def reducer_override(self, obj):
+            @staticmethod
+            def reducer_override(obj):
                 nonlocal dependencies
                 nonlocal obj_files
                 if isinstance(obj, NumetaFunction):
@@ -164,7 +174,7 @@ class NumetaLibrary:
                     state["_pyc_extensions"] = {sig: pyc_extension for sig in obj._pyc_extensions}
                     return (NumetaFunction.__new__, (NumetaFunction,), state)
 
-                elif isinstance(obj, NumetaCompiledFunction):
+                if isinstance(obj, NumetaCompiledFunction):
                     state = obj.__dict__.copy()
                     obj_files.update([obj for obj in obj.obj_files])
                     dependencies |= obj.symbolic_function.get_dependencies()
@@ -212,7 +222,7 @@ class NumetaLibrary:
                     additional_flags.add(tuple(lib.additional_flags))
 
         lib = compiler.compile_to_library(
-            self.name,
+            name,
             obj_files,
             directory,
             libraries=libraries,

@@ -1,5 +1,5 @@
 from numeta.wrappers.external_library import ExternalLibraryWrapper
-from numeta.external_modules.iso_c_binding import FPointer_c, FSizet_c
+from numeta.fortran.external_modules.iso_c_binding import FPointer_c, FSizet_c
 
 
 class NumpyMemLib(ExternalLibraryWrapper):
