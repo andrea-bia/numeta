@@ -20,16 +20,16 @@ from numeta.ast.statements import (
     Call,
     Case,
     Deallocate,
-    Do,
-    DoWhile,
     Else,
     ElseIf,
+    For,
     If,
     Return,
-    SelectCase,
+    Switch,
+    While,
 )
 from numeta.ast.statements.variable_declaration import VariableDeclaration
-from numeta.ast.subroutine import Subroutine
+from numeta.ast.procedure import Procedure
 from numeta.ast.function import Function
 
 from .nodes import (
@@ -91,7 +91,7 @@ def _lower_value_type_from_dtype(dtype, shape) -> IRValueType:
     return IRValueType(dtype=ir_type, shape=IRShape(rank=len(dims), dims=dims, order=order))
 
 
-def lower_subroutine(subroutine: Subroutine, backend: str = "fortran") -> IRProcedure:
+def lower_procedure(procedure: Procedure, backend: str = "fortran") -> IRProcedure:
     var_cache: dict[int, IRVar] = {}
 
     def _get_vtype(expr, shape=None):
@@ -137,7 +137,7 @@ def lower_subroutine(subroutine: Subroutine, backend: str = "fortran") -> IRProc
     def lower_expr(expr) -> IRExpr:
         if isinstance(expr, IRExpr):
             return expr
-        if isinstance(expr, (Subroutine, Function)):
+        if isinstance(expr, (Procedure, Function)):
             return IRVarRef(var=IRVar(name=expr.name, source=expr), source=expr)
         if isinstance(expr, LiteralNode):
             return IRLiteral(
@@ -147,7 +147,7 @@ def lower_subroutine(subroutine: Subroutine, backend: str = "fortran") -> IRProc
             )
         if isinstance(expr, Variable):
             return IRVarRef(
-                var=lower_var(expr, is_arg=expr.name in subroutine.arguments),
+                var=lower_var(expr, is_arg=expr.name in procedure.arguments),
                 vtype=_get_vtype(expr),
                 source=expr,
             )
@@ -250,7 +250,7 @@ def lower_subroutine(subroutine: Subroutine, backend: str = "fortran") -> IRProc
                 else_=else_body,
                 source=stmt,
             )
-        if isinstance(stmt, Do):
+        if isinstance(stmt, For):
             iterator = stmt.iterator
             if isinstance(iterator, Variable):
                 loop_var = lower_var(iterator, is_arg=False)
@@ -264,13 +264,13 @@ def lower_subroutine(subroutine: Subroutine, backend: str = "fortran") -> IRProc
                 body=[lower_stmt(s) for s in stmt.scope.get_statements()],
                 source=stmt,
             )
-        if isinstance(stmt, DoWhile):
+        if isinstance(stmt, While):
             return IRWhile(
                 cond=lower_expr(stmt.condition),
                 body=[lower_stmt(s) for s in stmt.scope.get_statements()],
                 source=stmt,
             )
-        if isinstance(stmt, SelectCase):
+        if isinstance(stmt, Switch):
             cases = [s for s in stmt.scope.get_statements() if isinstance(s, Case)]
             if not cases:
                 return IROpaqueStmt(payload=stmt, source=stmt)
@@ -307,12 +307,12 @@ def lower_subroutine(subroutine: Subroutine, backend: str = "fortran") -> IRProc
             return IRDeallocate(var=lower_expr(stmt.array), source=stmt)
         return IROpaqueStmt(payload=stmt, source=stmt)
 
-    args = [lower_var(var, is_arg=True) for var in subroutine.arguments.values()]
-    locals_ = [lower_var(var, is_arg=False) for var in subroutine.get_local_variables().values()]
-    body = [lower_stmt(stmt) for stmt in subroutine.scope.get_statements()]
+    args = [lower_var(var, is_arg=True) for var in procedure.arguments.values()]
+    locals_ = [lower_var(var, is_arg=False) for var in procedure.get_local_variables().values()]
+    body = [lower_stmt(stmt) for stmt in procedure.scope.get_statements()]
 
-    decl = subroutine.get_declaration()
-    scope_ids = {id(stmt) for stmt in subroutine.scope.get_statements()}
+    decl = procedure.get_declaration()
+    scope_ids = {id(stmt) for stmt in procedure.scope.get_statements()}
     prelude_items: list[Any] = []
     for stmt in decl.get_statements():
         if id(stmt) in scope_ids:
@@ -322,18 +322,18 @@ def lower_subroutine(subroutine: Subroutine, backend: str = "fortran") -> IRProc
         prelude_items.append(stmt)
 
     return IRProcedure(
-        name=subroutine.name,
+        name=procedure.name,
         args=args,
         locals=locals_,
         body=body,
         result=None,
-        source=subroutine,
+        source=procedure,
         metadata={
-            "syntax_subroutine": subroutine,
+            "syntax_procedure": procedure,
             "fortran_prelude_items": prelude_items,
-            "fortran_pure": subroutine.pure,
-            "fortran_elemental": subroutine.elemental,
-            "fortran_bind_c": subroutine.bind_c,
+            "fortran_pure": procedure.pure,
+            "fortran_elemental": procedure.elemental,
+            "fortran_bind_c": procedure.bind_c,
         },
     )
 

@@ -1,16 +1,16 @@
 from .nodes import NamedEntity
 
 
-class DerivedType(NamedEntity):
+class StructType(NamedEntity):
     """
-    A derived type. Actually used to define structs.
+    A structured type. Used to define structs.
 
     Parameters
     ----------
     name : str
-        The name of the derived type.
+        The name of the struct type.
     fields : list of tuples
-        The fields of the derived type, each tuple containing the name, datatype, and dimension.
+        The fields of the struct type, each tuple containing the name, datatype, and dimension.
     """
 
     def __init__(self, name, fields):
@@ -19,11 +19,11 @@ class DerivedType(NamedEntity):
         for name, _, shape in self.fields:
             if shape.has_comptime_undefined_dims():
                 raise ValueError(
-                    f"Derived type '{name}' cannot have compile-time undefined dimensions."
+                    f"Struct type '{name}' cannot have compile-time undefined dimensions."
                 )
         self.parent = None
 
     def get_declaration(self):
-        from .statements import DerivedTypeDeclaration
+        from .statements import StructTypeDeclaration
 
-        return DerivedTypeDeclaration(self)
+        return StructTypeDeclaration(self)

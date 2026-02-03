@@ -1,8 +1,8 @@
-from numeta.ast import ExternalModule
+from numeta.ast import ExternalNamespace
 from numeta.fortran.settings import settings as syntax_settings
 
 
-class OmpModule(ExternalModule):
+class OmpNamespace(ExternalNamespace):
     def __init__(self):
         super().__init__("omp_lib", None)
         self.add_method("omp_get_thread_num", arguments=[], result_=syntax_settings.DEFAULT_INTEGER)
@@ -10,8 +10,8 @@ class OmpModule(ExternalModule):
             "omp_get_max_threads", arguments=[], result_=syntax_settings.DEFAULT_INTEGER
         )
 
-    def do(self, *args, **kwargs):
-        from numeta.ast import Do, Comment
+    def parallel_for(self, *args, **kwargs):
+        from numeta.ast import For, Comment
         from numeta.fortran.fortran_syntax import render_expr_blocks
 
         class OmpComment(Comment):
@@ -23,7 +23,7 @@ class OmpModule(ExternalModule):
                 super().__init__(comment, add_to_scope=add_to_scope)
                 self.prefix = "!$omp "
 
-        class OmpDo(Do):
+        class OmpFor(For):
             def __init__(
                 self,
                 *args,
@@ -57,13 +57,7 @@ class OmpModule(ExternalModule):
                 super().__exit__(exc_type, exc_value, traceback)
                 OmpComment("end parallel do", add_to_scope=True)
 
-        return OmpDo(*args, **kwargs)
-
-    def Do(self, *args, **kwargs):
-        return self.do(*args, **kwargs)
-
-    def DO(self, *args, **kwargs):
-        return self.do(*args, **kwargs)
+        return OmpFor(*args, **kwargs)
 
     def atomic_update_op(self, variable, to_assign, op):
         from numeta.ast.statements import Assignment, Comment
@@ -115,4 +109,4 @@ class OmpModule(ExternalModule):
         self.atomic_update_op(variable, to_assign, "/")
 
 
-omp = OmpModule()
+omp = OmpNamespace()

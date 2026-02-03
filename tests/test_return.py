@@ -131,7 +131,7 @@ def test_return_1_ndarray_transpose(dtype, backend):
 
     @nm.jit(backend=backend)
     def transpose_expr(a):
-        return nm.transpose(a)
+        return nm.Transpose(a)
 
     a = np.random.random(shape).astype(dtype)
 

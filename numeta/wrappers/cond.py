@@ -1,6 +1,6 @@
 import ast
 import inspect
-from numeta.ast import IF, ELSE, ELSEIF, Scope
+from numeta.ast import If, Else, ElseIf, Scope
 
 
 class CondHelper:
@@ -90,9 +90,9 @@ def cond(cond):
     is_if = helper.analyze_frame_and_get_if(frame)
 
     if is_if:
-        IF(cond)
+        If(cond)
     else:
-        ELSEIF(cond)
+        ElseIf(cond)
 
     return True
 
@@ -192,7 +192,7 @@ def treat_else(else_body, frame, if_id):
     # close the previous scope
     Scope.end()
 
-    ELSE()
+    Else()
 
     compiled_if_body = compile(ast.Module(else_body), filename=f"<fc_if_{if_id}>", mode="exec")
     exec(compiled_if_body, frame.f_globals, frame.f_locals)

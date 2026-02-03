@@ -1,5 +1,5 @@
 import numpy as np
-from numeta.ast import Variable, Module
+from numeta.ast import Variable, Namespace
 from numeta.datatype import DataType, float64, FortranType, get_datatype
 from numeta.array_shape import ArrayShape
 from numeta.numeta_function import NumetaCompiledFunction
@@ -40,8 +40,8 @@ def declare_global_constant(
         name = f"global_constant_{_n_global_constant}"
         _n_global_constant += 1
 
-    # Lets create a module to host the global_constant variable, it will be a module variable
-    global_constant_var_module = Module(f"{name}_module")
+    # Lets create a namespace to host the global_constant variable.
+    global_constant_namespace = Namespace(f"{name}_namespace")
 
     var = Variable(
         name=name,
@@ -51,15 +51,15 @@ def declare_global_constant(
         assign=value,
         # TODO
         # parameter=True, # parameter is not supported yet, so not really constant.
-        parent=global_constant_var_module,
+        parent=global_constant_namespace,
     )
 
-    # We have to compile the module when needed
-    module_library = NumetaCompiledFunction(
-        f"{name}_module",
-        global_constant_var_module,
+    # We have to compile the namespace when needed
+    namespace_library = NumetaCompiledFunction(
+        f"{name}_namespace",
+        global_constant_namespace,
         path=directory,
         backend=backend,
     )
-    global_constant_var_module.parent = module_library
+    global_constant_namespace.parent = namespace_library
     return var

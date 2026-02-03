@@ -10,8 +10,8 @@ class NamedEntity(Node, ABC):
     ----------
     name : str
         The name of the entity.
-    parent : None | Module | ExternalLibrary
-        If the entity is local the parent is None, if it is a module variable it is a module, lastly if it ca be a library.
+    parent : None | Namespace | ExternalLibrary
+        If the entity is local the parent is None, if it is a namespace variable it is a namespace, lastly if it can be a library.
 
     Methods
     -------

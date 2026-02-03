@@ -1,4 +1,4 @@
-from .ast import Variable, Scope, Subroutine
+from .ast import Variable, Scope, Procedure
 from .settings import settings
 
 
@@ -248,7 +248,7 @@ class BuilderHelper:
     def inline(self, function, *arguments):
         """Inline ``function`` with the given ``arguments`` into the current scope."""
         # Avoid heavy imports at module load time
-        if not isinstance(function, Subroutine):
+        if not isinstance(function, Procedure):
             raise TypeError("Unsupported function type for inline call")
 
         from .ast.tools import check_node

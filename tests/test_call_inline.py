@@ -161,7 +161,7 @@ def test_inline_matmul(backend):
 
     @nm.jit(backend=backend)
     def caller(a, b, c):
-        callee(c, nm.matmul(b, a))
+        callee(c, nm.Matmul(b, a))
 
     n = 10
     a = np.random.random((n, n))
@@ -225,7 +225,7 @@ def test_inline_matmul_fortran_order(backend):
 
     @nm.jit(backend=backend)
     def caller(a, b, c):
-        callee(c, nm.matmul(a, b))
+        callee(c, nm.Matmul(a, b))
 
     n = 10
     a = np.random.random((n, n)).astype(np.float64, order="F")

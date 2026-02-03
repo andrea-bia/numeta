@@ -1,4 +1,4 @@
-from numeta.ast import Variable, ExternalModule
+from numeta.ast import Variable, ExternalNamespace
 from numeta.fortran.fortran_type import FortranType
 from numeta.external_library import ExternalLibrary
 from numeta.datatype import DataType, ArrayType
@@ -11,17 +11,17 @@ class ExternalLibraryWrapper(ExternalLibrary):
     Used to convert types hint to fortran symbolic variables
     """
 
-    __slots__ = ["methods", "modules"]
+    __slots__ = ["methods", "namespaces"]
 
     def __init__(
         self, name, directory=None, include=None, additional_flags=None, to_link=True, rpath=False
     ):
         super().__init__(name, directory, include, additional_flags, to_link=to_link, rpath=rpath)
-        self.methods = ExternalModule(name, self, hidden=True)
-        self.modules = {}
+        self.methods = ExternalNamespace(name, self, hidden=True)
+        self.namespaces = {}
 
-    def add_module(self, name, hidden=False):
-        self.modules[name] = ExternalModule(name, self, hidden=False)
+    def add_namespace(self, name, hidden=False):
+        self.namespaces[name] = ExternalNamespace(name, self, hidden=hidden)
 
     def add_method(self, name, argtypes, restype, bind_c=True):
         symbolic_arguments = [
@@ -37,14 +37,14 @@ class ExternalLibraryWrapper(ExternalLibrary):
         try:
             if name in self.__slots__:
                 super().__getattr__(name)
-            elif name in self.methods.subroutines:
-                return self.methods.subroutines[name]
-            elif name in self.modules:
-                return self.modules[name]
+            elif name in self.methods.procedures:
+                return self.methods.procedures[name]
+            elif name in self.namespaces:
+                return self.namespaces[name]
             else:
-                raise AttributeError(f"Module {self.name} has no attribute {name}")
+                raise AttributeError(f"Namespace {self.name} has no attribute {name}")
         except KeyError:
-            raise AttributeError(f"ExternalLibrary object has no module {name}")
+            raise AttributeError(f"ExternalLibrary object has no namespace {name}")
 
 
 def convert_argument(name, hint, bind_c=True):

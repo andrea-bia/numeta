@@ -2,7 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 from .fortran.external_modules.iso_c_binding import iso_c
 from .fortran.fortran_type import FortranType
-from .ast import DerivedType
+from .ast import StructType as AstStructType
 from .array_shape import ArrayShape, SCALAR, UNKNOWN
 
 
@@ -312,7 +312,7 @@ def make_struct_type(np_dtype, members, name=None):
 
     fortran_type = FortranType(
         "type",
-        DerivedType(
+        AstStructType(
             name,
             [(mname, dt.get_fortran(), dim) for mname, dt, dim in members],
         ),

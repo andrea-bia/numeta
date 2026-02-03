@@ -12,8 +12,8 @@ class SyntaxSettings:
         char_kind: int = 1,
         order: str = "F",
     ):
-        self.__subroutine_bind_c = False
-        self.__derived_type_bind_c = False
+        self.__procedure_bind_c = False
+        self.__struct_type_bind_c = False
         self.__array_lower_bound = 1
         self.__c_like_bounds = False
         self.__force_value = False
@@ -34,8 +34,8 @@ class SyntaxSettings:
     def set_c_like(self):
         self.c_like = True
         self.set_array_lower_bound(0)
-        self.set_subroutine_bind_c()
-        self.set_derived_type_bind_c()
+        self.set_procedure_bind_c()
+        self.set_struct_type_bind_c()
         self.set_force_value()
         self.set_c_like_bounds()
         self.order = "C"
@@ -43,8 +43,8 @@ class SyntaxSettings:
     def unset_c_like(self):
         self.c_like = False
         self.set_array_lower_bound(1)
-        self.unset_subroutine_bind_c()
-        self.unset_derived_type_bind_c()
+        self.unset_procedure_bind_c()
+        self.unset_struct_type_bind_c()
         self.unset_force_value()
         self.unset_c_like_bounds()
         self.order = "F"
@@ -97,24 +97,24 @@ class SyntaxSettings:
 
     # --- Properties ------------------------------------------------------
     @property
-    def subroutine_bind_c(self):
-        return self.__subroutine_bind_c
+    def procedure_bind_c(self):
+        return self.__procedure_bind_c
 
-    def set_subroutine_bind_c(self):
-        self.__subroutine_bind_c = True
+    def set_procedure_bind_c(self):
+        self.__procedure_bind_c = True
 
-    def unset_subroutine_bind_c(self):
-        self.__subroutine_bind_c = False
+    def unset_procedure_bind_c(self):
+        self.__procedure_bind_c = False
 
     @property
-    def derived_type_bind_c(self):
-        return self.__derived_type_bind_c
+    def struct_type_bind_c(self):
+        return self.__struct_type_bind_c
 
-    def set_derived_type_bind_c(self):
-        self.__derived_type_bind_c = True
+    def set_struct_type_bind_c(self):
+        self.__struct_type_bind_c = True
 
-    def unset_derived_type_bind_c(self):
-        self.__derived_type_bind_c = False
+    def unset_struct_type_bind_c(self):
+        self.__struct_type_bind_c = False
 
     @property
     def array_lower_bound(self):

@@ -12,7 +12,7 @@ def test_do(dtype, backend):
     @nm.jit(backend=backend)
     def do_loop(n, a) -> None:
         i = nm.scalar(nm.i8)
-        with nm.do(i, 0, n - 1):
+        with nm.For(i, 0, n - 1):
             a[i] = i * 2
 
     a = np.empty(n, dtype=dtype)
@@ -34,7 +34,7 @@ def test_do_loop(backend):
     def sum_to(n):
         s = nm.scalar(nm.i8, 0)
         i = nm.scalar(nm.i8)
-        with nm.do(i, 0, n - 1):
+        with nm.For(i, 0, n - 1):
             s[:] = s + i
         return s
 

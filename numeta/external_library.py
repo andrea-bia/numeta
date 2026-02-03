@@ -1,9 +1,9 @@
 class ExternalLibrary:
     """
     A class to represent an external library.
-    It is used to link external libraries to the fortran code.
-    Is is child of Module class, where the module is hidden.
-    Can contain ExternalModule objects.
+    It is used to link external libraries to the generated code.
+    It is a child of the Namespace class, where the namespace is hidden.
+    Can contain ExternalNamespace objects.
     """
 
     def __init__(
@@ -30,8 +30,8 @@ class ExternalLibrary:
         self.additional_flags = additional_flags
         self.to_link = to_link
 
-        self.modules = {}
-        self.subroutines = {}
+        self.namespaces = {}
+        self.procedures = {}
         self.variables = {}
 
     @property

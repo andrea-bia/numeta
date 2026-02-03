@@ -156,7 +156,7 @@ def test_call_matmul(backend):
 
     @nm.jit(backend=backend)
     def caller(a, b, c):
-        callee(c, nm.matmul(b, a))
+        callee(c, nm.Matmul(b, a))
 
     n = 10
     a = np.random.random((n, n))
@@ -176,7 +176,7 @@ def test_call_matmul_fortran_order(backend):
 
     @nm.jit(backend=backend)
     def caller(a, b, c):
-        callee(c, nm.matmul(a, b))
+        callee(c, nm.Matmul(a, b))
 
     n = 10
     a = np.random.random((n, n)).astype(np.float64, order="F")
@@ -191,15 +191,15 @@ def test_call_matmul_fortran_order(backend):
 def test_intrinsics_dot_matmul_transpose(backend):
     @nm.jit(backend=backend)
     def dot(a, b):
-        return nm.dot_product(a, b)
+        return nm.Dotproduct(a, b)
 
     @nm.jit(backend=backend)
     def matmul_ab(a, b, out):
-        out[:] = nm.matmul(a, b)
+        out[:] = nm.Matmul(a, b)
 
     @nm.jit(backend=backend)
     def trans(a, out):
-        out[:] = nm.transpose(a)
+        out[:] = nm.Transpose(a)
 
     a = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     b = np.array([3.0, 2.0, 1.0], dtype=np.float64)

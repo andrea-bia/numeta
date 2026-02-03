@@ -6,7 +6,7 @@ import warnings
 from .compiler import Compiler
 from .settings import settings
 from .builder_helper import BuilderHelper
-from .ast import Subroutine, Variable
+from .ast import Procedure, Variable
 from .datatype import size_t
 from .pyc_extension import PyCExtension
 from .array_shape import ArrayShape, SCALAR, UNKNOWN
@@ -84,18 +84,18 @@ class NumetaCompiledFunction(ExternalLibrary):
             if self.backend == "fortran":
                 compiler = Compiler("gfortran", self.compile_flags)
                 fortran_src = self._path / f"{self.name}_src.f90"
-                from .ir import FortranEmitter, lower_subroutine
-                from .ast.module import Module
+                from .ir import FortranEmitter, lower_procedure
+                from .ast.namespace import Namespace
 
-                if isinstance(self.symbolic_function, Module):
+                if isinstance(self.symbolic_function, Namespace):
                     from numeta.fortran.fortran_syntax import render_stmt_lines
 
                     lines = render_stmt_lines(self.symbolic_function.get_declaration(), indent=0)
                     fortran_src.write_text("".join(lines))
                 else:
-                    ir_proc = lower_subroutine(self.symbolic_function)
+                    ir_proc = lower_procedure(self.symbolic_function)
                     emitter = FortranEmitter()
-                    fortran_src.write_text(emitter.emit_subroutine(ir_proc))
+                    fortran_src.write_text(emitter.emit_procedure(ir_proc))
                 sources = [fortran_src]
                 include_dirs = []
                 additional_flags = []
@@ -104,17 +104,17 @@ class NumetaCompiledFunction(ExternalLibrary):
                 import numpy as np
                 import sysconfig
                 from numeta.c.emitter import CEmitter
-                from .ir import lower_subroutine
-                from .ast.module import Module
+                from .ir import lower_procedure
+                from .ast.namespace import Namespace
 
                 compiler = Compiler("gcc", self.compile_flags)
                 c_src = self._path / f"{self.name}_src.c"
                 emitter = CEmitter()
-                if isinstance(self.symbolic_function, Module):
-                    c_code, requires_math = emitter.emit_module(self.symbolic_function)
+                if isinstance(self.symbolic_function, Namespace):
+                    c_code, requires_math = emitter.emit_namespace(self.symbolic_function)
                 else:
-                    ir_proc = lower_subroutine(self.symbolic_function, backend="c")
-                    c_code, requires_math = emitter.emit_subroutine(ir_proc)
+                    ir_proc = lower_procedure(self.symbolic_function, backend="c")
+                    c_code, requires_math = emitter.emit_procedure(ir_proc)
                 c_src.write_text(c_code)
                 self._requires_math = requires_math
                 sources = [c_src]
@@ -429,7 +429,7 @@ class NumetaFunction:
             n_positional_or_default_args=self.n_positional_or_default_args,
         )
 
-        sub = Subroutine(name)
+        sub = Procedure(name)
         builder = BuilderHelper(self, sub, signature)
 
         def convert_argument_spec_to_variable(arg_spec):

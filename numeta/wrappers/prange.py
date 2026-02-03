@@ -22,5 +22,5 @@ def prange(*args, **kwargs):
     builder = BuilderHelper.get_current_builder()
     I = builder.generate_local_variables("fc_i", ftype=syntax_settings.DEFAULT_INTEGER)
 
-    with omp.do(I, start, stop - 1, step=step, **kwargs):
+    with omp.parallel_for(I, start, stop - 1, step=step, **kwargs):
         yield I

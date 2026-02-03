@@ -30,8 +30,8 @@ def test_mul(dtype, backend):
 def test_intrinsics_shape_size_rank(backend):
     @nm.jit(backend=backend)
     def info(a, out_shape):
-        out_shape[:] = nm.shape(a)
-        return nm.size(a, 1) * nm.size(a, 2) + nm.size(a, 1) + nm.rank(a)
+        out_shape[:] = nm.Shape(a)
+        return nm.Size(a, 1) * nm.Size(a, 2) + nm.Size(a, 1) + nm.Rank(a)
 
     a = np.zeros((2, 2), dtype=np.float64)
     out_shape = np.zeros(2, dtype=np.int64)

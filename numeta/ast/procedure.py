@@ -1,16 +1,16 @@
 from .nodes import NamedEntity
 from .scope import Scope
-from .statements import SubroutineDeclaration, InterfaceDeclaration, Call
+from .statements import ProcedureDeclaration, ProcedureInterfaceDeclaration, Call
 from .settings import settings
 
 
-class Subroutine(NamedEntity):
+class Procedure(NamedEntity):
     @classmethod
     def translate(cls, original_method):
-        """Permit to translate the subroutine currently being generated."""
+        """Permit to translate the procedure currently being generated."""
 
         def wrapper(self, *args, **kwargs):
-            # Save the old scope, needed to restore it after the translation when constructing more subroutines
+            # Save the old scope, needed to restore it after the translation when constructing more procedures
             old_scope = Scope.current_scope
             self.scope.enter()
             result = original_method(self, *args, **kwargs)
@@ -37,17 +37,17 @@ class Subroutine(NamedEntity):
         self.to_print = to_print
         self.arguments = {}  # dictionary because we need an ordered set
         self.scope = Scope()
-        self.bind_c = settings.subroutine_bind_c if bind_c is None else bind_c
+        self.bind_c = settings.procedure_bind_c if bind_c is None else bind_c
         self.declaration = None
 
-        from .module import Module
+        from .namespace import Namespace
 
-        if isinstance(self.parent, Module):
-            self.parent.add_subroutine(self)
+        if isinstance(self.parent, Namespace):
+            self.parent.add_procedure(self)
 
     def add_variable(self, *variables, with_intent=None):
         """
-        Add a variable to the subroutine. If the variable is a list, it is added as a list of variables.
+        Add a variable to the procedure. If the variable is a list, it is added as a list of variables.
         Can modify the intent of the variable if with_intent is specified.
         """
         for variable in variables:
@@ -75,15 +75,15 @@ class Subroutine(NamedEntity):
 
     def get_declaration(self):
         if self.declaration is None:
-            self.declaration = SubroutineDeclaration(self)
+            self.declaration = ProcedureDeclaration(self)
         return self.declaration
 
     def count_statements(self):
-        """Return the number of statements in this subroutine."""
+        """Return the number of statements in this procedure."""
         return sum(stmt.count_statements() for stmt in self.scope.get_statements())
 
     def get_interface_declaration(self):
-        return InterfaceDeclaration(self)
+        return ProcedureInterfaceDeclaration(self)
 
     def __call__(self, *arguments):
         Call(self, *arguments)

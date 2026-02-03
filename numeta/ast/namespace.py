@@ -3,82 +3,82 @@ import sys
 from numeta.array_shape import SCALAR
 
 from .nodes import NamedEntity
-from .subroutine import Subroutine
+from .procedure import Procedure
 from .function import Function
 
 
-class Module(NamedEntity):
+class Namespace(NamedEntity):
     __slots__ = (
         "name",
         "parent",
         "description",
         "hidden",
         "dependencies",
-        "derived_types",
+        "struct_types",
         "interfaces",
         "variables",
-        "subroutines",
+        "procedures",
     )
 
     def __init__(self, name, description=None, hidden=False, parent=None):
         super().__init__(name, parent=parent)
         self.name = name.lower()
         self.description = description
-        # hidden define if it is should be a true fortran module or just a container
+        # hidden defines if it should be a real namespace or just a container
         self.hidden = hidden
 
         self.dependencies = {}
-        self.derived_types = {}
+        self.struct_types = {}
         self.interfaces = {}
         self.variables = {}
-        self.subroutines = {}
+        self.procedures = {}
 
     def __getattr__(self, name):
         if name in self.__slots__:  # pragma: no cover
             return self.__getattribute__(name)
         elif name in self.variables:
             return self.variables[name]
-        elif name in self.subroutines:
-            return self.subroutines[name]
+        elif name in self.procedures:
+            return self.procedures[name]
         else:
-            raise AttributeError(f"Module {self.name} has no attribute {name}")
+            raise AttributeError(f"Namespace {self.name} has no attribute {name}")
 
-    def add_derived_type(self, *derived_types):
-        for derived_type in derived_types:
-            self.derived_types[derived_type.name] = derived_type
-            derived_type.parent = self
+    def add_struct_type(self, *struct_types):
+        for struct_type in struct_types:
+            self.struct_types[struct_type.name] = struct_type
+            struct_type.parent = self
 
-    def add_subroutine(self, *subroutines):
-        for subroutine in subroutines:
-            self.subroutines[subroutine.name] = subroutine
-            subroutine.parent = self
+    def add_procedure(self, *procedures):
+        for procedure in procedures:
+            self.procedures[procedure.name] = procedure
+            procedure.parent = self
 
     def add_variable(self, *variables):
         for variable in variables:
             self.variables[variable.name] = variable
             variable.parent = self
 
-    def add_interface(self, *subroutines):
-        for subroutine in subroutines:
-            self.interfaces[subroutine.name] = subroutine
+    def add_interface(self, *procedures):
+        for procedure in procedures:
+            self.interfaces[procedure.name] = procedure
 
     def get_declaration(self):
-        from .statements import ModuleDeclaration
+        from .statements import NamespaceDeclaration
 
-        return ModuleDeclaration(self)
+        return NamespaceDeclaration(self)
 
     def get_dependencies(self):
         return self.get_declaration().dependencies
 
 
-builtins_module = Module(
-    "builtins", "The builtins module, to contain built-in functions or subroutines"
+builtins_namespace = Namespace(
+    "builtins", "The builtins namespace, to contain built-in functions or procedures"
 )
 
 
-class ExternalModule(Module):
+class ExternalNamespace(Namespace):
     """
-    **Note**: Only to add support for methods (for external modules).
+    **Note**: Only to add support for methods (for external namespaces).
     When methods will be properly implemented this should be removed
     """
 
@@ -87,17 +87,17 @@ class ExternalModule(Module):
 
     def add_method(self, name, arguments, result_=None, bind_c=False):
         """
-        Because currently only subroutines are supported, Modules can only have subroutines.
-        But ExternalModule should be able to have functions as well.
+        Because currently only procedures are supported, namespaces can only have procedures.
+        But ExternalNamespace should be able to have functions as well.
         """
-        module = self
+        namespace = self
 
         if result_ is None:
-            # It's a subroutine
-            method = Subroutine(name, parent=module, bind_c=bind_c)
+            # It's a procedure
+            method = Procedure(name, parent=namespace, bind_c=bind_c)
             for arg in arguments:
                 method.add_variable(arg)
-            self.add_subroutine(method)
+            self.add_procedure(method)
 
         else:
             # TODO: Arguments are not used but it could be used to check if the arguments are correct
@@ -119,9 +119,9 @@ class ExternalModule(Module):
             if python_module is not None:
                 setattr(python_module, name, method)
 
-            self.subroutines[name] = method(
+            self.procedures[name] = method(
                 name,
                 arguments,
-                parent=module,
+                parent=namespace,
                 bind_c=bind_c,
             )

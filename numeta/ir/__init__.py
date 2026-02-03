@@ -29,7 +29,7 @@ from .nodes import (
     IROpaqueExpr,
     IROpaqueStmt,
 )
-from .lowering import lower_subroutine
+from .lowering import lower_procedure
 from typing import Any
 
 __all__ = [
@@ -62,7 +62,7 @@ __all__ = [
     "IRDeallocate",
     "IROpaqueExpr",
     "IROpaqueStmt",
-    "lower_subroutine",
+    "lower_procedure",
     "FortranEmitter",
     "CEmitter",
 ]

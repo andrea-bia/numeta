@@ -1,6 +1,6 @@
 from .statement import StatementWithScope
-from .various import Comment, Use, Implicit
-from .tools import get_nested_dependencies_or_declarations, divide_variables_and_derived_types
+from .various import Comment, Import, TypingPolicy
+from .tools import get_nested_dependencies_or_declarations, divide_variables_and_struct_types
 
 
 class FunctionInterfaceDeclaration(StatementWithScope):
@@ -27,13 +27,13 @@ class FunctionInterfaceDeclaration(StatementWithScope):
         dependencies, declarations = get_nested_dependencies_or_declarations(
             entities, self.function.parent
         )
-        variables_dec, derived_types_dec, _ = divide_variables_and_derived_types(declarations)
+        variables_dec, struct_types_dec, _ = divide_variables_and_struct_types(declarations)
 
         for dependency, var in dependencies:
-            yield Use(dependency, only=var, add_to_scope=False)
+            yield Import(dependency, only=var, add_to_scope=False)
 
-        yield Implicit(implicit_type="none", add_to_scope=False)
+        yield TypingPolicy(implicit_type="none", add_to_scope=False)
 
-        yield from derived_types_dec.values()
+        yield from struct_types_dec.values()
 
         yield from variables_dec.values()

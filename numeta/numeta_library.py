@@ -111,19 +111,19 @@ class NumetaLibrary:
             for compiled_target in nm_function._compiled_functions.values():
                 if compiled_target.backend == "fortran":
                     fortran_src = directory / f"{compiled_target.name}_src.f90"
-                    from .ir import FortranEmitter, lower_subroutine
+                    from .ir import FortranEmitter, lower_procedure
 
-                    ir_proc = lower_subroutine(compiled_target.symbolic_function)
+                    ir_proc = lower_procedure(compiled_target.symbolic_function)
                     emitter = FortranEmitter()
-                    fortran_src.write_text(emitter.emit_subroutine(ir_proc))
+                    fortran_src.write_text(emitter.emit_procedure(ir_proc))
                 elif compiled_target.backend == "c":
                     from numeta.c.emitter import CEmitter
-                    from .ir import lower_subroutine
+                    from .ir import lower_procedure
 
                     c_src = directory / f"{compiled_target.name}_src.c"
-                    ir_proc = lower_subroutine(compiled_target.symbolic_function)
+                    ir_proc = lower_procedure(compiled_target.symbolic_function)
                     emitter = CEmitter()
-                    c_code, _requires_math = emitter.emit_subroutine(ir_proc)
+                    c_code, _requires_math = emitter.emit_procedure(ir_proc)
                     c_src.write_text(c_code)
                 else:
                     raise ValueError(f"Unsupported backend: {compiled_target.backend}")

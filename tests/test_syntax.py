@@ -3,9 +3,9 @@ import numpy as np
 
 import numeta as nm
 from numeta.array_shape import ArrayShape, SCALAR
-from numeta.ast import Variable, Assignment, LiteralNode, DerivedType
+from numeta.ast import Variable, Assignment, LiteralNode, StructType
 from numeta.ast.expressions import GetAttr
-from numeta.ast import Do, DoWhile, If, ElseIf, Else
+from numeta.ast import For, While, If, ElseIf, Else
 from numeta.ast.statements.tools import print_block
 from numeta.fortran.fortran_syntax import render_expr_blocks, render_stmt_lines
 from numeta.c.c_syntax import (
@@ -57,7 +57,7 @@ from numeta.ast.expressions import (
     ArrayConstructor,
 )
 from numeta.ast.statements import VariableDeclaration, Call
-from numeta.ast import Subroutine, Module, Scope
+from numeta.ast import Procedure, Namespace, Scope
 from numeta.ast.settings import settings as syntax_settings
 from numeta.settings import settings
 
@@ -353,11 +353,11 @@ def test_variable_declaration_assign_array(backend):
     )
 
 
-def test_subroutine_print_lines(backend):
+def test_procedure_print_lines(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
     y = Variable("y", syntax_settings.DEFAULT_INTEGER, intent="out")
-    sub = Subroutine("mysub")
+    sub = Procedure("mysub")
     sub.add_variable(x, y)
     with sub.scope:
         Assignment(y, x)
@@ -382,11 +382,11 @@ def test_subroutine_print_lines(backend):
     assert_render_stmt(sub.get_declaration(), backend, fortran=expected, c=expected_c)
 
 
-def test_module_print_code(backend):
+def test_namespace_print_code(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
-    mod = Module("mymod")
-    sub = Subroutine("mysub", parent=mod)
+    mod = Namespace("mymod")
+    sub = Procedure("mysub", parent=mod)
     sub.add_variable(x)
     expected = [
         "module mymod\n",
@@ -402,7 +402,7 @@ def test_module_print_code(backend):
     expected_c = [
         "/* module mymod */\n",
         "    /* implicit none */\n",
-        "    /* contains */\n",
+        "    /* section */\n",
         "    void mysub(x) {\n",
         "        /* use iso_c_binding, only c_int64_t */\n",
         "        /* implicit none */\n",
@@ -413,10 +413,10 @@ def test_module_print_code(backend):
     assert_render_stmt(mod.get_declaration(), backend, fortran=expected, c=expected_c)
 
 
-def test_derived_type_declaration(backend):
+def test_struct_type_declaration(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     settings.set_default_from_datatype(nm.float64, iso_c=True)
-    dt = DerivedType(
+    dt = StructType(
         "point",
         [
             ("x", syntax_settings.DEFAULT_INTEGER, SCALAR),
@@ -441,12 +441,12 @@ def test_derived_type_declaration(backend):
     assert_render_stmt(dt.get_declaration(), backend, fortran=expected, c=expected_c)
 
 
-def test_do_statement(backend):
+def test_for_statement(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
-    do = Do(i, 0, 3, add_to_scope=False)
+    do = For(i, 0, 3, add_to_scope=False)
     with do:
         Assignment(x, i + 1)
 
@@ -468,7 +468,7 @@ def test_if_statement(backend):
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
-    wrapper = Do(i, 0, 3, add_to_scope=False)
+    wrapper = For(i, 0, 3, add_to_scope=False)
     with wrapper:
         with If(i < 5):
             Assignment(x, i + 1)
@@ -511,7 +511,7 @@ def test_do_while_statement(backend):
     i = Variable("i", syntax_settings.DEFAULT_INTEGER)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
 
-    do = DoWhile(i < 5, add_to_scope=False)
+    do = While(i < 5, add_to_scope=False)
     with do:
         Assignment(x, i + 1)
 
@@ -697,7 +697,7 @@ def test_update_variables_do_statement(backend):
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
 
     with Scope():
-        do = Do(i, 0, 3, add_to_scope=False)
+        do = For(i, 0, 3, add_to_scope=False)
         with do:
             Assignment(x, i + 1)
 
@@ -730,7 +730,7 @@ def test_update_variables_if_statement(backend):
 
     with Scope():
 
-        wrapper = Do(i, 0, 3, add_to_scope=False)
+        wrapper = For(i, 0, 3, add_to_scope=False)
         with wrapper:
             with If(i < 5):
                 Assignment(x, i + 1)
@@ -779,7 +779,7 @@ def test_update_variables_do_while_statement(backend):
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
 
     with Scope():
-        do = DoWhile(i < 5, add_to_scope=False)
+        do = While(i < 5, add_to_scope=False)
         with do:
             Assignment(x, i + 1)
 
@@ -806,11 +806,11 @@ def test_call(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER, intent="in")
     y = Variable("y", syntax_settings.DEFAULT_INTEGER, intent="out")
-    callee = Subroutine("callee")
+    callee = Procedure("callee")
     callee.add_variable(x, y)
     with callee.scope:
         Assignment(y, x)
-    caller = Subroutine("caller")
+    caller = Procedure("caller")
     with caller.scope:
         Call(callee, x, y)
 
@@ -857,10 +857,10 @@ def test_call(backend):
 
 def test_call_external_module(backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
-    lib = nm.ExternalModule("module", None, hidden=True)
+    lib = nm.ExternalNamespace("namespace", None, hidden=True)
     lib.add_method("foo", [Variable("a", syntax_settings.DEFAULT_INTEGER)], None)
     foo = lib.foo
-    sub = Subroutine("mysub")
+    sub = Procedure("mysub")
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     sub.add_variable(x)
     with sub.scope:

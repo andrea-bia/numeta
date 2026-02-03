@@ -1,5 +1,5 @@
 from numeta.builder_helper import BuilderHelper
-from numeta.ast import Do
+from numeta.ast import For
 from numeta.settings import syntax_settings
 
 
@@ -22,5 +22,5 @@ def range(*args):
     builder = BuilderHelper.get_current_builder()
     I = builder.generate_local_variables("fc_i", ftype=syntax_settings.DEFAULT_INTEGER)
 
-    with Do(I, start, stop - 1, step=step):
+    with For(I, start, stop - 1, step=step):
         yield I

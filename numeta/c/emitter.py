@@ -6,7 +6,7 @@ import numpy as np
 
 from numeta.datatype import DataType
 from numeta.settings import settings as nm_settings
-from numeta.ast.module import Module
+from numeta.ast.namespace import Namespace
 from numeta.ast.variable import Variable
 
 from numeta.c.c_syntax import render_expr_blocks
@@ -68,7 +68,7 @@ class CEmitter:
     def requires_math(self) -> bool:
         return self._requires_math
 
-    def emit_subroutine(self, proc: IRProcedure) -> tuple[str, bool]:
+    def emit_procedure(self, proc: IRProcedure) -> tuple[str, bool]:
         self._array_info = {}
         self._pointer_args = {}
         self._shape_arg_map = {}
@@ -150,7 +150,7 @@ class CEmitter:
 
         return list(defs.values())
 
-    def emit_module(self, module: Module) -> tuple[str, bool]:
+    def emit_namespace(self, namespace: Namespace) -> tuple[str, bool]:
         self._array_info = {}
         self._pointer_args = {}
         self._shape_arg_map = {}
@@ -169,7 +169,7 @@ class CEmitter:
         lines.append("\n")
 
         # Collect global variables from the module
-        for var in module.variables.values():
+        for var in namespace.variables.values():
             if var.assign is not None:
                 lines.extend(self._render_global_variable(var))
 
@@ -220,7 +220,7 @@ class CEmitter:
                 return
             if isinstance(expr, IRVarRef) and expr.var is not None:
                 source = expr.var.source
-                if isinstance(source, Variable) and isinstance(source.parent, Module):
+                if isinstance(source, Variable) and isinstance(source.parent, Namespace):
                     if source.assign is None:
                         return
                     if expr.var.name not in constants:

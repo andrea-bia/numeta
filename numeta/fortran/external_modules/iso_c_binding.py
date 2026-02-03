@@ -1,9 +1,9 @@
-from numeta.ast import Variable, ExternalModule
+from numeta.ast import Variable, ExternalNamespace
 from numeta.fortran.fortran_type import FortranType
 from numeta.array_shape import UNKNOWN
 
 
-class IsoCBinding(ExternalModule):
+class IsoCBinding(ExternalNamespace):
     def __init__(self):
         super().__init__("iso_c_binding", None)
 

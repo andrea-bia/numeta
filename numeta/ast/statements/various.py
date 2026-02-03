@@ -15,7 +15,7 @@ class Comment(Statement):
         return []
 
 
-class Use(Statement):
+class Import(Statement):
     def __init__(self, module, only=None, add_to_scope=True):
         super().__init__(add_to_scope=add_to_scope)
         self.module = module
@@ -26,7 +26,7 @@ class Use(Statement):
         return []
 
 
-class Implicit(Statement):
+class TypingPolicy(Statement):
     def __init__(self, implicit_type="none", add_to_scope=True):
         super().__init__(add_to_scope=add_to_scope)
         self.implicit_type = implicit_type
@@ -58,15 +58,15 @@ class SimpleStatement(Statement):
         return []
 
 
-class Cycle(SimpleStatement):
-    token = "cycle"
+class Continue(SimpleStatement):
+    token = "continue"
 
 
-class Exit(SimpleStatement):
-    token = "exit"
+class Break(SimpleStatement):
+    token = "break"
 
 
-class Stop(SimpleStatement):
+class Halt(SimpleStatement):
     token = "stop"
 
 
@@ -105,7 +105,7 @@ class Deallocate(Statement):
         return [self.array]
 
 
-class Do(StatementWithScope):
+class For(StatementWithScope):
     def __init__(self, iterator, start, end, /, step=None, *, add_to_scope=True, enter_scope=True):
         super().__init__(add_to_scope=add_to_scope, enter_scope=enter_scope)
         self.iterator = check_node(iterator)
@@ -120,7 +120,7 @@ class Do(StatementWithScope):
         )
 
 
-class DoWhile(StatementWithScope):
+class While(StatementWithScope):
     def __init__(self, condition, /, *, add_to_scope=True, enter_scope=True):
         super().__init__(add_to_scope=add_to_scope, enter_scope=enter_scope)
         self.condition = check_node(condition)
@@ -188,7 +188,7 @@ class Else(StatementWithScope):
         return []
 
 
-class SelectCase(StatementWithScope):
+class Switch(StatementWithScope):
     def __init__(self, value, add_to_scope=True):
         super().__init__(add_to_scope=add_to_scope)
         self.value = check_node(value)
@@ -208,7 +208,7 @@ class Case(StatementWithScope):
         return [self.value]
 
 
-class Contains(Statement):
+class Section(Statement):
     def __init__(self, add_to_scope=True):
         super().__init__(add_to_scope=add_to_scope)
 
@@ -217,7 +217,7 @@ class Contains(Statement):
         return []
 
 
-class Interface(StatementWithScope):
+class InterfaceBlock(StatementWithScope):
     def __init__(self, methods):
         super().__init__(add_to_scope=False)
         self.methods = methods

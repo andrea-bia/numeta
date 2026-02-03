@@ -8,19 +8,19 @@ class GetAttr(ExpressionNode):
 
     @property
     def _ftype(self):
-        derived_type = self.variable._ftype.kind
-        for name, fortran_type, _ in derived_type.fields:
+        struct_type = self.variable._ftype.kind
+        for name, fortran_type, _ in struct_type.fields:
             if name == self.attr:
                 return fortran_type
-        raise ValueError(f"Attribute '{self.attr}' not found in derived type '{derived_type.name}'")
+        raise ValueError(f"Attribute '{self.attr}' not found in struct type '{struct_type.name}'")
 
     @property
     def _shape(self):
-        derived_type = self.variable._ftype.kind
-        for name, _, shape in derived_type.fields:
+        struct_type = self.variable._ftype.kind
+        for name, _, shape in struct_type.fields:
             if name == self.attr:
                 return shape
-        raise ValueError(f"Attribute '{self.attr}' not found in derived type '{derived_type.name}'")
+        raise ValueError(f"Attribute '{self.attr}' not found in struct type '{struct_type.name}'")
 
     def extract_entities(self):
         yield from self.variable.extract_entities()

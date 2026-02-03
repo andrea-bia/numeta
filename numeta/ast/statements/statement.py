@@ -42,7 +42,7 @@ class Statement(Node):
 
 class StatementWithScope(Statement):
     """
-    A statement that introduces a new scope (e.g., if, do, subroutine).
+    A statement that introduces a new scope (e.g., if, for, procedure).
 
     Methods
     -------

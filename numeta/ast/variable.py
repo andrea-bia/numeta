@@ -37,9 +37,9 @@ class Variable(NamedEntity, ExpressionNode):
         # Note that bind c make the variable global
         self.bind_c = bind_c
 
-        from .module import Module
+        from .namespace import Namespace
 
-        if isinstance(self.parent, Module):
+        if isinstance(self.parent, Namespace):
             self.parent.add_variable(self)
 
     @property

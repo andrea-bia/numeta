@@ -24,25 +24,31 @@ from numeta.ast.expressions.various import ArrayConstructor, Im, Re
 from numeta.ast.statements import (
     Allocate,
     Assignment,
+    Break,
     Call,
     Case,
-    Contains,
+    Continue,
     Deallocate,
-    Do,
-    DoWhile,
     Else,
     ElseIf,
+    For,
+    Halt,
     If,
-    Implicit,
-    Interface,
+    Import,
+    InterfaceBlock,
     Return,
-    SelectCase,
-    Use,
+    Section,
+    Switch,
+    TypingPolicy,
+    While,
 )
-from numeta.ast.statements.derived_type_declaration import DerivedTypeDeclaration
 from numeta.ast.statements.function_declaration import FunctionInterfaceDeclaration
-from numeta.ast.statements.module_declaration import ModuleDeclaration
-from numeta.ast.statements.subroutine_declaration import InterfaceDeclaration, SubroutineDeclaration
+from numeta.ast.statements.namespace_declaration import NamespaceDeclaration
+from numeta.ast.statements.procedure_declaration import (
+    ProcedureDeclaration,
+    ProcedureInterfaceDeclaration,
+)
+from numeta.ast.statements.struct_type_declaration import StructTypeDeclaration
 from numeta.ast.statements.variable_declaration import VariableDeclaration
 from numeta.ast.statements.various import Comment, PointerAssignment, Print, SimpleStatement
 
@@ -190,16 +196,16 @@ def render_stmt_lines(stmt: Any, indent: int = 0) -> list[str]:
     if blocks is not None:
         return [print_block(blocks, indent=indent)]
 
-    if isinstance(stmt, (Do, DoWhile, If, ElseIf, Else, SelectCase, Case, Interface)):
+    if isinstance(stmt, (For, While, If, ElseIf, Else, Switch, Case, InterfaceBlock)):
         return _render_scoped_stmt_lines(stmt, indent)
     if isinstance(
         stmt,
         (
-            ModuleDeclaration,
-            SubroutineDeclaration,
-            InterfaceDeclaration,
+            NamespaceDeclaration,
+            ProcedureDeclaration,
+            ProcedureInterfaceDeclaration,
             FunctionInterfaceDeclaration,
-            DerivedTypeDeclaration,
+            StructTypeDeclaration,
         ),
     ):
         return _render_scoped_stmt_lines(stmt, indent)
@@ -207,15 +213,21 @@ def render_stmt_lines(stmt: Any, indent: int = 0) -> list[str]:
 
 
 def _render_stmt_blocks(stmt: Any) -> list[str] | None:
-    if isinstance(stmt, Use):
+    if isinstance(stmt, Import):
         result = ["use", " ", stmt.module.name]
         if stmt.only is not None:
             result += [", ", "only", ": ", stmt.only.name]
         return result
-    if isinstance(stmt, Implicit):
+    if isinstance(stmt, TypingPolicy):
         return ["implicit", " ", stmt.implicit_type]
     if isinstance(stmt, Assignment):
         return [*render_expr_blocks(stmt.target), "=", *render_expr_blocks(stmt.value)]
+    if isinstance(stmt, Break):
+        return ["exit"]
+    if isinstance(stmt, Continue):
+        return ["cycle"]
+    if isinstance(stmt, Halt):
+        return ["stop"]
     if isinstance(stmt, SimpleStatement):
         token = getattr(stmt.__class__, "token", "")
         return [token]
@@ -249,7 +261,7 @@ def _render_stmt_blocks(stmt: Any) -> list[str] | None:
         return _render_allocate_blocks(stmt)
     if isinstance(stmt, Deallocate):
         return ["deallocate", "(", *render_expr_blocks(stmt.array), ")"]
-    if isinstance(stmt, Contains):
+    if isinstance(stmt, Section):
         return ["contains"]
     if isinstance(stmt, PointerAssignment):
         return [
@@ -302,7 +314,7 @@ def _render_scoped_stmt_lines(stmt: Any, indent: int) -> list[str]:
 
 
 def _render_scoped_start_blocks(stmt: Any) -> list[str]:
-    if isinstance(stmt, Do):
+    if isinstance(stmt, For):
         result = ["do", " "]
         result += render_expr_blocks(stmt.iterator)
         result += [" ", "=", " "]
@@ -313,7 +325,7 @@ def _render_scoped_start_blocks(stmt: Any) -> list[str]:
             result.append(", ")
             result += render_expr_blocks(stmt.step)
         return result
-    if isinstance(stmt, DoWhile):
+    if isinstance(stmt, While):
         return ["do while", " ", "(", *render_expr_blocks(stmt.condition), ")"]
     if isinstance(stmt, If):
         return ["if", "(", *render_expr_blocks(stmt.condition), ")", "then"]
@@ -321,50 +333,50 @@ def _render_scoped_start_blocks(stmt: Any) -> list[str]:
         return ["elseif", "(", *render_expr_blocks(stmt.condition), ")", "then"]
     if isinstance(stmt, Else):
         return ["else"]
-    if isinstance(stmt, SelectCase):
+    if isinstance(stmt, Switch):
         return ["select", " ", "case", " ", "(", *render_expr_blocks(stmt.value), ")"]
     if isinstance(stmt, Case):
         return ["case", " ", "(", *render_expr_blocks(stmt.value), ")"]
-    if isinstance(stmt, Interface):
+    if isinstance(stmt, InterfaceBlock):
         return ["interface"]
-    if isinstance(stmt, ModuleDeclaration):
-        return ["module", " ", stmt.module.name]
-    if isinstance(stmt, SubroutineDeclaration):
-        return _render_subroutine_start_blocks(stmt.subroutine)
-    if isinstance(stmt, InterfaceDeclaration):
-        return _render_subroutine_start_blocks(stmt.subroutine)
+    if isinstance(stmt, NamespaceDeclaration):
+        return ["module", " ", stmt.namespace.name]
+    if isinstance(stmt, ProcedureDeclaration):
+        return _render_procedure_start_blocks(stmt.procedure)
+    if isinstance(stmt, ProcedureInterfaceDeclaration):
+        return _render_procedure_start_blocks(stmt.procedure)
     if isinstance(stmt, FunctionInterfaceDeclaration):
         return _render_function_interface_start_blocks(stmt.function)
-    if isinstance(stmt, DerivedTypeDeclaration):
-        if syntax_settings.derived_type_bind_c:
-            return ["type", ", ", "bind(C)", " ", "::", " ", stmt.derived_type.name]
-        return ["type", " ", "::", " ", stmt.derived_type.name]
+    if isinstance(stmt, StructTypeDeclaration):
+        if syntax_settings.struct_type_bind_c:
+            return ["type", ", ", "bind(C)", " ", "::", " ", stmt.struct_type.name]
+        return ["type", " ", "::", " ", stmt.struct_type.name]
     raise NotImplementedError(f"Unsupported scoped statement: {type(stmt)}")
 
 
 def _render_scoped_end_blocks(stmt: Any) -> list[str]:
-    if isinstance(stmt, (Do, DoWhile)):
+    if isinstance(stmt, (For, While)):
         return ["end", " ", "do"]
     if isinstance(stmt, If):
         return ["end", " ", "if"]
     if isinstance(stmt, (ElseIf, Else)):
         return []
-    if isinstance(stmt, SelectCase):
+    if isinstance(stmt, Switch):
         return ["end", " ", "select"]
     if isinstance(stmt, Case):
         return []
-    if isinstance(stmt, Interface):
+    if isinstance(stmt, InterfaceBlock):
         return ["end", " ", "interface"]
-    if isinstance(stmt, ModuleDeclaration):
-        return ["end", " ", "module", " ", stmt.module.name]
-    if isinstance(stmt, SubroutineDeclaration):
-        return ["end", " ", "subroutine", " ", stmt.subroutine.name]
-    if isinstance(stmt, InterfaceDeclaration):
-        return ["end", " ", "subroutine", " ", stmt.subroutine.name]
+    if isinstance(stmt, NamespaceDeclaration):
+        return ["end", " ", "module", " ", stmt.namespace.name]
+    if isinstance(stmt, ProcedureDeclaration):
+        return ["end", " ", "subroutine", " ", stmt.procedure.name]
+    if isinstance(stmt, ProcedureInterfaceDeclaration):
+        return ["end", " ", "subroutine", " ", stmt.procedure.name]
     if isinstance(stmt, FunctionInterfaceDeclaration):
         return ["end", " ", "function", " ", stmt.function.name]
-    if isinstance(stmt, DerivedTypeDeclaration):
-        return ["end", " ", "type", " ", stmt.derived_type.name]
+    if isinstance(stmt, StructTypeDeclaration):
+        return ["end", " ", "type", " ", stmt.struct_type.name]
     raise NotImplementedError(f"Unsupported scoped statement: {type(stmt)}")
 
 
@@ -378,37 +390,37 @@ def _render_scoped_statements(stmt: Any) -> list[Any]:
         return list(stmt.scope.get_statements())
     if isinstance(stmt, Else):
         return list(stmt.scope.get_statements())
-    if isinstance(stmt, (Do, DoWhile, SelectCase, Case)):
+    if isinstance(stmt, (For, While, Switch, Case)):
         return list(stmt.scope.get_statements())
-    if isinstance(stmt, Interface):
+    if isinstance(stmt, InterfaceBlock):
         return [method.get_interface_declaration() for method in stmt.methods]
-    if isinstance(stmt, ModuleDeclaration):
+    if isinstance(stmt, NamespaceDeclaration):
         return list(stmt.get_statements())
-    if isinstance(stmt, SubroutineDeclaration):
+    if isinstance(stmt, ProcedureDeclaration):
         return list(stmt.get_statements())
-    if isinstance(stmt, InterfaceDeclaration):
+    if isinstance(stmt, ProcedureInterfaceDeclaration):
         return list(stmt.get_statements())
     if isinstance(stmt, FunctionInterfaceDeclaration):
         return list(stmt.get_statements())
-    if isinstance(stmt, DerivedTypeDeclaration):
+    if isinstance(stmt, StructTypeDeclaration):
         return list(stmt.get_statements())
     return []
 
 
-def _render_subroutine_start_blocks(subroutine: Any) -> list[str]:
+def _render_procedure_start_blocks(procedure: Any) -> list[str]:
     result: list[str] = []
 
-    if getattr(subroutine, "pure", False):
+    if getattr(procedure, "pure", False):
         result += ["pure", " "]
-    if getattr(subroutine, "elemental", False):
+    if getattr(procedure, "elemental", False):
         result += ["elemental", " "]
 
-    result.extend(["subroutine", " ", subroutine.name, "("])
+    result.extend(["subroutine", " ", procedure.name, "("])
 
-    from numeta.ast.module import ExternalModule
+    from numeta.ast.namespace import ExternalNamespace
 
-    is_external = isinstance(getattr(subroutine, "parent", None), ExternalModule)
-    for variable in subroutine.arguments.values():
+    is_external = isinstance(getattr(procedure, "parent", None), ExternalNamespace)
+    for variable in procedure.arguments.values():
         if variable.intent is None and not is_external:
             continue
         result.extend(render_expr_blocks(variable))
@@ -418,8 +430,8 @@ def _render_subroutine_start_blocks(subroutine: Any) -> list[str]:
         result.pop()
     result.append(")")
 
-    if getattr(subroutine, "bind_c", False):
-        result.extend([" ", f"bind(C, name='{subroutine.name}')"])
+    if getattr(procedure, "bind_c", False):
+        result.extend([" ", f"bind(C, name='{procedure.name}')"])
 
     return result
 

@@ -52,7 +52,7 @@ _FORTRAN_BINARY_OPS = {
 
 
 class FortranEmitter:
-    def emit_subroutine(self, proc: IRProcedure) -> str:
+    def emit_procedure(self, proc: IRProcedure) -> str:
         pure = bool(proc.metadata.get("fortran_pure", False))
         elemental = bool(proc.metadata.get("fortran_elemental", False))
         bind_c = bool(proc.metadata.get("fortran_bind_c", False))
