@@ -1,0 +1,16 @@
+# --- Python Bytecode ---
+__pycache__/
+*.py[cod]
+
+# --- Distribution / Build ---
+build/
+dist/
+*.egg-info/
+
+# --- Virtual Env ---
+.venv/
+venv/
+
+# --- Testing & Coverage ---
+.pytest_cache/
+.coverage*
