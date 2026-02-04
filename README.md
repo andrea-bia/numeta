@@ -8,10 +8,10 @@ my work on integral evaluations over Gaussian basis functions in computational c
 
 The design favors simplicity: no AST or bytecode parsing, just type hints to
 separate compile-time values from runtime arrays. Numeta translates a restricted
-Python + NumPy-like subset into Fortran, then compiles and executes the generated
-code.
+Python + NumPy-like subset into Fortran or C, then compiles and executes the
+generated code.
 
-The backend is Fortran, because, well, [real programmers want to write FORTRAN
+The default backend is Fortran, because, well, [real programmers want to write FORTRAN
 programs in any language](https://en.wikipedia.org/wiki/Real_Programmers_Don%27t_Use_Pascal).
 More rationale is in [Why Fortran Backend](#why-fortran-backend).
 
@@ -47,15 +47,16 @@ More rationale is in [Why Fortran Backend](#why-fortran-backend).
 ## How it Works
 
 1. **Annotate** compile-time values using `nm.comptime` and write kernels with `@nm.jit`.
-2. **Transpile** the supported Python + NumPy-like subset into Fortran.
-3. **Compile** the generated Fortran into a shared library.
+2. **Transpile** the supported Python + NumPy-like subset into Fortran or C.
+3. **Compile** the generated Fortran/C into a shared library.
 4. **Execute** the compiled routine from Python.
 
 ## Limitations
 
 Numeta is still experimental. Compiled functions can return scalars or NumPy arrays,
 but not arbitrary Python objects. Only a subset of Python and NumPy is currently
-supported.
+supported. Backend coverage is evolving and some features may be better supported
+in one backend than the other.
 
 ## Installation
 
@@ -67,7 +68,7 @@ cd numeta
 pip install .
 ```
 
-You will need a Fortran compiler (only `gfortran` is currently supported) available on your `PATH` to compile generated code.
+You will need a Fortran compiler (only `gfortran` is currently supported) available on your `PATH` for the Fortran backend, or a C compiler (`gcc`) for the C backend.
 
 ## Quick Start
 
@@ -113,6 +114,41 @@ reversed because Fortran arrays are column-major, meaning the first index is the
 column and the second is the row.
 
 ## Usage
+
+### Defaults
+
+You can set global defaults once instead of passing them to every `@nm.jit` call:
+
+```python
+import numeta as nm
+
+nm.settings.set_default_backend("c")
+nm.settings.set_default_do_checks(False)
+nm.settings.set_default_compile_flags("-O2 -march=native")
+```
+
+Passing `None` to `@nm.jit` parameters will also use these defaults.
+
+### Backends
+
+Numeta supports two code generation backends:
+
+- `fortran` (default)
+- `c`
+
+Pick per function:
+
+```python
+@nm.jit(backend="c")
+def add_one(a):
+    a[0] += 1
+```
+
+Or set a global default:
+
+```python
+nm.settings.set_default_backend("c")
+```
 
 ### Type Hints
 
@@ -363,13 +399,13 @@ depends on the compile-time value ``length``.
 
 ## Why Fortran Backend?
 
-I chose to use Fortran as the backend for numeta because:
+I chose to use Fortran as the default backend for numeta because:
 
 1. **Familiarity**: I have experience with Fortran, which made it easier to implement.
 2. **Native Array Operations**: Fortran supports array operations natively, reducing the amount of code required to support them.
 3. **Fast Compilation**: Fortran is relatively fast to compile, which is beneficial for JIT compilation.
 
-While Fortran has some limitations, it allowed me to create a working prototype quickly. I'm open to exploring other backends in the future and improving the generated code, so suggestions are welcome.
+While Fortran has some limitations, it allowed me to create a working prototype quickly. The C backend is also supported and can be selected when desired. I'm open to improving the generated code in both backends, so suggestions are welcome.
 
 ## Contributing
 
