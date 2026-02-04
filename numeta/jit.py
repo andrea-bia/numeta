@@ -3,12 +3,14 @@ import warnings
 from typing import (
     Any,
     Callable,
+    Iterable,
     Optional,
     overload,
 )
 
 from .numeta_function import NumetaFunction
 from .numeta_library import NumetaLibrary
+from .settings import settings
 
 
 @overload
@@ -21,12 +23,12 @@ def jit(func):
 def jit(
     *,
     directory: Optional[str] = None,
-    do_checks: bool = True,
-    compile_flags: str = "-O3 -march=native",
+    do_checks: bool | None = None,
+    compile_flags: str | Iterable[str] | None = None,
     namer: Optional[Callable[..., str]] = None,
     inline: bool | int = False,
     library: NumetaLibrary | None = None,
-    backend: str = "fortran",
+    backend: str | None = None,
 ):
     """@jit(...) used with arguments."""
     ...
@@ -36,12 +38,12 @@ def jit(
     func: Callable[..., Any] | None = None,
     *,
     directory: Optional[str] = None,
-    do_checks: bool = True,
-    compile_flags: str = "-O3 -march=native",
+    do_checks: bool | None = None,
+    compile_flags: str | Iterable[str] | None = None,
     namer: Optional[Callable[..., str]] = None,
     inline: bool | int = False,
     library: NumetaLibrary | None = None,
-    backend: str = "fortran",
+    backend: str | None = None,
 ):
     """
     Compile a function with the Numeta JIT, either directly or via parameters.
@@ -60,9 +62,9 @@ def jit(
     directory
         Target directory for compiled output (default: none → temp dir).
     do_checks
-        Whether to enable compile-time argument validation.
+        Whether to enable compile-time argument validation. If None, uses settings default.
     compile_flags
-        Flags for the compiler optimization step.
+        Flags for the compiler optimization step. If None, uses settings default.
     namer
         Optional callable to name the JIT-generated symbols.
     inline
@@ -70,12 +72,20 @@ def jit(
     library
         Optional library container used to group jitted functions.
     backend
-        Backend to use for code generation ("fortran" or "c").
+        Backend to use for code generation ("fortran" or "c"). If None, uses settings default.
 
     Returns
     -------
     NumetaFunction
     """
+    if backend is None:
+        backend = settings.default_backend
+    if do_checks is None:
+        do_checks = settings.default_do_checks
+    if compile_flags is None:
+        compile_flags = settings.default_compile_flags
+    compile_flags = settings._normalize_compile_flags(compile_flags)
+    compile_flags_list = list(compile_flags)
     if func is None:
 
         def decorator_wrapper(f) -> NumetaFunction:
@@ -89,7 +99,7 @@ def jit(
                         f"function {name} has been loaded with different do_checks value: {nm_func.do_checks}",
                         stacklevel=2,
                     )
-                if nm_func.compile_flags != compile_flags:
+                if tuple(nm_func.compile_flags) != tuple(compile_flags_list):
                     warnings.warn(
                         f"function {name} has been loaded with different compile_flags value: {nm_func.compile_flags}",
                         stacklevel=2,
@@ -99,7 +109,7 @@ def jit(
                     f,
                     directory=directory,
                     do_checks=do_checks,
-                    compile_flags=compile_flags,
+                    compile_flags=compile_flags_list,
                     namer=namer,
                     inline=inline,
                     backend=backend,
@@ -114,7 +124,7 @@ def jit(
             func,
             directory=directory,
             do_checks=do_checks,
-            compile_flags=compile_flags,
+            compile_flags=compile_flags_list,
             namer=namer,
             inline=inline,
             backend=backend,

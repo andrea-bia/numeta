@@ -3,6 +3,7 @@ from numeta.ast import Variable, Namespace
 from numeta.datatype import DataType, float64, FortranType, get_datatype
 from numeta.array_shape import ArrayShape
 from numeta.numeta_function import NumetaCompiledFunction
+from numeta.settings import settings
 
 _n_global_constant = 0
 
@@ -14,8 +15,10 @@ def declare_global_constant(
     name=None,
     value=None,
     directory=None,
-    backend="fortran",
+    backend=None,
 ):
+    if backend is None:
+        backend = settings.default_backend
     if order not in ["C", "F"]:
         raise ValueError(f"Invalid order: {order}, must be 'C' or 'F'")
 

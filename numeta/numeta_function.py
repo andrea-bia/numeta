@@ -2,6 +2,7 @@ import numpy as np
 from pathlib import Path
 import tempfile
 import warnings
+from typing import Iterable
 
 from .compiler import Compiler
 from .settings import settings
@@ -26,9 +27,9 @@ class NumetaCompiledFunction(ExternalLibrary):
         symbolic_function,
         *,
         path: None | str | Path = None,
-        do_checks=False,
-        compile_flags="-O3 -march=native",
-        backend: str = "fortran",
+        do_checks: bool | None = None,
+        compile_flags: str | Iterable[str] | None = None,
+        backend: str | None = None,
     ):
         """
         Has to be linked at runtime
@@ -41,13 +42,15 @@ class NumetaCompiledFunction(ExternalLibrary):
         self._path = Path(path).absolute()
         self._path.mkdir(exist_ok=True)
         self._rpath = self._path
+        if do_checks is None:
+            do_checks = settings.default_do_checks
         self.do_checks = do_checks
+        if backend is None:
+            backend = settings.default_backend
         self.backend = backend
         self._requires_math = False
-        if isinstance(compile_flags, str):
-            self.compile_flags = compile_flags.split()
-        else:
-            self.compile_flags = compile_flags
+        resolved_flags = settings.default_compile_flags if compile_flags is None else compile_flags
+        self.compile_flags = Compiler._normalize_flags(resolved_flags)
         self.compiled = False
 
     @property
@@ -76,7 +79,7 @@ class NumetaCompiledFunction(ExternalLibrary):
             self.compile()
         return str(self._rpath)
 
-    def compile_obj(self) -> tuple[Path, Path]:
+    def compile_obj(self) -> tuple[Path, str]:
         """
         Compile source files using the selected backend and return the object file.
         """
@@ -222,11 +225,11 @@ class NumetaFunction:
         self,
         func,
         directory=None,
-        do_checks=True,
-        compile_flags="-O3 -march=native",
+        do_checks: bool | None = None,
+        compile_flags: str | Iterable[str] | None = None,
         namer=None,
         inline: bool | int = False,
-        backend: str = "fortran",
+        backend: str | None = None,
     ) -> None:
         super().__init__()
         self.name = func.__name__
@@ -234,8 +237,13 @@ class NumetaFunction:
             directory = tempfile.mkdtemp()
         self.directory = Path(directory).absolute()
         self.directory.mkdir(exist_ok=True)
+        if do_checks is None:
+            do_checks = settings.default_do_checks
         self.do_checks = do_checks
-        self.compile_flags = compile_flags
+        resolved_flags = settings.default_compile_flags if compile_flags is None else compile_flags
+        self.compile_flags = Compiler._normalize_flags(resolved_flags)
+        if backend is None:
+            backend = settings.default_backend
         self.backend = backend
 
         self.namer = namer
@@ -587,6 +595,7 @@ class NumetaFunction:
         self._pyc_extensions[signature] = PyCExtension(
             name=name,
             functions=procedures_infos,
+            do_checks=self.do_checks,
         )
 
         return self._pyc_extensions[signature]

@@ -5,10 +5,12 @@ from pathlib import Path
 import pickle
 import warnings
 from types import MappingProxyType
+from typing import Iterable
 
 from .numeta_function import NumetaFunction, NumetaCompiledFunction
 from .pyc_extension import PyCExtension
 from .compiler import Compiler
+from .settings import settings
 
 
 class NumetaLibrary:
@@ -131,7 +133,7 @@ class NumetaLibrary:
     def save(
         self,
         directory: str | Path,
-        compile_flags: str = "",
+        compile_flags: str | Iterable[str] | None = None,
     ) -> Path:
         directory = Path(directory).absolute()
         directory.mkdir(parents=True, exist_ok=True)
@@ -154,7 +156,8 @@ class NumetaLibrary:
             functions=procedures_infos,
         )
 
-        compiler = Compiler("gcc", compile_flags=compile_flags)
+        resolved_flags = settings.default_compile_flags if compile_flags is None else compile_flags
+        compiler = Compiler("gcc", compile_flags=resolved_flags)
 
         obj_files: set[Path] = set()
         dependencies = {}

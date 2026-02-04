@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 import subprocess as sp
 import textwrap
 from typing import Iterable
@@ -14,7 +15,7 @@ class Compiler:
     @staticmethod
     def _normalize_flags(compile_flags: str | Iterable[str]) -> list[str]:
         if isinstance(compile_flags, str):
-            return compile_flags.split()
+            return shlex.split(compile_flags)
         return list(compile_flags)
 
     def run_command(self, command: list[str], cwd: Path) -> sp.CompletedProcess[str]:

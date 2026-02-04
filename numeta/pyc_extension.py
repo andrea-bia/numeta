@@ -28,9 +28,12 @@ class PyCExtension:
     def set_lib_path(self, path):
         self.lib_path = path
 
-    def compile(self, core_lib_name, core_lib_path, directory, compile_flags, backend="fortran"):
+    def compile(self, core_lib_name, core_lib_path, directory, compile_flags, backend=None):
         if self.lib_path is not None:
             return self.lib_path
+
+        if backend is None:
+            backend = settings.default_backend
 
         wrapper_src = Path(directory) / f"{self.name}.c"
         self.write(wrapper_src)

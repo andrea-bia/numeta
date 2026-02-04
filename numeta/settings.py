@@ -1,3 +1,5 @@
+import shlex
+
 from .fortran.settings import settings as syntax_settings
 from .ast.settings import settings as ast_settings
 
@@ -11,6 +13,9 @@ class Settings:
         reorder_kwargs=True,
         add_shape_descriptors=True,
         ignore_fixed_shape_in_nested_calls=False,
+        default_backend="fortran",
+        default_do_checks=True,
+        default_compile_flags="-O3 -march=native",
     ):
         """Initialize the settings.
         Parameters
@@ -43,6 +48,15 @@ class Settings:
         self.__reorder_kwargs = reorder_kwargs
         self.__add_shape_descriptors = add_shape_descriptors
         self.__ignore_fixed_shape_in_nested_calls = ignore_fixed_shape_in_nested_calls
+        self.set_default_backend(default_backend)
+        self.set_default_do_checks(default_do_checks)
+        self.set_default_compile_flags(default_compile_flags)
+
+    @staticmethod
+    def _normalize_compile_flags(compile_flags):
+        if isinstance(compile_flags, str):
+            return tuple(shlex.split(compile_flags))
+        return tuple(compile_flags)
 
     def set_default_from_datatype(self, dtype, *, iso_c: bool = False):
         """Set the default Fortran type using a :class:`DataType` subclass."""
@@ -135,6 +149,37 @@ class Settings:
     @ignore_fixed_shape_in_nested_calls.setter
     def ignore_fixed_shape_in_nested_calls(self, value):
         self.__ignore_fixed_shape_in_nested_calls = value
+
+    @property
+    def default_backend(self):
+        return self.__default_backend
+
+    def set_default_backend(self, backend: str):
+        if not isinstance(backend, str):
+            raise TypeError("backend must be a string")
+        backend = backend.lower()
+        if backend not in {"fortran", "c"}:
+            raise ValueError("backend must be 'fortran' or 'c'")
+        self.__default_backend = backend
+
+    @property
+    def default_do_checks(self):
+        return self.__default_do_checks
+
+    def set_default_do_checks(self, value: bool):
+        if not isinstance(value, bool):
+            raise TypeError("default_do_checks must be a bool")
+        self.__default_do_checks = value
+
+    @property
+    def default_compile_flags(self):
+        return self.__default_compile_flags
+
+    def set_default_compile_flags(self, compile_flags):
+        if compile_flags is None:
+            raise TypeError("compile_flags cannot be None")
+        normalized = self._normalize_compile_flags(compile_flags)
+        self.__default_compile_flags = normalized
 
 
 settings = Settings(iso_C=True, use_numpy_allocator=True)
