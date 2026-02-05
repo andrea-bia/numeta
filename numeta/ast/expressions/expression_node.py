@@ -10,8 +10,8 @@ class ExpressionNode(Node):
 
     @property
     @abstractmethod
-    def _ftype(self):
-        """Return the Fortran type of the expression."""
+    def dtype(self):
+        """Return the DataType of the expression."""
 
     @property
     @abstractmethod

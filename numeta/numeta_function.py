@@ -342,7 +342,7 @@ class NumetaFunction:
                     if rank == 0:
                         out_var = builder.generate_local_variables(
                             "fc_r",
-                            ftype=dtype.get_fortran(),
+                            dtype=dtype,
                         )
                         return_arguments.append(out_var)
                         return_values.append(out_var)
@@ -350,7 +350,7 @@ class NumetaFunction:
 
                     shape_var = builder.generate_local_variables(
                         "fc_out_shape",
-                        ftype=size_t.get_fortran(bind_c=True),
+                        dtype=size_t,
                         shape=ArrayShape((rank,)),
                     )
                     return_arguments.append(shape_var)
@@ -358,14 +358,12 @@ class NumetaFunction:
                     array_shape = ArrayShape(tuple([None] * rank))
 
                     if settings.use_numpy_allocator or self.backend == "c":
-                        from numeta.fortran.external_modules.iso_c_binding import (
-                            FPointer_c,
-                            iso_c,
-                        )
+                        from numeta.fortran.external_modules.iso_c_binding import iso_c
+                        from numeta.datatype import c_ptr
 
                         out_ptr = builder.generate_local_variables(
                             "fc_out_ptr",
-                            ftype=FPointer_c,
+                            dtype=c_ptr,
                         )
                         return_arguments.append(out_ptr)
 
@@ -377,7 +375,7 @@ class NumetaFunction:
 
                         out_array = builder.generate_local_variables(
                             "fc_r",
-                            ftype=dtype.get_fortran(),
+                            dtype=dtype,
                             shape=array_shape,
                             pointer=True,
                         )
@@ -386,7 +384,7 @@ class NumetaFunction:
                     else:
                         out_array = builder.generate_local_variables(
                             "fc_r",
-                            ftype=dtype.get_fortran(),
+                            dtype=dtype,
                             shape=array_shape,
                             allocatable=True,
                         )
@@ -444,40 +442,25 @@ class NumetaFunction:
             """
             Converts an ArgumentSpec to a Variable.
             """
-            ftype = None
-            dtype = None
-            if self.backend == "c":
-                dtype = arg_spec.datatype
-            else:
-                ftype = arg_spec.datatype.get_fortran()
+            dtype = arg_spec.datatype
 
             if arg_spec.rank == 0:
-                return Variable(
-                    arg_spec.name, ftype=ftype, dtype=dtype, shape=SCALAR, intent=arg_spec.intent
-                )
+                return Variable(arg_spec.name, dtype=dtype, shape=SCALAR, intent=arg_spec.intent)
             elif arg_spec.shape is UNKNOWN:
                 return Variable(
                     arg_spec.name,
-                    ftype=ftype,
                     dtype=dtype,
                     shape=UNKNOWN,
                     intent=arg_spec.intent,
                 )
             elif arg_spec.shape.has_comptime_undefined_dims():
                 if settings.add_shape_descriptors:
-                    dim_ftype = None
-                    dim_dtype = None
-                    dim_use_c_types = False
-                    if self.backend == "c":
-                        dim_dtype = size_t
-                        dim_use_c_types = True
-                    else:
-                        dim_ftype = size_t.get_fortran(bind_c=True)
+                    dim_dtype = size_t
+                    dim_use_c_types = True
 
                     # The shape will to be passed as a separate argument
                     dim_var = Variable(
                         f"shape_{arg_spec.name}",
-                        ftype=dim_ftype,
                         dtype=dim_dtype,
                         use_c_types=dim_use_c_types,
                         shape=ArrayShape((arg_spec.rank,)),
@@ -493,7 +476,6 @@ class NumetaFunction:
                     shape = UNKNOWN
                 return Variable(
                     arg_spec.name,
-                    ftype=ftype,
                     dtype=dtype,
                     shape=shape,
                     intent=arg_spec.intent,
@@ -502,7 +484,6 @@ class NumetaFunction:
                 # The dimension is fixed
                 return Variable(
                     arg_spec.name,
-                    ftype=ftype,
                     dtype=dtype,
                     shape=arg_spec.shape,
                     intent=arg_spec.intent,

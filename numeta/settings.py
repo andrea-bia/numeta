@@ -65,9 +65,8 @@ class Settings:
         if not isinstance(dtype, type) or not issubclass(dtype, DataType):
             raise TypeError("dtype must be a DataType subclass")
 
-        ftype = dtype.get_fortran(bind_c=iso_c)
-        syntax_settings.set_default_fortran_type(ftype)
-        ast_settings.set_default_type(ftype)
+        syntax_settings.set_default_datatype(dtype)
+        ast_settings.set_default_datatype(dtype)
 
     def set_iso_C(self):
         """Set the ISO C compatibility mode."""

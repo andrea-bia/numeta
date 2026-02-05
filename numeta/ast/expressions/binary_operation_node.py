@@ -15,16 +15,12 @@ class BinaryOperationNode(ExpressionNode):
 
     @property
     def dtype(self):
-        return getattr(self.left, "dtype", None)
-
-    @property
-    def _ftype(self):
-        """Return the Fortran type of the expression."""
+        """Return the DataType of the expression."""
         # This is a simplification. In reality, the type of the result
         # depends on the types of the operands and the operation.
         # For example, dividing two integers should result in a real.
         # For now, we'll just return the type of the left operand.
-        return self.left._ftype
+        return getattr(self.left, "dtype", None)
 
     @property
     def _shape(self):

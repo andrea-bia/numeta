@@ -5,10 +5,11 @@ from numeta.fortran.settings import settings as syntax_settings
 class OmpNamespace(ExternalNamespace):
     def __init__(self):
         super().__init__("omp_lib", None)
-        self.add_method("omp_get_thread_num", arguments=[], result_=syntax_settings.DEFAULT_INTEGER)
-        self.add_method(
-            "omp_get_max_threads", arguments=[], result_=syntax_settings.DEFAULT_INTEGER
-        )
+        from numeta.datatype import int64
+
+        default_int = syntax_settings.DEFAULT_INT or int64
+        self.add_method("omp_get_thread_num", arguments=[], result_=default_int)
+        self.add_method("omp_get_max_threads", arguments=[], result_=default_int)
 
     def parallel_for(self, *args, **kwargs):
         from numeta.ast import For, Comment
@@ -109,4 +110,13 @@ class OmpNamespace(ExternalNamespace):
         self.atomic_update_op(variable, to_assign, "/")
 
 
-omp = OmpNamespace()
+class _LazyOmp:
+    _instance = None
+
+    def __getattr__(self, name):
+        if self._instance is None:
+            self._instance = OmpNamespace()
+        return getattr(self._instance, name)
+
+
+omp = _LazyOmp()

@@ -15,8 +15,8 @@ class FunctionCall(ExpressionNode):
         return getattr(self.function, "dtype", None)
 
     @property
-    def _ftype(self):
-        return self.function._ftype
+    def dtype(self):
+        return self.function.dtype
 
     @property
     def _shape(self):

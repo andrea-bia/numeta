@@ -1,18 +1,12 @@
-from .fortran_type import FortranType
-
-
-from .fortran_type import FortranType
-
-
 class SyntaxSettings:
     def __init__(
         self,
         c_like: bool = False,
-        int_kind: int = 8,
-        float_kind: int = 8,
-        complex_kind: int = 8,
-        bool_kind: int = 1,
-        char_kind: int = 1,
+        default_int=None,
+        default_float=None,
+        default_complex=None,
+        default_bool=None,
+        default_char=None,
         order: str = "F",
     ):
         self.__procedure_bind_c = False
@@ -28,11 +22,25 @@ class SyntaxSettings:
         else:
             self.unset_c_like()
 
-        self.set_default_integer_kind(int_kind)
-        self.set_default_real_kind(float_kind)
-        self.set_default_complex_kind(complex_kind)
-        self.set_default_logical_kind(bool_kind)
-        self.set_default_character_kind(char_kind)
+        self.DEFAULT_INT = None
+        self.DEFAULT_INTEGER = None
+        self.DEFAULT_FLOAT = None
+        self.DEFAULT_REAL = None
+        self.DEFAULT_COMPLEX = None
+        self.DEFAULT_BOOL = None
+        self.DEFAULT_LOGICAL = None
+        self.DEFAULT_CHAR = None
+        self.DEFAULT_CHARACTER = None
+        if default_int is not None:
+            self.set_default_datatype(default_int)
+        if default_float is not None:
+            self.set_default_datatype(default_float)
+        if default_complex is not None:
+            self.set_default_datatype(default_complex)
+        if default_bool is not None:
+            self.set_default_datatype(default_bool)
+        if default_char is not None:
+            self.set_default_datatype(default_char)
 
     def set_c_like(self):
         self.c_like = True
@@ -60,44 +68,39 @@ class SyntaxSettings:
         else:
             raise ValueError(f"Order {order} not supported")
 
-    # --- Direct FortranType setters --------------------------------------
-    def set_default_fortran_type(self, ftype: FortranType):
-        if not isinstance(ftype, FortranType):
-            raise TypeError("ftype must be a FortranType")
-        ftype_name = ftype.type
-        if ftype_name == "integer":
-            self.set_default_integer_kind(ftype.kind)
-        elif ftype_name == "real":
-            self.set_default_real_kind(ftype.kind)
-        elif ftype_name == "complex":
-            self.set_default_complex_kind(ftype.kind)
-        elif ftype_name == "logical":
-            self.set_default_logical_kind(ftype.kind)
-        elif ftype_name == "character":
-            self.set_default_character_kind(ftype.kind)
+    # --- Direct DataType setters --------------------------------------
+    def set_default_datatype(self, dtype):
+        from numeta.datatype import (
+            DataType,
+            int32,
+            int64,
+            float32,
+            float64,
+            complex64,
+            complex128,
+            bool8,
+            char,
+        )
+
+        if not (isinstance(dtype, type) and issubclass(dtype, DataType)):
+            raise TypeError("dtype must be a DataType subclass")
+
+        if dtype in (int32, int64):
+            self.DEFAULT_INT = dtype
+            self.DEFAULT_INTEGER = self.DEFAULT_INT
+        elif dtype in (float32, float64):
+            self.DEFAULT_FLOAT = dtype
+            self.DEFAULT_REAL = self.DEFAULT_FLOAT
+        elif dtype in (complex64, complex128):
+            self.DEFAULT_COMPLEX = dtype
+        elif dtype == bool8:
+            self.DEFAULT_BOOL = dtype
+            self.DEFAULT_LOGICAL = self.DEFAULT_BOOL
+        elif dtype == char:
+            self.DEFAULT_CHAR = dtype
+            self.DEFAULT_CHARACTER = self.DEFAULT_CHAR
         else:
-            raise NotImplementedError(f"Unsupported Fortran type {ftype_name}")
-
-    # --- Kind setters ----------------------------------------------------
-    def set_default_integer_kind(self, kind):
-        self.DEFAULT_INTEGER_KIND = kind
-        self.DEFAULT_INTEGER = FortranType("integer", kind)
-
-    def set_default_real_kind(self, kind):
-        self.DEFAULT_REAL_KIND = kind
-        self.DEFAULT_REAL = FortranType("real", kind)
-
-    def set_default_complex_kind(self, kind):
-        self.DEFAULT_COMPLEX_KIND = kind
-        self.DEFAULT_COMPLEX = FortranType("complex", kind)
-
-    def set_default_logical_kind(self, kind):
-        self.DEFAULT_LOGICAL_KIND = kind
-        self.DEFAULT_LOGICAL = FortranType("logical", kind)
-
-    def set_default_character_kind(self, kind):
-        self.DEFAULT_CHARACTER_KIND = kind
-        self.DEFAULT_CHARACTER = FortranType("character", kind)
+            raise NotImplementedError(f"Unsupported DataType {dtype}")
 
     # --- Properties ------------------------------------------------------
     @property

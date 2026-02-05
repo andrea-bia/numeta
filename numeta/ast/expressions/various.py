@@ -1,7 +1,6 @@
 from .expression_node import ExpressionNode
 from numeta.ast.tools import check_node
 from numeta.array_shape import ArrayShape
-from numeta.ast.settings import settings
 
 
 class Re(ExpressionNode):
@@ -9,8 +8,10 @@ class Re(ExpressionNode):
         self.variable = variable
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_REAL
+    def dtype(self):
+        from numeta.ast.settings import settings as ast_settings
+
+        return ast_settings.DEFAULT_FLOAT
 
     @property
     def _shape(self):
@@ -28,8 +29,10 @@ class Im(ExpressionNode):
         self.variable = variable
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_REAL
+    def dtype(self):
+        from numeta.ast.settings import settings as ast_settings
+
+        return ast_settings.DEFAULT_FLOAT
 
     @property
     def _shape(self):
@@ -47,14 +50,12 @@ class ArrayConstructor(ExpressionNode):
         self.elements = [check_node(e) for e in elements]
 
     @property
-    def _ftype(self):
+    def dtype(self):
         if not self.elements:
             raise ValueError("ArrayConstructor must have at least one element")
         for element in self.elements:
             if element is None:
                 continue
-            if hasattr(element, "_ftype"):
-                return element._ftype
             if hasattr(element, "dtype"):
                 return element.dtype
         raise ValueError("ArrayConstructor must have at least one typed element")

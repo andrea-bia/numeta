@@ -1,8 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
-from .fortran.external_modules.iso_c_binding import iso_c
 from .fortran.fortran_type import FortranType
-from .ast import StructType as AstStructType
 from .array_shape import ArrayShape, SCALAR, UNKNOWN
 
 
@@ -125,8 +123,18 @@ class DataType(metaclass=DataTypeMeta):
         if bind_c is None:
             from .settings import settings
 
-            return cls._fortran_bind_c_type if settings.iso_C else cls._fortran_type
-        return cls._fortran_bind_c_type if bind_c else cls._fortran_type
+            bind_c = settings.iso_C
+
+        if bind_c:
+            # Use lazy getter for bind_c types
+            if hasattr(cls, "_get_bind_c_type"):
+                ftype = cls._get_bind_c_type()
+            else:
+                ftype = cls._fortran_bind_c_type
+            if ftype is not None and ftype not in DataTypeMeta._ftype_bind_c:
+                DataTypeMeta._ftype_bind_c[ftype] = cls
+            return ftype
+        return cls._fortran_type
 
     @classmethod
     def get_capi_cast(cls, obj):
@@ -181,86 +189,175 @@ class ArrayType:
 class int32(DataType):
     _np_type = np.int32
     _fortran_type = FortranType("integer", 4)
-    _fortran_bind_c_type = FortranType("integer", iso_c.c_int32)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_int32"
     _capi_cast = staticmethod(lambda x: f"PyLong_AsLongLong({x})")
     _name = "int32"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("integer", iso_c.c_int32)
+        return cls._fortran_bind_c_type
 
 
 class int64(DataType):
     _np_type = np.int64
     _fortran_type = FortranType("integer", 8)
-    _fortran_bind_c_type = FortranType("integer", iso_c.c_int64)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_int64"
     _capi_cast = staticmethod(lambda x: f"PyLong_AsLongLong({x})")
     _name = "int64"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("integer", iso_c.c_int64)
+        return cls._fortran_bind_c_type
 
 
 class size_t(DataType):
     _np_type = None
     _fortran_type = None
-    _fortran_bind_c_type = FortranType("integer", iso_c.c_size_t)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_intp"
     _capi_cast = staticmethod(lambda x: f"PyLong_AsLongLong({x})")
     _name = "size_t"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("integer", iso_c.c_size_t)
+        return cls._fortran_bind_c_type
+
+
+class c_ptr(DataType):
+    _np_type = None
+    _fortran_type = None
+    _fortran_bind_c_type = None  # Set lazily
+    _cnp_type = "void*"
+    _capi_cast = staticmethod(lambda x: f"PyLong_AsVoidPtr({x})")
+    _name = "c_ptr"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("type", iso_c.c_ptr)
+        return cls._fortran_bind_c_type
 
 
 class float32(DataType):
     _np_type = np.float32
     _fortran_type = FortranType("real", 4)
-    _fortran_bind_c_type = FortranType("real", iso_c.c_float)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_float32"
     _capi_cast = staticmethod(lambda x: f"PyFloat_AsDouble({x})")
     _name = "float32"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("real", iso_c.c_float)
+        return cls._fortran_bind_c_type
 
 
 class float64(DataType):
     _np_type = np.float64
     _fortran_type = FortranType("real", 8)
-    _fortran_bind_c_type = FortranType("real", iso_c.c_double)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_float64"
     _capi_cast = staticmethod(lambda x: f"PyFloat_AsDouble({x})")
     _name = "float64"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("real", iso_c.c_double)
+        return cls._fortran_bind_c_type
 
 
 class complex64(DataType):
     _np_type = np.complex64
     _fortran_type = FortranType("complex", 4)
-    _fortran_bind_c_type = FortranType("complex", iso_c.c_float_complex)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_complex64"
     _capi_cast = staticmethod(
         lambda x: f"CMPLX(PyComplex_RealAsDouble({x}), PyComplex_ImagAsDouble({x}))",
     )
     _name = "complex64"
 
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("complex", iso_c.c_float_complex)
+        return cls._fortran_bind_c_type
+
 
 class complex128(DataType):
     _np_type = np.complex128
     _fortran_type = FortranType("complex", 8)
-    _fortran_bind_c_type = FortranType("complex", iso_c.c_double_complex)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_complex128"
     _capi_cast = staticmethod(
         lambda x: f"CMPLX(PyComplex_RealAsDouble({x}), PyComplex_ImagAsDouble({x}))"
     )
     _name = "complex128"
 
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("complex", iso_c.c_double_complex)
+        return cls._fortran_bind_c_type
+
 
 class bool8(DataType):
     _np_type = np.bool_
     _fortran_type = FortranType("logical", 1)
-    _fortran_bind_c_type = FortranType("logical", iso_c.c_bool)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_bool"
     _capi_cast = staticmethod(lambda x: f"PyObject_IsTrue({x})")
     _name = "bool8"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("logical", iso_c.c_bool)
+        return cls._fortran_bind_c_type
 
 
 class char(DataType):
     _np_type = np.str_
     _fortran_type = FortranType("character", 1)
-    _fortran_bind_c_type = FortranType("character", iso_c.c_char)
+    _fortran_bind_c_type = None  # Set lazily
     _cnp_type = "npy_str"
     _capi_cast = staticmethod(lambda x: f"PyUnicode_AsUTF8({x})")
     _name = "char"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("character", iso_c.c_char)
+        return cls._fortran_bind_c_type
 
 
 class StructType(DataType, metaclass=DataTypeMeta):
@@ -309,6 +406,8 @@ def make_struct_type(np_dtype, members, name=None):
         name = f"struct{StructType._counter}"
 
     StructType._counter += 1
+
+    from .ast import StructType as AstStructType
 
     fortran_type = FortranType(
         "type",
@@ -365,6 +464,8 @@ def get_datatype(dtype):
     #
     if isinstance(dtype, type) and issubclass(dtype, DataType):
         return dtype
+    if isinstance(dtype, FortranType):
+        return DataType.from_ftype(dtype)
     #
     # Python numeric types
     #
@@ -396,5 +497,10 @@ def get_datatype(dtype):
     # It could be a struct
     if hasattr(dtype, "fields"):
         return get_struct_from_np_dtype(dtype)
+
+    from numeta.ast.types import Type as AstType
+
+    if isinstance(dtype, AstType):
+        return DataType.from_ftype(dtype)
 
     raise ValueError(f"Invalid dtype {dtype}")

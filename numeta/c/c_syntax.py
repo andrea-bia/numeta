@@ -66,21 +66,34 @@ _C_BINARY_OPS = {
 }
 
 
-def _literal_blocks_from_ftype(value: Any, ftype: Any) -> list[str]:
-    ftype_type = getattr(ftype, "type", None)
-    if ftype_type == "type":
-        return [f"{value}"]
-    if ftype_type == "integer":
-        return [str(int(value))]
-    if ftype_type == "real":
-        return [str(float(value))]
-    if ftype_type == "complex":
-        return ["(", str(value.real), " + ", str(value.imag), "*I", ")"]
-    if ftype_type == "logical":
+def _literal_blocks_from_dtype(value: Any, dtype: Any) -> list[str]:
+    from numeta.datatype import (
+        DataType,
+        int32,
+        int64,
+        float32,
+        float64,
+        complex64,
+        complex128,
+        bool8,
+        char,
+    )
+
+    if not (isinstance(dtype, type) and issubclass(dtype, DataType)):
+        raise TypeError(f"dtype must be a DataType subclass, got {dtype}")
+
+    if dtype == bool8:
         return ["1" if value is True else "0"]
-    if ftype_type == "character":
+    if dtype in (int32, int64):
+        return [str(int(value))]
+    if dtype in (float32, float64):
+        return [str(float(value))]
+    if dtype in (complex64, complex128):
+        return ["(", str(value.real), " + ", str(value.imag), "*I", ")"]
+    if dtype == char:
         return [f'"{value}"']
-    raise ValueError(f"Unknown type: {ftype_type}")
+
+    raise ValueError(f"Unknown dtype: {dtype}")
 
 
 def render_expr_blocks(
@@ -91,10 +104,10 @@ def render_expr_blocks(
     if expr is None:
         return [""]
     if isinstance(expr, LiteralNode):
-        return _literal_blocks_from_ftype(expr.value, cast(FortranType, expr._ftype))
+        return _literal_blocks_from_dtype(expr.value, expr.dtype)
     if isinstance(expr, (int, float, complex, bool, str, np.generic)):
         literal = LiteralNode(expr)
-        return _literal_blocks_from_ftype(literal.value, cast(FortranType, literal._ftype))
+        return _literal_blocks_from_dtype(literal.value, literal.dtype)
     if isinstance(expr, Variable):
         if shape_arg_map is not None and expr.name in shape_arg_map:
             return [f"{shape_arg_map[expr.name]}_dims"]
@@ -337,7 +350,7 @@ def _render_allocate_blocks(stmt: Allocate) -> list[str]:
     if not stmt.target._shape.fortran_order:
         dims = dims[::-1]
 
-    dtype = DataType.from_ftype(stmt.target._ftype)
+    dtype = stmt.target.dtype
     ctype = dtype.get_cnumpy()
     size_terms = []
     for dim in dims:
@@ -520,7 +533,7 @@ def _render_function_interface_start_blocks(function: Any) -> list[str]:
 
 
 def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
-    result = _render_type_blocks(stmt.variable._ftype)
+    result = _render_type_blocks(stmt.variable.dtype)
 
     if stmt.variable.parameter:
         result = ["const ", *result]
@@ -536,12 +549,12 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
 
     if stmt.variable.assign is not None:
         if isinstance(stmt.variable.assign, (int, float, complex, bool, str)):
-            values = _literal_blocks_from_ftype(stmt.variable.assign, stmt.variable._ftype)
+            values = _literal_blocks_from_dtype(stmt.variable.assign, stmt.variable.dtype)
             result += [" = ", *values]
         elif isinstance(stmt.variable.assign, np.ndarray):
             values = []
             for v in stmt.variable.assign.ravel():
-                values += _literal_blocks_from_ftype(v, stmt.variable._ftype)
+                values += _literal_blocks_from_dtype(v, stmt.variable.dtype)
                 values.append(", ")
             if values:
                 values.pop()
@@ -591,6 +604,10 @@ def _render_shape_blocks(shape, fortran_order: bool = True) -> list[str]:
     return result
 
 
-def _render_type_blocks(ftype: FortranType) -> list[str]:
-    dtype = DataType.from_ftype(ftype)
-    return [dtype.get_cnumpy()]
+def _render_type_blocks(dtype) -> list[str]:
+    from numeta.datatype import DataType
+
+    if isinstance(dtype, type) and issubclass(dtype, DataType):
+        return [dtype.get_cnumpy()]
+
+    raise TypeError(f"dtype must be a DataType subclass, got {dtype}")

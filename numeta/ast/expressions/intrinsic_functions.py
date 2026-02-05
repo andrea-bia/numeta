@@ -1,5 +1,4 @@
 from numeta.ast.tools import check_node
-from numeta.ast.settings import settings
 from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
 from .expression_node import ExpressionNode
 
@@ -19,9 +18,9 @@ class IntrinsicFunction(ExpressionNode):
         return type(self)(*new_args)
 
     @property
-    def _ftype(self):
+    def dtype(self):
         # default behavior for a lot of intrinsic functions
-        return self.arguments[0]._ftype
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):
@@ -53,16 +52,18 @@ class MathIntrinsic(IntrinsicFunction):
     """
 
     @property
-    def _ftype(self):
-        # We look at the first argument to determine the output type base
-        arg_type = self.arguments[0]._ftype
-        type_name = getattr(arg_type, "type", None)
+    def dtype(self):
+        from numeta.datatype import int32, int64
+        from numeta.ast.settings import settings as ast_settings
 
-        if type_name == "integer":
-            return settings.DEFAULT_REAL
+        # We look at the first argument to determine the output type base
+        arg_dtype = self.arguments[0].dtype
+
+        if arg_dtype in (int32, int64):
+            return ast_settings.DEFAULT_FLOAT
 
         # For real or complex, return the same type
-        return arg_type
+        return arg_dtype
 
 
 class UnaryMathIntrinsic(MathIntrinsic, UnaryIntrinsicFunction):
@@ -73,24 +74,17 @@ class Abs(UnaryIntrinsicFunction):
     token = "abs"
 
     @property
-    def _ftype(self):
-        arg_type = self.arguments[0]._ftype
-        type_name = getattr(arg_type, "type", None)
+    def dtype(self):
+        from numeta.datatype import float32, float64, complex64, complex128
 
-        if type_name == "complex":
-            # abs(complex) returns real.
-            # Match precision: complex(4) -> real(4), complex(8) -> real(8)
-            from numeta.datatype import float32, float64
+        arg_dtype = self.arguments[0].dtype
 
-            kind = getattr(arg_type, "kind", None)
-            if str(kind) == "4":
-                return float32.get_fortran()
-            if str(kind) == "8":
-                return float64.get_fortran()
+        if arg_dtype == complex64:
+            return float32
+        elif arg_dtype == complex128:
+            return float64
 
-            return settings.DEFAULT_REAL
-
-        return arg_type
+        return arg_dtype
 
 
 class Neg(UnaryIntrinsicFunction):
@@ -105,8 +99,10 @@ class Allocated(UnaryIntrinsicFunction):
     token = "allocated"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_LOGICAL
+    def dtype(self):
+        from numeta.datatype import bool8
+
+        return bool8
 
     @property
     def _shape(self):
@@ -117,8 +113,10 @@ class All(UnaryIntrinsicFunction):
     token = "all"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_LOGICAL
+    def dtype(self):
+        from numeta.datatype import bool8
+
+        return bool8
 
     @property
     def _shape(self):
@@ -134,8 +132,8 @@ class Shape(UnaryIntrinsicFunction):
         super().__init__(argument)
 
     @property
-    def _ftype(self):
-        return self.arguments[0]._ftype
+    def dtype(self):
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):
@@ -151,24 +149,30 @@ class Real(UnaryIntrinsicFunction):
     token = "real"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_REAL
+    def dtype(self):
+        from numeta.ast.settings import settings as ast_settings
+
+        return ast_settings.DEFAULT_FLOAT
 
 
 class Imag(UnaryIntrinsicFunction):
     token = "aimag"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_REAL
+    def dtype(self):
+        from numeta.ast.settings import settings as ast_settings
+
+        return ast_settings.DEFAULT_FLOAT
 
 
 class Conjugate(UnaryIntrinsicFunction):
     token = "conjg"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_COMPLEX
+    def dtype(self):
+        from numeta.ast.settings import settings as ast_settings
+
+        return ast_settings.DEFAULT_COMPLEX
 
     @property
     def _shape(self):
@@ -179,14 +183,17 @@ class Complex(IntrinsicFunction):
     token = "cmplx"
 
     def __init__(self, real, imaginary, kind=None):
+        from numeta.ast.settings import settings as ast_settings
+
         if kind is None:
-            kind = settings.DEFAULT_COMPLEX.kind
+            kind = ast_settings.DEFAULT_COMPLEX.get_fortran().kind
         super().__init__(real, imaginary, kind)
 
     @property
-    def _ftype(self):
-        # TODO to fix, not consistent with Optional kind
-        return settings.DEFAULT_COMPLEX
+    def dtype(self):
+        from numeta.ast.settings import settings as ast_settings
+
+        return ast_settings.DEFAULT_COMPLEX
 
     @property
     def _shape(self):
@@ -306,8 +313,8 @@ class Dotproduct(BinaryIntrinsicFunction):
     token = "dot_product"
 
     @property
-    def _ftype(self):
-        return self.arguments[0]._ftype
+    def dtype(self):
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):
@@ -318,8 +325,10 @@ class Rank(UnaryIntrinsicFunction):
     token = "rank"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_INTEGER
+    def dtype(self):
+        from numeta.datatype import int64
+
+        return int64
 
     @property
     def _shape(self):
@@ -330,8 +339,10 @@ class Size(BinaryIntrinsicFunction):
     token = "size"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_INTEGER
+    def dtype(self):
+        from numeta.datatype import int64
+
+        return int64
 
     @property
     def _shape(self):
@@ -342,8 +353,8 @@ class Max(IntrinsicFunction):
     token = "max"
 
     @property
-    def _ftype(self):
-        return self.arguments[0]._ftype
+    def dtype(self):
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):
@@ -354,8 +365,8 @@ class Maxval(UnaryIntrinsicFunction):
     token = "maxval"
 
     @property
-    def _ftype(self):
-        return self.arguments[0]._ftype
+    def dtype(self):
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):
@@ -366,8 +377,8 @@ class Min(IntrinsicFunction):
     token = "min"
 
     @property
-    def _ftype(self):
-        return self.arguments[0]._ftype
+    def dtype(self):
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):
@@ -378,8 +389,8 @@ class Minval(UnaryIntrinsicFunction):
     token = "minval"
 
     @property
-    def _ftype(self):
-        return self.arguments[0]._ftype
+    def dtype(self):
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):
@@ -414,8 +425,10 @@ class Popcnt(UnaryIntrinsicFunction):
     token = "popcnt"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_INTEGER
+    def dtype(self):
+        from numeta.datatype import int64
+
+        return int64
 
     @property
     def _shape(self):
@@ -426,8 +439,10 @@ class Trailz(UnaryIntrinsicFunction):
     token = "trailz"
 
     @property
-    def _ftype(self):
-        return settings.DEFAULT_INTEGER
+    def dtype(self):
+        from numeta.datatype import int64
+
+        return int64
 
     @property
     def _shape(self):
@@ -438,8 +453,8 @@ class Sum(UnaryIntrinsicFunction):
     token = "sum"
 
     @property
-    def _ftype(self):
-        return self.arguments[0]._ftype
+    def dtype(self):
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):
@@ -450,8 +465,8 @@ class Matmul(BinaryIntrinsicFunction):
     token = "matmul"
 
     @property
-    def _ftype(self):
-        return self.arguments[0]._ftype
+    def dtype(self):
+        return self.arguments[0].dtype
 
     @property
     def _shape(self):

@@ -30,8 +30,8 @@ class Function(NamedEntity):
         return FunctionInterfaceDeclaration(self)
 
     @property
-    def _ftype(self):
-        raise NotImplementedError("Function type is not defined")
+    def dtype(self):
+        raise NotImplementedError("Function dtype is not defined")
 
     @property
     def _shape(self):
@@ -40,7 +40,7 @@ class Function(NamedEntity):
     def get_result_variable(self):
         from numeta.ast.variable import Variable
 
-        return Variable("res0", ftype=self._ftype, shape=self._shape)
+        return Variable("res0", dtype=self.dtype, shape=self._shape)
 
     def get_with_updated_variables(self, variables_couples):
         new_args = [arg.get_with_updated_variables(variables_couples) for arg in self.arguments]

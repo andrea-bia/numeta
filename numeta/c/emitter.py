@@ -179,7 +179,7 @@ class CEmitter:
     def _render_global_variable(self, var: Variable) -> list[str]:
         lines = []
         shape = var._shape
-        dtype = DataType.from_ftype(var._ftype) if var.has_ftype else var.dtype
+        dtype = var.dtype
         if dtype is None:
             return []
         ctype = dtype.get_cnumpy()
@@ -319,7 +319,7 @@ class CEmitter:
                 # or better, have _render_global_variable populate it if asked?
                 # Or just manually populate it here since we have the source.
 
-                dtype = DataType.from_ftype(source._ftype) if source.has_ftype else source.dtype
+                dtype = source.dtype
                 if dtype is None:
                     continue
                 ctype = dtype.get_cnumpy()
@@ -405,11 +405,11 @@ class CEmitter:
         source: Any = var.source
         if source is None:
             return None
-        ftype = getattr(source, "_ftype", None)
-        if ftype is None:
+        dtype = getattr(source, "dtype", None)
+        if dtype is None:
             return None
         try:
-            return DataType.from_ftype(ftype)
+            return dtype
         except Exception:
             return None
 
@@ -1711,8 +1711,9 @@ class CEmitter:
 
             arg0_str = args[0]
             if self._is_integer_expr(expr.args[0]):
-                real_type = ast_settings.DEFAULT_REAL
-                dtype = DataType.from_ftype(real_type)
+                from numeta.datatype import float64
+
+                dtype = float64
                 ctype = dtype.get_cnumpy()
                 arg0_str = f"({ctype})({arg0_str})"
 
@@ -1743,14 +1744,15 @@ class CEmitter:
             if is_complex:
                 return f"c{name}({', '.join(args)})"
 
-            # Cast integer arguments to DEFAULT_REAL (e.g. float64) to ensure consistency
+            # Cast integer arguments to DEFAULT_FLOAT (e.g. float64) to ensure consistency
             # with numeta settings, rather than relying on implicit C int->double promotion.
             new_args = []
             for i, arg_expr in enumerate(expr.args):
                 arg_str = args[i]
                 if self._is_integer_expr(arg_expr):
-                    real_type = ast_settings.DEFAULT_REAL
-                    dtype = DataType.from_ftype(real_type)
+                    from numeta.datatype import float64
+
+                    dtype = float64
                     ctype = dtype.get_cnumpy()
                     arg_str = f"({ctype})({arg_str})"
                 new_args.append(arg_str)
@@ -1762,8 +1764,9 @@ class CEmitter:
             for i, arg_expr in enumerate(expr.args):
                 arg_str = args[i]
                 if self._is_integer_expr(arg_expr):
-                    real_type = ast_settings.DEFAULT_REAL
-                    dtype = DataType.from_ftype(real_type)
+                    from numeta.datatype import float64
+
+                    dtype = float64
                     ctype = dtype.get_cnumpy()
                     arg_str = f"({ctype})({arg_str})"
                 new_args.append(arg_str)
@@ -1800,20 +1803,8 @@ class CEmitter:
             dtype = getattr(source, "dtype", None)
             if dtype is not None:
                 return dtype.get_cnumpy()
-            ftype = getattr(source, "_ftype", None)
-        else:
-            ftype = None
-        if ftype is not None:
-            ftype_type = getattr(ftype, "type", None)
-            if ftype_type == "character":
-                return "char"
-            if (
-                ftype_type == "type"
-                and getattr(getattr(ftype, "kind", None), "name", None) == "c_ptr"
-            ):
-                return "void*"
-            dtype = DataType.from_ftype(ftype)
-            return dtype.get_cnumpy()
+        # Fallback
+        return "double"
         if var.vtype is None:
             return "double"
         name = var.vtype.dtype.name

@@ -1,21 +1,17 @@
 import numpy as np
 
 from numeta.builder_helper import BuilderHelper
-from numeta.datatype import DataType, FortranType, get_datatype
+from numeta.datatype import DataType, get_datatype
 from numeta.fortran.external_modules.iso_c_binding import iso_c
 
 
-def cast(variable, dtype: DataType | FortranType | np.generic):
-
-    if isinstance(dtype, FortranType):
-        ftype = dtype
-    else:
-        ftype = get_datatype(dtype).get_fortran()
+def cast(variable, dtype: DataType | np.generic):
+    dtype = get_datatype(dtype)
 
     builder = BuilderHelper.get_current_builder()
     pointer = builder.generate_local_variables(
         "fc_v",
-        ftype=ftype,
+        dtype=dtype,
         pointer=True,
     )
 

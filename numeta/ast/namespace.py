@@ -110,7 +110,7 @@ class ExternalNamespace(Namespace):
                 {
                     # to make method pickable
                     "__module__": python_module_name,
-                    "_ftype": property(lambda self: result_),
+                    "dtype": property(lambda self: result_),
                     "_shape": property(lambda self: SCALAR),
                 },
             )

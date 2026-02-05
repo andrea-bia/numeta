@@ -97,20 +97,26 @@ def lower_procedure(procedure: Procedure, backend: str = "fortran") -> IRProcedu
     def _get_vtype(expr, shape=None):
         if shape is None:
             shape = _safe_shape(expr)
+        dtype = getattr(expr, "dtype", None)
+        if dtype is None:
+            raise ValueError(f"Cannot determine dtype for expression: {expr}")
         if backend == "c":
-            dtype = getattr(expr, "dtype", None)
-            if dtype is not None:
-                return _lower_value_type_from_dtype(dtype, shape)
-        return _lower_value_type(expr._ftype, shape)
+            return _lower_value_type_from_dtype(dtype, shape)
+        ftype = dtype.get_fortran()
+        return _lower_value_type(ftype, shape)
+        raise ValueError(f"Cannot determine type for expression: {expr}")
 
     def lower_var(var: Variable, *, is_arg: bool) -> IRVar:
         key = id(var)
         if key in var_cache:
             return var_cache[key]
-        if backend == "c" and var.dtype is not None:
+        if var.dtype is None:
+            raise ValueError(f"Variable {var.name} has no dtype")
+        if backend == "c":
             vtype = _lower_value_type_from_dtype(var.dtype, var._shape)
         else:
-            vtype = _lower_value_type(var._ftype, var._shape)
+            ftype = var.dtype.get_fortran()
+            vtype = _lower_value_type(ftype, var._shape)
         storage = "value"
         if getattr(var, "allocatable", False):
             storage = "allocatable"

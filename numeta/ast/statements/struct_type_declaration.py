@@ -14,4 +14,4 @@ class StructTypeDeclaration(StatementWithScope):
 
     def get_statements(self):
         for name, fortran_type, shape in self.struct_type.fields:
-            yield VariableDeclaration(Variable(name, ftype=fortran_type, shape=shape))
+            yield VariableDeclaration(Variable(name, dtype=fortran_type, shape=shape))

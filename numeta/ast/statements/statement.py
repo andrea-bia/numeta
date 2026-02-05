@@ -27,6 +27,8 @@ class Statement(Node):
     def extract_entities(self):
         """Recursively extract all entities within the statement's child nodes."""
         for child in self.children:
+            if child is None:
+                continue
             yield from child.extract_entities()
 
     def count_statements(self):

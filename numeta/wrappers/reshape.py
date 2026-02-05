@@ -15,7 +15,7 @@ def reshape(variable, shape, order="C"):
     builder = BuilderHelper.get_current_builder()
     pointer = builder.generate_local_variables(
         "fc_v",
-        ftype=variable._ftype,
+        dtype=variable.dtype,
         shape=ArrayShape(tuple([None] * shape.rank), fortran_order=fortran_order),
         pointer=True,
     )

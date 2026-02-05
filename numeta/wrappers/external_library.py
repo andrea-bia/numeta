@@ -29,7 +29,7 @@ class ExternalLibraryWrapper(ExternalLibrary):
         ]
         return_type = None
         if restype is not None:
-            return_type = convert_argument("res0", restype, bind_c=bind_c)._ftype
+            return_type = convert_argument("res0", restype, bind_c=bind_c).dtype
 
         self.methods.add_method(name, symbolic_arguments, return_type, bind_c=bind_c)
 
@@ -53,9 +53,8 @@ def convert_argument(name, hint, bind_c=True):
         # ftype = dtype.get_fortran(bind_c=bind_c)
         shape = hint.shape
     elif isinstance(hint, FortranType):
-        # ftype = hint
+        dtype = DataType.from_ftype(hint)
         shape = SCALAR
-        return Variable(name, ftype=hint, shape=shape)
     elif isinstance(hint, type) and issubclass(hint, DataType):
         dtype = hint
         # ftype = hint.get_fortran(bind_c=bind_c)

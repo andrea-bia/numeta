@@ -1,6 +1,6 @@
 import numpy as np
 from numeta.ast import Variable, Namespace
-from numeta.datatype import DataType, float64, FortranType, get_datatype
+from numeta.datatype import DataType, float64, get_datatype
 from numeta.array_shape import ArrayShape
 from numeta.numeta_function import NumetaCompiledFunction
 from numeta.settings import settings
@@ -10,7 +10,7 @@ _n_global_constant = 0
 
 def declare_global_constant(
     shape,
-    dtype: DataType | FortranType | np.generic = float64,
+    dtype: DataType | np.generic = float64,
     order="C",
     name=None,
     value=None,
@@ -28,15 +28,7 @@ def declare_global_constant(
             shape = (shape,)
         shape = ArrayShape(shape, fortran_order=fortran_order)
 
-    dtype_arg = None
-    if isinstance(dtype, FortranType):
-        ftype = dtype
-    else:
-        if backend == "c":
-            ftype = None
-            dtype_arg = get_datatype(dtype)
-        else:
-            ftype = get_datatype(dtype).get_fortran()
+    dtype_arg = get_datatype(dtype)
 
     if name is None:
         global _n_global_constant
@@ -48,7 +40,6 @@ def declare_global_constant(
 
     var = Variable(
         name=name,
-        ftype=ftype,
         dtype=dtype_arg,
         shape=shape,
         assign=value,

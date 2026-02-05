@@ -20,7 +20,7 @@ def prange(*args, **kwargs):
         raise ValueError("Invalid number of arguments")
 
     builder = BuilderHelper.get_current_builder()
-    I = builder.generate_local_variables("fc_i", ftype=syntax_settings.DEFAULT_INTEGER)
+    I = builder.generate_local_variables("fc_i", dtype=syntax_settings.DEFAULT_INT)
 
     with omp.parallel_for(I, start, stop - 1, step=step, **kwargs):
         yield I

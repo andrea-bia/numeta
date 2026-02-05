@@ -53,9 +53,14 @@ from numeta.ast.statements.variable_declaration import VariableDeclaration
 from numeta.ast.statements.various import Comment, PointerAssignment, Print, SimpleStatement
 
 
-def _literal_blocks_from_ftype(value: Any, ftype: FortranType) -> list[str]:
-    kind = ftype.get_kind_str()
+def _literal_blocks_from_dtype(value: Any, dtype: Any) -> list[str]:
+    from numeta.datatype import DataType
 
+    if not (isinstance(dtype, type) and issubclass(dtype, DataType)):
+        raise TypeError(f"dtype must be a DataType subclass, got {dtype}")
+
+    ftype = dtype.get_fortran()
+    kind = ftype.get_kind_str()
     if ftype.type == "type":
         return [f"{value}"]
     if ftype.type == "integer":
@@ -68,6 +73,7 @@ def _literal_blocks_from_ftype(value: Any, ftype: FortranType) -> list[str]:
         return [f".true._{kind}" if value is True else f".false._{kind}"]
     if ftype.type == "character":
         return [f'"{value}"']
+
     raise ValueError(f"Unknown type: {ftype.type}")
 
 
@@ -75,10 +81,10 @@ def render_expr_blocks(expr: Any) -> list[str]:
     if expr is None:
         return [""]
     if isinstance(expr, LiteralNode):
-        return _literal_blocks_from_ftype(expr.value, expr._ftype)
+        return _literal_blocks_from_dtype(expr.value, expr.dtype)
     if isinstance(expr, (int, float, complex, bool, str, np.generic)):
         literal = LiteralNode(expr)
-        return _literal_blocks_from_ftype(literal.value, literal._ftype)
+        return _literal_blocks_from_dtype(literal.value, literal.dtype)
     if isinstance(expr, Variable):
         return [expr.name]
     if isinstance(expr, NamedEntity):
@@ -457,7 +463,7 @@ def _render_function_interface_start_blocks(function: Any) -> list[str]:
 
 
 def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
-    result = _render_type_blocks(stmt.variable._ftype)
+    result = _render_type_blocks(stmt.variable.dtype)
 
     if stmt.variable.allocatable:
         result += [", ", "allocatable", ", ", "dimension"]
@@ -495,11 +501,11 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
 
     if stmt.variable.assign is not None:
         if isinstance(stmt.variable.assign, (int, float, complex, bool, str)):
-            values = _literal_blocks_from_ftype(stmt.variable.assign, stmt.variable._ftype)
+            values = _literal_blocks_from_dtype(stmt.variable.assign, stmt.variable.dtype)
         elif isinstance(stmt.variable.assign, np.ndarray):
             values = []
             for v in stmt.variable.assign.ravel():
-                values += _literal_blocks_from_ftype(v, stmt.variable._ftype)
+                values += _literal_blocks_from_dtype(v, stmt.variable.dtype)
                 values.append(", ")
             if values:
                 values.pop()
@@ -568,8 +574,16 @@ def _render_shape_blocks(shape, fortran_order: bool = True) -> list[str]:
     return result
 
 
-def _render_type_blocks(ftype: FortranType) -> list[str]:
-    kind = ftype.get_kind_str()
-    if ftype.kind is not None:
-        return [ftype.type, "(", kind, ")"]
+def _render_type_blocks(dtype) -> list[str]:
+    from numeta.datatype import DataType
+
+    if isinstance(dtype, type) and issubclass(dtype, DataType):
+        # Convert DataType to Fortran type representation
+        ftype = dtype.get_fortran()
+        kind = ftype.get_kind_str()
+        if ftype.kind is not None:
+            return [ftype.type, "(", kind, ")"]
+        return [ftype.type]
+
+    raise TypeError(f"dtype must be a DataType subclass, got {dtype}")
     return [ftype.type]

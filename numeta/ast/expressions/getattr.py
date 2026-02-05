@@ -7,20 +7,22 @@ class GetAttr(ExpressionNode):
         self.attr = attr
 
     @property
-    def _ftype(self):
-        struct_type = self.variable._ftype.kind
-        for name, fortran_type, _ in struct_type.fields:
-            if name == self.attr:
-                return fortran_type
-        raise ValueError(f"Attribute '{self.attr}' not found in struct type '{struct_type.name}'")
+    def dtype(self):
+        struct_dtype = self.variable.dtype
+        if hasattr(struct_dtype, "_members"):
+            for name, dtype, _ in struct_dtype._members:
+                if name == self.attr:
+                    return dtype
+        raise ValueError(f"Attribute '{self.attr}' not found in struct type '{struct_dtype}'")
 
     @property
     def _shape(self):
-        struct_type = self.variable._ftype.kind
-        for name, _, shape in struct_type.fields:
-            if name == self.attr:
-                return shape
-        raise ValueError(f"Attribute '{self.attr}' not found in struct type '{struct_type.name}'")
+        struct_dtype = self.variable.dtype
+        if hasattr(struct_dtype, "_members"):
+            for name, _, shape in struct_dtype._members:
+                if name == self.attr:
+                    return shape
+        raise ValueError(f"Attribute '{self.attr}' not found in struct type '{struct_dtype}'")
 
     def extract_entities(self):
         yield from self.variable.extract_entities()

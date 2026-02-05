@@ -6,17 +6,42 @@ from numeta.array_shape import UNKNOWN
 class IsoCBinding(ExternalNamespace):
     def __init__(self):
         super().__init__("iso_c_binding", None)
+        self._initialized = False
 
-        self.c_int32 = Variable("c_int32_t", ftype=None)
-        self.c_int64 = Variable("c_int64_t", ftype=None)
-        self.c_size_t = Variable("c_size_t", ftype=None)
-        self.c_float = Variable("c_float", ftype=None)
-        self.c_double = Variable("c_double", ftype=None)
-        self.c_float_complex = Variable("c_float_complex", ftype=None)
-        self.c_double_complex = Variable("c_double_complex", ftype=None)
-        self.c_bool = Variable("c_bool", ftype=None)
-        self.c_char = Variable("c_char", ftype=None)
-        self.c_ptr = Variable("c_ptr", ftype=None)
+    def _ensure_initialized(self):
+        try:
+            initialized = object.__getattribute__(self, "_initialized")
+        except AttributeError:
+            object.__setattr__(self, "_initialized", False)
+            initialized = False
+        if initialized:
+            return
+        object.__setattr__(self, "_initialized", True)
+
+        from numeta.datatype import (
+            int32,
+            int64,
+            size_t,
+            float32,
+            float64,
+            complex64,
+            complex128,
+            bool8,
+            char,
+            c_ptr,
+        )
+
+        # First create all the basic type variables (without referencing each other)
+        self.c_int32 = Variable("c_int32_t", dtype=int32)
+        self.c_int64 = Variable("c_int64_t", dtype=int64)
+        self.c_size_t = Variable("c_size_t", dtype=size_t)
+        self.c_float = Variable("c_float", dtype=float32)
+        self.c_double = Variable("c_double", dtype=float64)
+        self.c_float_complex = Variable("c_float_complex", dtype=complex64)
+        self.c_double_complex = Variable("c_double_complex", dtype=complex128)
+        self.c_bool = Variable("c_bool", dtype=bool8)
+        self.c_char = Variable("c_char", dtype=char)
+        self.c_ptr = Variable("c_ptr", dtype=c_ptr)
 
         self.add_variable(
             self.c_int32,
@@ -31,11 +56,13 @@ class IsoCBinding(ExternalNamespace):
             self.c_ptr,
         )
 
+        # Now add methods that reference these variables
+        # Note: c_f_pointer uses c_ptr which we've already created above
         self.add_method(
             "c_f_pointer",
             [
-                Variable("cptr", self.c_ptr),
-                Variable("fptr", ftype=None),
+                Variable("cptr", dtype=c_ptr),
+                Variable("fptr", dtype=c_ptr),
             ],
             bind_c=False,
         )
@@ -43,22 +70,28 @@ class IsoCBinding(ExternalNamespace):
         self.add_method(
             "c_loc",
             [
-                Variable("x", ftype=None),
+                Variable("x", dtype=c_ptr),
             ],
-            result_=FortranType("type", self.c_ptr),
+            result_=c_ptr,
             bind_c=False,
         )
 
+    def __getattr__(self, name):
+        self._ensure_initialized()
+        try:
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            return super().__getattr__(name)
 
-iso_c = IsoCBinding()
 
-FInt32_c = FortranType("integer", iso_c.c_int32)
-FInt64_c = FortranType("integer", iso_c.c_int64)
-FSizet_c = FortranType("integer", iso_c.c_size_t)
-FReal32_c = FortranType("real", iso_c.c_float)
-FReal64_c = FortranType("real", iso_c.c_double)
-FComplex32_c = FortranType("complex", iso_c.c_float_complex)
-FComplex64_c = FortranType("complex", iso_c.c_double_complex)
-FLogical_c = FortranType("logical", iso_c.c_bool)
-FCharacter_c = FortranType("character", iso_c.c_char)
-FPointer_c = FortranType("type", iso_c.c_ptr)
+# Create a lazy wrapper that initializes on first access
+class _LazyIsoCBinding:
+    _instance = None
+
+    def __getattr__(self, name):
+        if self._instance is None:
+            self._instance = IsoCBinding()
+        return getattr(self._instance, name)
+
+
+iso_c = _LazyIsoCBinding()

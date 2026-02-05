@@ -10,6 +10,7 @@ from .datatype import (
     bool8,
     char,
     size_t,
+    c_ptr,
     get_datatype,
 )
 from .types_hint import comptime

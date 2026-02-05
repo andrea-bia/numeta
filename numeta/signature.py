@@ -143,8 +143,7 @@ def get_signature_and_runtime_args(
             )
         elif isinstance(arg, ExpressionNode):
             to_execute = False
-            ftype = arg._ftype
-            dtype = DataType.from_ftype(ftype)
+            dtype = arg.dtype
             # Let's stay safe, let's assume is an expression so intent is in
             intent = "in"
             # These are the cases where we can assume it is an inout argument

@@ -1,5 +1,5 @@
 from numeta.wrappers.external_library import ExternalLibraryWrapper
-from numeta.fortran.external_modules.iso_c_binding import FPointer_c, FSizet_c
+from numeta.datatype import c_ptr, size_t
 
 
 class NumpyMemLib(ExternalLibraryWrapper):
@@ -7,8 +7,8 @@ class NumpyMemLib(ExternalLibraryWrapper):
 
     def __init__(self):
         super().__init__("nm_numpy_mem", to_link=False)
-        self.add_method("numpy_allocate", [FPointer_c, FSizet_c], None)
-        self.add_method("numpy_deallocate", [FPointer_c], None)
+        self.add_method("numpy_allocate", [c_ptr, size_t], None)
+        self.add_method("numpy_deallocate", [c_ptr], None)
 
     def get_code(self):
         return """        

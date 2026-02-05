@@ -76,15 +76,15 @@ class BuilderHelper:
         from .ast import PointerAssignment
         from .ast.expressions import ArrayConstructor
         from .wrappers import numpy_mem
-        from .fortran.external_modules.iso_c_binding import FPointer_c, iso_c
+        from .fortran.external_modules.iso_c_binding import iso_c
         from .array_shape import ArrayShape
-        from .datatype import DataType
+        from .datatype import DataType, c_ptr
 
         # create a c pointer variable that will be also deallocated
-        variable_ptr = Variable(f"{name}_c_ptr", FPointer_c)
+        variable_ptr = Variable(f"{name}_c_ptr", dtype=c_ptr)
         self.allocated_arrays[name] = variable_ptr
 
-        dtype = DataType.from_ftype(kwargs["ftype"])
+        dtype = kwargs["dtype"]
 
         size = dtype.get_nbytes()
         for dim in shape.dims:
@@ -96,7 +96,7 @@ class BuilderHelper:
         # Fortran is so versone
         # create fortran pointer (with lower bound 1)
         variable_lb1 = Variable(
-            f"{name}_f_ptr_lb1", ftype=kwargs["ftype"], shape=ArrayShape((None,)), pointer=True
+            f"{name}_f_ptr_lb1", dtype=dtype, shape=ArrayShape((None,)), pointer=True
         )
         # point the fortran pointer to the allocated memory
         iso_c.c_f_pointer(variable_ptr, variable_lb1, ArrayConstructor(size))
@@ -141,7 +141,7 @@ class BuilderHelper:
                         rank = var._shape.rank
                         shape = Variable(
                             f"fc_out_shape_{i}",
-                            ftype=size_t.get_fortran(bind_c=True),
+                            dtype=size_t,
                             shape=ArrayShape((rank,)),
                             intent="out",
                         )
@@ -155,20 +155,20 @@ class BuilderHelper:
                         ptr.intent = "out"
                         self.symbolic_function.add_variable(ptr)
 
-                        ret.append((DataType.from_ftype(var._ftype), rank))
+                        ret.append((var.dtype, rank))
                     elif var._shape is SCALAR and var.name not in self.symbolic_function.arguments:
 
                         var.intent = "out"
                         self.symbolic_function.add_variable(var)
 
-                        ret.append((DataType.from_ftype(var._ftype), 0))
+                        ret.append((var.dtype, 0))
                     else:
                         if var._shape is SCALAR:
-                            tmp = BuilderHelper.generate_local_variables("fc_s", ftype=var._ftype)
+                            tmp = BuilderHelper.generate_local_variables("fc_s", dtype=var.dtype)
                             tmp[:] = var
                             tmp.intent = "out"
                             self.symbolic_function.add_variable(tmp)
-                            ret.append((DataType.from_ftype(var._ftype), 0))
+                            ret.append((var.dtype, 0))
                             continue
                         expr = var
                 else:
@@ -179,11 +179,11 @@ class BuilderHelper:
                     # We have to copy the expression in a new array
                     expr_shape = expr._shape
                     if expr_shape is SCALAR:
-                        tmp = BuilderHelper.generate_local_variables("fc_s", ftype=expr._ftype)
+                        tmp = BuilderHelper.generate_local_variables("fc_s", dtype=expr.dtype)
                         tmp[:] = expr
                         tmp.intent = "out"
                         self.symbolic_function.add_variable(tmp)
-                        ret.append((DataType.from_ftype(expr._ftype), 0))
+                        ret.append((expr.dtype, 0))
                         continue
 
                     if expr_shape is UNKNOWN:
@@ -194,7 +194,7 @@ class BuilderHelper:
                     rank = expr_shape.rank
                     shape = Variable(
                         f"fc_out_shape_{i}",
-                        ftype=size_t.get_fortran(bind_c=True),
+                        dtype=size_t,
                         shape=ArrayShape((rank,)),
                         intent="out",
                     )
@@ -205,7 +205,7 @@ class BuilderHelper:
                     # extents back through the C API.
                     tmp_shape = Variable(
                         f"fc_out_shape_{i}_tmp",
-                        ftype=size_t.get_fortran(bind_c=True),
+                        dtype=size_t,
                         shape=ArrayShape((rank,)),
                     )
                     tmp_shape[:] = Shape(expr)
@@ -218,7 +218,7 @@ class BuilderHelper:
 
                     tmp = empty(
                         alloc_dims,
-                        dtype=expr._ftype,
+                        dtype=expr.dtype,
                         order="F" if expr_shape.fortran_order else "C",
                     )
 
@@ -234,7 +234,7 @@ class BuilderHelper:
                     ptr.intent = "out"
                     self.symbolic_function.add_variable(ptr)
 
-                    ret.append((DataType.from_ftype(expr._ftype), rank))
+                    ret.append((expr.dtype, rank))
 
             for array in self.allocated_arrays.values():
                 self.deallocate_array(array)
@@ -260,7 +260,7 @@ class BuilderHelper:
         for local_variable in function.get_local_variables().values():
             new_local_variable = self.generate_local_variables(
                 "nm_inline_",
-                ftype=local_variable._ftype,
+                dtype=local_variable.dtype,
                 shape=local_variable._shape,
                 intent=local_variable.intent,
                 pointer=local_variable.pointer,

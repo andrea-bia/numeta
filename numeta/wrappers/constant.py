@@ -1,10 +1,10 @@
 import numpy as np
 from numeta.builder_helper import BuilderHelper
-from numeta.datatype import DataType, FortranType, get_datatype
+from numeta.datatype import DataType, get_datatype
 from numeta.array_shape import ArrayShape
 
 
-def constant(value, dtype: DataType | FortranType | np.generic | None = None, order="C", name=None):
+def constant(value, dtype: DataType | np.generic | None = None, order="C", name=None):
     if order not in ["C", "F"]:
         raise ValueError(f"Invalid order: {order}, must be 'C' or 'F'")
 
@@ -35,11 +35,7 @@ def constant(value, dtype: DataType | FortranType | np.generic | None = None, or
             dtype = DataType.from_np_dtype(np_dtype)
         assign_value = value
 
-    # Convert dtype to FortranType
-    if isinstance(dtype, FortranType):
-        ftype = dtype
-    else:
-        ftype = get_datatype(dtype).get_fortran()
+    dtype = get_datatype(dtype)
 
     if name is None:
         name = "fc_c"
@@ -52,7 +48,7 @@ def constant(value, dtype: DataType | FortranType | np.generic | None = None, or
 
         return builder.generate_local_variables(
             name,
-            ftype=ftype,
+            dtype=dtype,
             # TODO
             # parameter=True, # parameter is not supported yet, so not really constant.
             # parameter=True,
@@ -62,7 +58,7 @@ def constant(value, dtype: DataType | FortranType | np.generic | None = None, or
     array_shape = ArrayShape(shape, fortran_order=fortran_order)
     return builder.generate_local_variables(
         name,
-        ftype=ftype,
+        dtype=dtype,
         shape=array_shape,
         # TODO
         # parameter=True, # parameter is not supported yet, so not really constant.

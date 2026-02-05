@@ -22,8 +22,8 @@ class GetItem(ExpressionNode):
         return getattr(self.variable, "dtype", None)
 
     @property
-    def _ftype(self):
-        return self.variable._ftype
+    def dtype(self):
+        return self.variable.dtype
 
     @property
     def _shape(self):
