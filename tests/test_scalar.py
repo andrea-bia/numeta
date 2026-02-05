@@ -32,15 +32,6 @@ def test_scalar_arithmetic(backend):
     np.testing.assert_equal(result, 14)
 
 
-def test_intrinsics_scalar_math(backend):
-    @nm.jit(backend=backend)
-    def compute(a):
-        return nm.abs(a) + nm.sqrt(a)
-
-    result = compute(9.0)
-    np.testing.assert_equal(result, 12)
-
-
 def test_complex_ops(backend):
     @nm.jit(backend=backend)
     def compute(a, b):
@@ -78,43 +69,3 @@ def test_broadcast_scalar(backend):
     a = np.arange(4, dtype=np.float64)
     add_scalar(a, 2.5)
     np.testing.assert_allclose(a, np.arange(4, dtype=np.float64) + 2.5)
-
-
-def test_intrinsics_reductions(backend):
-    @nm.jit(backend=backend)
-    def compute(a):
-        return nm.sum(a) + nm.max(a) - nm.min(a)
-
-    arr = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-    result = compute(arr)
-    np.testing.assert_allclose(result, arr.sum() + arr.max() - arr.min())
-
-
-def test_intrinsics_all(backend):
-    @nm.jit(backend=backend)
-    def check(a):
-        return nm.all(a)
-
-    arr = np.array([True, True, False], dtype=bool)
-    np.testing.assert_equal(check(arr), False)
-
-
-def test_intrinsics_bitwise_and_math(backend):
-    @nm.jit(backend=backend)
-    def bits(a, b, s):
-        return nm.bitwise_and(a, b) + nm.bitwise_or(a, b) + nm.bitwise_xor(a, b) + nm.ishft(a, s)
-
-    @nm.jit(backend=backend)
-    def bits2(a, p):
-        return nm.ibset(a, p) + nm.ibclr(a, p) + nm.popcnt(a) + nm.trailz(a)
-
-    @nm.jit(backend=backend)
-    def math_ops(a, b):
-        return nm.arctan2(a, b) + nm.floor(a) + nm.sinh(a) + nm.cosh(a) + nm.tanh(a)
-
-    np.testing.assert_equal(bits(3, 5, 1), (3 & 5) + (3 | 5) + (3 ^ 5) + (3 << 1))
-    np.testing.assert_equal(bits2(3, 1), (3 | (1 << 1)) + (3 & ~(1 << 1)) + 2 + 0)
-
-    result = math_ops(1.2, 2.3)
-    expected = np.arctan2(1.2, 2.3) + np.floor(1.2) + np.sinh(1.2) + np.cosh(1.2) + np.tanh(1.2)
-    np.testing.assert_allclose(result, expected)

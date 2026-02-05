@@ -6,6 +6,7 @@ import numpy as np
 
 from numeta.datatype import DataType
 from numeta.settings import settings as nm_settings
+from numeta.ast.settings import settings as ast_settings
 from numeta.ast.namespace import Namespace
 from numeta.ast.variable import Variable
 
@@ -1619,6 +1620,20 @@ class CEmitter:
             return expr.vtype.dtype.name == "complex"
         return False
 
+    def _is_integer_expr(self, expr: IRExpr) -> bool:
+        if isinstance(expr, IRLiteral) and isinstance(expr.value, int):
+            return True
+        if expr.vtype and expr.vtype.dtype.name == "integer":
+            return True
+        if (
+            isinstance(expr, IRVarRef)
+            and expr.var
+            and self._dtype_from_irvar(expr.var)
+            and self._dtype_from_irvar(expr.var).name == "integer"
+        ):
+            return True
+        return False
+
     def _render_intrinsic(self, expr: IRIntrinsic) -> str:
         name = expr.name
         args = [self._render_expr(arg) for arg in expr.args]
@@ -1668,8 +1683,45 @@ class CEmitter:
                     helper_name = self._register_reduction_helper(name, info["ctype"])
                     return f"{helper_name}({base.var.name}, {total})"
             return "0"
+        if name == "abs":
+            self._requires_math = True
+            if not expr.args:
+                return "abs()"
+            arg0 = expr.args[0]
+            if self._is_complex_expr(arg0):
+                return f"cabs({args[0]})"
+
+            is_int = False
+            if isinstance(arg0, IRVarRef) and arg0.var is not None:
+                dtype = self._dtype_from_irvar(arg0.var)
+                if dtype and dtype.name == "integer":
+                    is_int = True
+            if not is_int and arg0.vtype and arg0.vtype.dtype.name == "integer":
+                is_int = True
+            if not is_int and isinstance(arg0, IRLiteral) and isinstance(arg0.value, int):
+                is_int = True
+
+            if is_int:
+                return f"llabs({args[0]})"
+            return f"fabs({args[0]})"
+
+        if name == "log10":
+            self._requires_math = True
+            is_complex = any(self._is_complex_expr(arg) for arg in expr.args)
+
+            arg0_str = args[0]
+            if self._is_integer_expr(expr.args[0]):
+                real_type = ast_settings.DEFAULT_REAL
+                dtype = DataType.from_ftype(real_type)
+                ctype = dtype.get_cnumpy()
+                arg0_str = f"({ctype})({arg0_str})"
+
+            if is_complex:
+                # Workaround for missing clog10 in C99: log10(z) = log(z)/log(10)
+                return f"(clog({arg0_str})/log(10.0))"
+            return f"log10({arg0_str})"
+
         if name in {
-            "abs",
             "exp",
             "sqrt",
             "sin",
@@ -1678,14 +1730,44 @@ class CEmitter:
             "asin",
             "acos",
             "atan",
-            "atan2",
-            "floor",
             "sinh",
             "cosh",
             "tanh",
+            "asinh",
+            "acosh",
+            "atanh",
+            "log",
         }:
             self._requires_math = True
-            return f"{name}({', '.join(args)})"
+            is_complex = any(self._is_complex_expr(arg) for arg in expr.args)
+            if is_complex:
+                return f"c{name}({', '.join(args)})"
+
+            # Cast integer arguments to DEFAULT_REAL (e.g. float64) to ensure consistency
+            # with numeta settings, rather than relying on implicit C int->double promotion.
+            new_args = []
+            for i, arg_expr in enumerate(expr.args):
+                arg_str = args[i]
+                if self._is_integer_expr(arg_expr):
+                    real_type = ast_settings.DEFAULT_REAL
+                    dtype = DataType.from_ftype(real_type)
+                    ctype = dtype.get_cnumpy()
+                    arg_str = f"({ctype})({arg_str})"
+                new_args.append(arg_str)
+            return f"{name}({', '.join(new_args)})"
+
+        if name in {"atan2", "floor", "ceil", "hypot", "copysign"}:
+            self._requires_math = True
+            new_args = []
+            for i, arg_expr in enumerate(expr.args):
+                arg_str = args[i]
+                if self._is_integer_expr(arg_expr):
+                    real_type = ast_settings.DEFAULT_REAL
+                    dtype = DataType.from_ftype(real_type)
+                    ctype = dtype.get_cnumpy()
+                    arg_str = f"({ctype})({arg_str})"
+                new_args.append(arg_str)
+            return f"{name}({', '.join(new_args)})"
         if name == "real":
             if expr.args and self._is_complex_expr(expr.args[0]):
                 return f"creal({args[0]})"

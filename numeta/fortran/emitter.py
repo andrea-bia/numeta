@@ -50,6 +50,12 @@ _FORTRAN_BINARY_OPS = {
     "pow": "**",
 }
 
+# Mapping for intrinsics that differ in Fortran
+_FORTRAN_INTRINSIC_MAP = {
+    "ceil": "ceiling",
+    "copysign": "sign",
+}
+
 
 class FortranEmitter:
     def emit_procedure(self, proc: IRProcedure) -> str:
@@ -177,6 +183,20 @@ class FortranEmitter:
                 return render_stmt_lines(stmt.payload, indent=indent)
         return [print_block(["! unsupported statement"], indent=indent)]
 
+    def _is_integer_expr(self, expr: IRExpr) -> bool:
+        if isinstance(expr, IRLiteral) and isinstance(expr.value, int):
+            return True
+        if expr.vtype and expr.vtype.dtype.name == "integer":
+            return True
+        if (
+            isinstance(expr, IRVarRef)
+            and expr.var
+            and expr.var.vtype
+            and expr.var.vtype.dtype.name == "integer"
+        ):
+            return True
+        return False
+
     def _expr_blocks(self, expr: IRExpr | None) -> list[str]:
         if expr is None:
             return [""]
@@ -239,7 +259,82 @@ class FortranEmitter:
                 blocks += self._join_args(expr.args)
                 blocks += ["]"]
                 return blocks
-            blocks = [expr.name, "("]
+
+            # Map intrinsic name if necessary
+            name = _FORTRAN_INTRINSIC_MAP.get(expr.name, expr.name)
+
+            # Workaround for LOG10(complex) which is not standard in Fortran
+            if name == "log10" and expr.args:
+                arg0 = expr.args[0]
+                is_complex = False
+                if arg0.vtype and arg0.vtype.dtype.name == "complex":
+                    is_complex = True
+                elif (
+                    isinstance(arg0, IRVarRef)
+                    and arg0.var
+                    and arg0.var.vtype
+                    and arg0.var.vtype.dtype.name == "complex"
+                ):
+                    is_complex = True
+
+                if is_complex:
+                    arg_blocks = self._expr_blocks(arg0)
+                    return [
+                        "(",
+                        "log",
+                        "(",
+                        *arg_blocks,
+                        ")",
+                        "/",
+                        "log",
+                        "(",
+                        "10.0",
+                        ")",
+                        ")",
+                    ]
+
+            # Cast integer arguments to real for math functions that require it
+            if name in {
+                "exp",
+                "log",
+                "log10",
+                "sqrt",
+                "sin",
+                "cos",
+                "tan",
+                "asin",
+                "acos",
+                "atan",
+                "atan2",
+                "sinh",
+                "cosh",
+                "tanh",
+                "asinh",
+                "acosh",
+                "atanh",
+                "erf",
+                "erfc",
+                "gamma",
+                "lgamma",
+                "hypot",
+            }:
+                args_blocks = []
+                for arg in expr.args:
+                    arg_blocks = self._expr_blocks(arg)
+                    if self._is_integer_expr(arg):
+                        args_blocks.append(["real(", *arg_blocks, ")"])
+                    else:
+                        args_blocks.append(arg_blocks)
+
+                blocks = [name, "("]
+                for i, arg_b in enumerate(args_blocks):
+                    if i > 0:
+                        blocks.append(", ")
+                    blocks += arg_b
+                blocks.append(")")
+                return blocks
+
+            blocks = [name, "("]
             blocks += self._join_args(expr.args)
             blocks += [")"]
             return blocks

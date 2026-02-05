@@ -44,8 +44,53 @@ class BinaryIntrinsicFunction(IntrinsicFunction):
         )
 
 
+class MathIntrinsic(IntrinsicFunction):
+    """
+    Base class for mathematical intrinsic functions.
+    If the argument is integer, it promotes the return type to real (float).
+    If the argument is complex, it returns complex.
+    If the argument is real, it returns real.
+    """
+
+    @property
+    def _ftype(self):
+        # We look at the first argument to determine the output type base
+        arg_type = self.arguments[0]._ftype
+        type_name = getattr(arg_type, "type", None)
+
+        if type_name == "integer":
+            return settings.DEFAULT_REAL
+
+        # For real or complex, return the same type
+        return arg_type
+
+
+class UnaryMathIntrinsic(MathIntrinsic, UnaryIntrinsicFunction):
+    pass
+
+
 class Abs(UnaryIntrinsicFunction):
     token = "abs"
+
+    @property
+    def _ftype(self):
+        arg_type = self.arguments[0]._ftype
+        type_name = getattr(arg_type, "type", None)
+
+        if type_name == "complex":
+            # abs(complex) returns real.
+            # Match precision: complex(4) -> real(4), complex(8) -> real(8)
+            from numeta.datatype import float32, float64
+
+            kind = getattr(arg_type, "kind", None)
+            if str(kind) == "4":
+                return float32.get_fortran()
+            if str(kind) == "8":
+                return float64.get_fortran()
+
+            return settings.DEFAULT_REAL
+
+        return arg_type
 
 
 class Neg(UnaryIntrinsicFunction):
@@ -173,56 +218,88 @@ class Transpose(UnaryIntrinsicFunction):
         return ArrayShape(self.arguments[0]._shape.dims[::-1])
 
 
-class Exp(UnaryIntrinsicFunction):
+class Exp(UnaryMathIntrinsic):
     token = "exp"
 
 
-class Sqrt(UnaryIntrinsicFunction):
+class Log(UnaryMathIntrinsic):
+    token = "log"
+
+
+class Log10(UnaryMathIntrinsic):
+    token = "log10"
+
+
+class Sqrt(UnaryMathIntrinsic):
     token = "sqrt"
 
 
-class Floor(UnaryIntrinsicFunction):
+class Floor(UnaryMathIntrinsic):
     token = "floor"
 
 
-class Sin(UnaryIntrinsicFunction):
+class Ceil(UnaryMathIntrinsic):
+    token = "ceil"
+
+
+class Sin(UnaryMathIntrinsic):
     token = "sin"
 
 
-class Cos(UnaryIntrinsicFunction):
+class Cos(UnaryMathIntrinsic):
     token = "cos"
 
 
-class Tan(UnaryIntrinsicFunction):
+class Tan(UnaryMathIntrinsic):
     token = "tan"
 
 
-class Sinh(UnaryIntrinsicFunction):
+class Sinh(UnaryMathIntrinsic):
     token = "sinh"
 
 
-class Cosh(UnaryIntrinsicFunction):
+class Cosh(UnaryMathIntrinsic):
     token = "cosh"
 
 
-class Tanh(UnaryIntrinsicFunction):
+class Tanh(UnaryMathIntrinsic):
     token = "tanh"
 
 
-class Arcsin(UnaryIntrinsicFunction):
+class Arcsin(UnaryMathIntrinsic):
     token = "asin"
 
 
-class Arccos(UnaryIntrinsicFunction):
+class Arccos(UnaryMathIntrinsic):
     token = "acos"
 
 
-class Arctan(UnaryIntrinsicFunction):
+class Arctan(UnaryMathIntrinsic):
     token = "atan"
 
 
-class Arctan2(BinaryIntrinsicFunction):
+class Arctan2(BinaryIntrinsicFunction, MathIntrinsic):
     token = "atan2"
+
+
+class Arcsinh(UnaryMathIntrinsic):
+    token = "asinh"
+
+
+class Arccosh(UnaryMathIntrinsic):
+    token = "acosh"
+
+
+class Arctanh(UnaryMathIntrinsic):
+    token = "atanh"
+
+
+class Hypot(BinaryIntrinsicFunction, MathIntrinsic):
+    token = "hypot"
+
+
+class Copysign(BinaryIntrinsicFunction, MathIntrinsic):
+    token = "copysign"
 
 
 class Dotproduct(BinaryIntrinsicFunction):
@@ -401,8 +478,11 @@ conj = Conjugate
 complex = Complex
 transpose = Transpose
 exp = Exp
+log = Log
+log10 = Log10
 sqrt = Sqrt
 floor = Floor
+ceil = Ceil
 sin = Sin
 cos = Cos
 tan = Tan
@@ -413,6 +493,11 @@ arcsin = Arcsin
 arccos = Arccos
 arctan = Arctan
 arctan2 = Arctan2
+arcsinh = Arcsinh
+arccosh = Arccosh
+arctanh = Arctanh
+hypot = Hypot
+copysign = Copysign
 dot = Dotproduct
 ndim = Rank
 size = Size
