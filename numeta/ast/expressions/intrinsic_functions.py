@@ -209,19 +209,19 @@ class Tanh(UnaryIntrinsicFunction):
     token = "tanh"
 
 
-class ASin(UnaryIntrinsicFunction):
+class Arcsin(UnaryIntrinsicFunction):
     token = "asin"
 
 
-class ACos(UnaryIntrinsicFunction):
+class Arccos(UnaryIntrinsicFunction):
     token = "acos"
 
 
-class ATan(UnaryIntrinsicFunction):
+class Arctan(UnaryIntrinsicFunction):
     token = "atan"
 
 
-class ATan2(BinaryIntrinsicFunction):
+class Arctan2(BinaryIntrinsicFunction):
     token = "atan2"
 
 
@@ -385,3 +385,48 @@ class Matmul(BinaryIntrinsicFunction):
         if len(b_shape.dims) == 1:
             return ArrayShape((a_shape.dims[0],))
         return ArrayShape((a_shape.dims[0], b_shape.dims[1]))
+
+
+# Aliases to match numpy conventions
+abs = Abs
+negative = Neg
+logical_not = Not
+allocated = Allocated
+all = All
+shape = Shape
+real = Real
+imag = Imag
+conjugate = Conjugate
+conj = Conjugate
+complex = Complex
+transpose = Transpose
+exp = Exp
+sqrt = Sqrt
+floor = Floor
+sin = Sin
+cos = Cos
+tan = Tan
+sinh = Sinh
+cosh = Cosh
+tanh = Tanh
+arcsin = Arcsin
+arccos = Arccos
+arctan = Arctan
+arctan2 = Arctan2
+dot = Dotproduct
+ndim = Rank
+size = Size
+maximum = Max
+max = Maxval
+minimum = Min
+min = Minval
+bitwise_and = Iand
+bitwise_or = Ior
+bitwise_xor = Xor
+ishft = Ishft
+ibset = Ibset
+ibclr = Ibclr
+popcnt = Popcnt
+trailz = Trailz
+sum = Sum
+matmul = Matmul

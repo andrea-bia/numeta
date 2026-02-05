@@ -4,57 +4,13 @@ import numpy as np
 import numeta as nm
 from numeta.array_shape import ArrayShape, SCALAR
 from numeta.ast import Variable, Assignment, LiteralNode, StructType
-from numeta.ast.expressions import GetAttr
+from numeta.ast.expressions import GetAttr, ArrayConstructor
 from numeta.ast import For, While, If, ElseIf, Else
 from numeta.ast.statements.tools import print_block
 from numeta.fortran.fortran_syntax import render_expr_blocks, render_stmt_lines
 from numeta.c.c_syntax import (
     render_expr_blocks as render_expr_blocks_c,
     render_stmt_lines as render_stmt_lines_c,
-)
-from numeta.ast.expressions import (
-    Abs,
-    Neg,
-    Not,
-    Allocated,
-    Shape,
-    All,
-    Real,
-    Imag,
-    Complex,
-    Conjugate,
-    Transpose,
-    Exp,
-    Sqrt,
-    Floor,
-    Sin,
-    Cos,
-    Tan,
-    Sinh,
-    Cosh,
-    Tanh,
-    ASin,
-    ACos,
-    ATan,
-    ATan2,
-    Dotproduct,
-    Rank,
-    Size,
-    Max,
-    Maxval,
-    Min,
-    Minval,
-    Iand,
-    Ior,
-    Xor,
-    Ishft,
-    Ibset,
-    Ibclr,
-    Popcnt,
-    Trailz,
-    Sum,
-    Matmul,
-    ArrayConstructor,
 )
 from numeta.ast.statements import VariableDeclaration, Call
 from numeta.ast import Procedure, Namespace, Scope
@@ -180,7 +136,7 @@ def test_complex_function_default(backend):
 
     a = Variable("a", syntax_settings.DEFAULT_REAL)
     b = Variable("b", syntax_settings.DEFAULT_REAL)
-    expr = Complex(a, b)
+    expr = nm.complex(a, b)
     assert_render(expr, backend, fortran="cmplx(a, b, c_double_complex)\n")
 
 
@@ -191,53 +147,53 @@ def test_complex_function(backend):
 
     a = Variable("a", syntax_settings.DEFAULT_REAL)
     b = Variable("b", syntax_settings.DEFAULT_REAL)
-    expr = Complex(a, b, kind=8)
+    expr = nm.complex(a, b, kind=8)
     assert_render(expr, backend, fortran="cmplx(a, b, 8_c_int64_t)\n", c="cmplx(a, b, 8)\n")
 
 
 @pytest.mark.parametrize(
     "func,nargs,token",
     [
-        (Abs, 1, "abs"),
-        (Neg, 1, "-"),
-        (Not, 1, ".not."),
-        (Allocated, 1, "allocated"),
+        (nm.abs, 1, "abs"),
+        (nm.negative, 1, "-"),
+        (nm.logical_not, 1, ".not."),
+        (nm.allocated, 1, "allocated"),
         # TODO(Shape, 1, "shape"),
-        (All, 1, "all"),
-        (Real, 1, "real"),
-        (Imag, 1, "aimag"),
-        (Conjugate, 1, "conjg"),
-        (Transpose, 1, "transpose"),
-        (Exp, 1, "exp"),
-        (Sqrt, 1, "sqrt"),
-        (Floor, 1, "floor"),
-        (Sin, 1, "sin"),
-        (Cos, 1, "cos"),
-        (Tan, 1, "tan"),
-        (Sinh, 1, "sinh"),
-        (Cosh, 1, "cosh"),
-        (Tanh, 1, "tanh"),
-        (ASin, 1, "asin"),
-        (ACos, 1, "acos"),
-        (ATan, 1, "atan"),
-        (Rank, 1, "rank"),
-        (Maxval, 1, "maxval"),
-        (Minval, 1, "minval"),
-        (Popcnt, 1, "popcnt"),
-        (Trailz, 1, "trailz"),
-        (Sum, 1, "sum"),
-        (ATan2, 2, "atan2"),
-        (Dotproduct, 2, "dot_product"),
-        (Size, 2, "size"),
-        (Max, 2, "max"),
-        (Min, 2, "min"),
-        (Iand, 2, "iand"),
-        (Ior, 2, "ior"),
-        (Xor, 2, "xor"),
-        (Ishft, 2, "ishft"),
-        (Ibset, 2, "ibset"),
-        (Ibclr, 2, "ibclr"),
-        (Matmul, 2, "matmul"),
+        (nm.all, 1, "all"),
+        (nm.real, 1, "real"),
+        (nm.imag, 1, "aimag"),
+        (nm.conjugate, 1, "conjg"),
+        (nm.transpose, 1, "transpose"),
+        (nm.exp, 1, "exp"),
+        (nm.sqrt, 1, "sqrt"),
+        (nm.floor, 1, "floor"),
+        (nm.sin, 1, "sin"),
+        (nm.cos, 1, "cos"),
+        (nm.tan, 1, "tan"),
+        (nm.sinh, 1, "sinh"),
+        (nm.cosh, 1, "cosh"),
+        (nm.tanh, 1, "tanh"),
+        (nm.arcsin, 1, "asin"),
+        (nm.arccos, 1, "acos"),
+        (nm.arctan, 1, "atan"),
+        (nm.ndim, 1, "rank"),
+        (nm.max, 1, "maxval"),
+        (nm.min, 1, "minval"),
+        (nm.popcnt, 1, "popcnt"),
+        (nm.trailz, 1, "trailz"),
+        (nm.sum, 1, "sum"),
+        (nm.arctan2, 2, "atan2"),
+        (nm.dot, 2, "dot_product"),
+        (nm.size, 2, "size"),
+        (nm.maximum, 2, "max"),
+        (nm.minimum, 2, "min"),
+        (nm.bitwise_and, 2, "iand"),
+        (nm.bitwise_or, 2, "ior"),
+        (nm.bitwise_xor, 2, "xor"),
+        (nm.ishft, 2, "ishft"),
+        (nm.ibset, 2, "ibset"),
+        (nm.ibclr, 2, "ibclr"),
+        (nm.matmul, 2, "matmul"),
     ],
 )
 def test_intrinsic_functions_with_updated_variables(func, nargs, token, backend):
@@ -245,11 +201,11 @@ def test_intrinsic_functions_with_updated_variables(func, nargs, token, backend)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     args = [x] if nargs == 1 else [x, y]
-    if func is Size:
+    if func is nm.size:
         args[1] = 1
     expr = func(*args)
     expected_args = ["x"] if nargs == 1 else ["x", "y"]
-    if func is Size:
+    if func is nm.size:
         expected_args[1] = "1" if backend == "c" else "1_c_int64_t"
     expected = f"{token}({', '.join(expected_args)})\n"
     assert_render(expr, backend, fortran=expected, c=expected)
@@ -627,46 +583,46 @@ def test_update_variables_re_im_nodes(backend):
 @pytest.mark.parametrize(
     "func,nargs,token",
     [
-        (Abs, 1, "abs"),
-        (Neg, 1, "-"),
-        (Not, 1, ".not."),
-        (Allocated, 1, "allocated"),
+        (nm.abs, 1, "abs"),
+        (nm.negative, 1, "-"),
+        (nm.logical_not, 1, ".not."),
+        (nm.allocated, 1, "allocated"),
         # TODO(Shape, 1, "shape"),
-        (All, 1, "all"),
-        (Real, 1, "real"),
-        (Imag, 1, "aimag"),
-        (Conjugate, 1, "conjg"),
-        (Transpose, 1, "transpose"),
-        (Exp, 1, "exp"),
-        (Sqrt, 1, "sqrt"),
-        (Floor, 1, "floor"),
-        (Sin, 1, "sin"),
-        (Cos, 1, "cos"),
-        (Tan, 1, "tan"),
-        (Sinh, 1, "sinh"),
-        (Cosh, 1, "cosh"),
-        (Tanh, 1, "tanh"),
-        (ASin, 1, "asin"),
-        (ACos, 1, "acos"),
-        (ATan, 1, "atan"),
-        (Rank, 1, "rank"),
-        (Maxval, 1, "maxval"),
-        (Minval, 1, "minval"),
-        (Popcnt, 1, "popcnt"),
-        (Trailz, 1, "trailz"),
-        (Sum, 1, "sum"),
-        (ATan2, 2, "atan2"),
-        (Dotproduct, 2, "dot_product"),
-        (Size, 2, "size"),
-        (Max, 2, "max"),
-        (Min, 2, "min"),
-        (Iand, 2, "iand"),
-        (Ior, 2, "ior"),
-        (Xor, 2, "xor"),
-        (Ishft, 2, "ishft"),
-        (Ibset, 2, "ibset"),
-        (Ibclr, 2, "ibclr"),
-        (Matmul, 2, "matmul"),
+        (nm.all, 1, "all"),
+        (nm.real, 1, "real"),
+        (nm.imag, 1, "aimag"),
+        (nm.conjugate, 1, "conjg"),
+        (nm.transpose, 1, "transpose"),
+        (nm.exp, 1, "exp"),
+        (nm.sqrt, 1, "sqrt"),
+        (nm.floor, 1, "floor"),
+        (nm.sin, 1, "sin"),
+        (nm.cos, 1, "cos"),
+        (nm.tan, 1, "tan"),
+        (nm.sinh, 1, "sinh"),
+        (nm.cosh, 1, "cosh"),
+        (nm.tanh, 1, "tanh"),
+        (nm.arcsin, 1, "asin"),
+        (nm.arccos, 1, "acos"),
+        (nm.arctan, 1, "atan"),
+        (nm.ndim, 1, "rank"),
+        (nm.max, 1, "maxval"),
+        (nm.min, 1, "minval"),
+        (nm.popcnt, 1, "popcnt"),
+        (nm.trailz, 1, "trailz"),
+        (nm.sum, 1, "sum"),
+        (nm.arctan2, 2, "atan2"),
+        (nm.dot, 2, "dot_product"),
+        (nm.size, 2, "size"),
+        (nm.maximum, 2, "max"),
+        (nm.minimum, 2, "min"),
+        (nm.bitwise_and, 2, "iand"),
+        (nm.bitwise_or, 2, "ior"),
+        (nm.bitwise_xor, 2, "xor"),
+        (nm.ishft, 2, "ishft"),
+        (nm.ibset, 2, "ibset"),
+        (nm.ibclr, 2, "ibclr"),
+        (nm.matmul, 2, "matmul"),
     ],
 )
 def test_intrinsic_functions(func, nargs, token, backend):
@@ -674,7 +630,7 @@ def test_intrinsic_functions(func, nargs, token, backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
     args = [x] if nargs == 1 else [x, y]
-    if func is Size:
+    if func is nm.size:
         args[1] = 1
     expr = func(*args)
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
@@ -682,7 +638,7 @@ def test_intrinsic_functions(func, nargs, token, backend):
     expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
 
     expected_args = ["new_x"] if nargs == 1 else ["new_x", "new_y"]
-    if func is Size:
+    if func is nm.size:
         expected_args[1] = "1" if backend == "c" else "1_c_int64_t"
     expected = f"{token}({', '.join(expected_args)})\n"
     assert_render(expr, backend, fortran=expected, c=expected)
