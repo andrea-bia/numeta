@@ -1,6 +1,7 @@
 from .expression_node import ExpressionNode
 from numeta.ast.tools import check_node
 from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
+from numeta.exceptions import NumetaTypeError
 
 
 class BinaryOperationNode(ExpressionNode):
@@ -67,7 +68,7 @@ class EqBinaryNode(BinaryOperationNode):
         try:
             return self.left.name == self.right.name
         except AttributeError:
-            raise Warning(
+            raise NumetaTypeError(
                 f"Do not use '==' operator for non-NamedEntity: {type(self.left)} and {type(self.right)}"
             )
         # TODO: Too slow
@@ -91,7 +92,7 @@ class NeBinaryNode(BinaryOperationNode):
         try:
             return self.left.name != self.right.name
         except AttributeError:
-            raise Warning(
+            raise NumetaTypeError(
                 f"Do not use '!=' operator for non-NamedEntity: {type(self.left)} and {type(self.right)}"
             )
 

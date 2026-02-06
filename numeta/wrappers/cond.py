@@ -42,7 +42,7 @@ class CondHelper:
             source_lines = (
                 ["try:\n"]
                 + source_lines
-                + ["except:\n    raise Warning('impossible to parse the code')"]
+                + ["except Exception:\n    raise RuntimeError('impossible to parse the code')"]
             )
             tree = ast.parse("".join(source_lines))
             self.source_cache[if_id] = (source_lines, tree, starting_line_number + 1)

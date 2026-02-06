@@ -1,6 +1,7 @@
 from .expression_node import ExpressionNode
 from numeta.ast.settings import settings
 from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
+from numeta.exceptions import NumetaNotImplementedError
 
 
 class GetItem(ExpressionNode):
@@ -118,7 +119,9 @@ class GetItem(ExpressionNode):
 
             elif isinstance(key, slice):
                 if self.sliced.step is not None or key.step is not None:
-                    raise Warning("Step slicing not implemented for slice merging")
+                    raise NumetaNotImplementedError(
+                        "Step slicing not implemented for slice merging"
+                    )
 
                 lb = settings.array_lower_bound
 
@@ -158,6 +161,6 @@ class GetItem(ExpressionNode):
             error_str += f"\nOld slice: {self.sliced}"
             error_str += f"\nNew slice: {key}"
             error_str += f"\nImpossible to merge {self.variable.name}[{self.sliced}][{key}]"
-            raise Warning(error_str)
+            raise ValueError(error_str)
 
         return new_key

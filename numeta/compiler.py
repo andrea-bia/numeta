@@ -6,6 +6,8 @@ import subprocess as sp
 import textwrap
 from typing import Iterable
 
+from .exceptions import CompilationError
+
 
 class Compiler:
     def __init__(self, compiler, compile_flags: str | Iterable[str]) -> None:
@@ -32,7 +34,7 @@ class Compiler:
             error_message += "The output was:\n"
             error_message += textwrap.indent(sp_run.stdout, "    ")
             error_message += textwrap.indent(sp_run.stderr, "    ")
-            raise Warning(error_message)
+            raise CompilationError(error_message)
         return sp_run
 
     def build_obj_command(

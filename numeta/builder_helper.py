@@ -1,4 +1,5 @@
 from .ast import Variable, Scope, Procedure
+from .exceptions import NumetaError
 from .settings import settings
 
 
@@ -12,7 +13,7 @@ class BuilderHelper:
     @classmethod
     def get_current_builder(cls):
         if cls.current_builder is None:
-            raise Warning("The current builder is not initialized")
+            raise NumetaError("The current builder is not initialized")
         return cls.current_builder
 
     def __init__(self, numeta_function, symbolic_function, signature):

@@ -1,6 +1,8 @@
 from numeta.ast.nodes import Node
 from abc import abstractmethod
 
+from numeta.exceptions import NumetaTypeError
+
 
 class ExpressionNode(Node):
     __slots__ = []
@@ -31,7 +33,7 @@ class ExpressionNode(Node):
         return self
 
     def __bool__(self) -> bool:
-        raise Warning("Do not use 'bool' operator for expressions.")
+        raise NumetaTypeError("Do not use 'bool' operator for expressions.")
 
     def __rshift__(self, other):
         from numeta.ast.statements import Assignment
