@@ -9,6 +9,25 @@ FLOATS_COMPLEX = FLOATS + COMPLEX
 INTS = [np.int32, np.int64]
 
 
+def _as_py_complex(value):
+    return complex(value)
+
+
+def _as_np_complex64(value):
+    return np.complex64(value)
+
+
+def _as_np_complex128(value):
+    return np.complex128(value)
+
+
+COMPLEX_SCALAR_CASTERS = [
+    pytest.param(_as_py_complex, id="py_complex"),
+    pytest.param(_as_np_complex64, id="np_complex64"),
+    pytest.param(_as_np_complex128, id="np_complex128"),
+]
+
+
 def get_args(dtype, *values):
     return tuple(dtype(v) for v in values)
 
@@ -173,3 +192,17 @@ def test_complex_log10(dtype, backend):
     res = run(arg)
     expected = np.log10(arg)
     np.testing.assert_allclose(res, expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("cast", COMPLEX_SCALAR_CASTERS)
+def test_complex_log10_scalar_kinds(cast, backend):
+    arg = cast(10.0 + 10.0j)
+
+    @nm.jit(backend=backend)
+    def run(a):
+        return nm.log10(a)
+
+    res = run(arg)
+    expected = np.log10(arg)
+    rtol = 1e-5 if np.asarray(arg).dtype == np.dtype(np.complex64) else 1e-7
+    np.testing.assert_allclose(res, expected, rtol=rtol)

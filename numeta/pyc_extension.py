@@ -303,15 +303,16 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
 
         if variable.to_pass_by_value:
             if variable.datatype.get_numpy() in (np.complex64, np.complex128):
-                result = "\n"
-                result += "#if NPY_ABI_VERSION < 0x02000000\n"
-                result += f"    {variable.datatype.get_cnumpy()} {variable.name};\n"
-                result += f"    {variable.name}.real = PyComplex_RealAsDouble(args[{i}]);\n"
-                result += f"    {variable.name}.imag = PyComplex_RealAsDouble(args[{i}]);\n"
-                result += "#else\n"
                 cast = variable.datatype.get_capi_cast(f"args[{i}]")
-                result += f"    {variable.datatype.get_cnumpy()} {variable.name} = ({variable.datatype.get_cnumpy()}){cast};\n"
-                result += "#endif"
+                result = f"{variable.datatype.get_cnumpy()} {variable.name};\n"
+                result += f"    if (PyArray_IsScalar(args[{i}], ComplexFloating)) {{\n"
+                result += f"        PyArray_ScalarAsCtype(args[{i}], &{variable.name});\n"
+                result += f"    }} else if (PyComplex_Check(args[{i}])) {{\n"
+                result += f"        {variable.name} = ({variable.datatype.get_cnumpy()}){cast};\n"
+                result += "    } else {\n"
+                result += f"        PyErr_SetString(PyExc_TypeError, \"Argument '{variable.name}' must be a complex scalar\");\n"
+                result += "        return NULL;\n"
+                result += "    }"
                 return result
             cast = variable.datatype.get_capi_cast(f"args[{i}]")
             return f"{variable.datatype.get_cnumpy()} {variable.name} = ({variable.datatype.get_cnumpy()}){cast};"

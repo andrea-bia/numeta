@@ -4,6 +4,25 @@ import pytest
 from numeta.ast.expressions import ArrayConstructor
 
 
+def _as_py_complex(value):
+    return complex(value)
+
+
+def _as_np_complex64(value):
+    return np.complex64(value)
+
+
+def _as_np_complex128(value):
+    return np.complex128(value)
+
+
+COMPLEX_SCALAR_CASTERS = [
+    pytest.param(_as_py_complex, id="py_complex"),
+    pytest.param(_as_np_complex64, id="np_complex64"),
+    pytest.param(_as_np_complex128, id="np_complex128"),
+]
+
+
 @pytest.mark.parametrize(
     "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
 )
@@ -40,6 +59,32 @@ def test_complex_ops(backend):
     result = compute(1 + 1j, 2 - 1j)
     expected = (1 + 1j) + (2 - 1j) * (1 + 2j)
     np.testing.assert_allclose(result, expected)
+
+
+@pytest.mark.parametrize("cast_a", COMPLEX_SCALAR_CASTERS)
+@pytest.mark.parametrize("cast_b", COMPLEX_SCALAR_CASTERS)
+def test_complex_ops_full_matrix(cast_a, cast_b, backend):
+    @nm.jit(backend=backend)
+    def compute(a, b):
+        return a + b * (1 + 2j)
+
+    a = cast_a(1 + 1j)
+    b = cast_b(2 - 1j)
+    result = compute(a, b)
+    expected = a + b * (1 + 2j)
+    np.testing.assert_allclose(result, expected)
+
+
+@pytest.mark.parametrize("cast", COMPLEX_SCALAR_CASTERS)
+def test_complex_parts_scalar_kinds(cast, backend):
+    @nm.jit(backend=backend)
+    def combine(a):
+        return nm.real(a) + nm.imag(a)
+
+    arg = cast(3 + 4j)
+    result = combine(arg)
+    expected = float(np.real(np.complex128(arg)) + np.imag(np.complex128(arg)))
+    np.testing.assert_equal(result, expected)
 
 
 def test_complex_parts(backend):
