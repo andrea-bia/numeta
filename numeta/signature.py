@@ -1,5 +1,9 @@
 import inspect
+import platform
+import sys
+import sysconfig
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -10,6 +14,118 @@ from .settings import settings
 from .ast import Variable
 from .ast.expressions import ExpressionNode, GetAttr, GetItem
 from .types_hint import comptime
+
+
+def _compile_signature_extension():
+    """Compile the C signature extension if needed."""
+    import importlib.util
+
+    # Check if already compiled
+    spec = importlib.util.find_spec("numeta._signature")
+    if spec is not None:
+        return True
+
+    # Check if source exists
+    c_file = Path(__file__).parent / "_signature.c"
+    if not c_file.exists():
+        return False
+
+    # Try to compile
+    try:
+        from .compiler import Compiler
+
+        module_dir = Path(__file__).parent
+
+        # Use standard compiler flags
+        std_flags = ["-O3", "-fPIC"]
+        compiler = Compiler("gcc", std_flags)
+
+        include_dirs = [
+            sysconfig.get_paths()["include"],
+            np.get_include(),
+        ]
+
+        additional_flags = ["-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"]
+
+        # First compile to object file
+        obj_file, _ = compiler.compile_to_obj(
+            name="_signature",
+            directory=module_dir,
+            sources=[c_file],
+            include_dirs=include_dirs,
+            additional_flags=additional_flags,
+            obj_suffix=".o",
+        )
+
+        # Then link to shared library with correct Python extension name
+        libraries = [f"python{sys.version_info.major}.{sys.version_info.minor}"]
+        so_file = (
+            module_dir
+            / f"_signature.cpython-{sys.version_info.major}{sys.version_info.minor}-x86_64-linux-gnu.so"
+        )
+
+        # Use build_lib_command directly to control output filename
+        command = compiler.build_lib_command(
+            lib_file=so_file,
+            obj_files=[obj_file],
+            include_dirs=include_dirs,
+            additional_flags=additional_flags,
+            libraries=libraries,
+            libraries_dirs=[],
+            rpath_dirs=[],
+        )
+
+        compiler.run_command(command, cwd=module_dir)
+
+        return so_file.exists()
+    except Exception as e:
+        return False
+
+
+def _init_signature_module():
+    """Initialize the signature module, compiling if necessary."""
+    import importlib
+
+    try:
+        # Try importing first
+        from . import _signature
+    except ImportError:
+        # Try compiling and importing again
+        if not _compile_signature_extension():
+            return None, False
+        # Clear import cache and try again
+        if "numeta._signature" in sys.modules:
+            del sys.modules["numeta._signature"]
+        from . import _signature
+
+    types_dict = {
+        "ArrayType": ArrayType,
+        "DataType": DataType,
+        "ExpressionNode": ExpressionNode,
+        "Variable": Variable,
+        "GetAttr": GetAttr,
+        "GetItem": GetItem,
+        "SCALAR": SCALAR,
+        "UNKNOWN": UNKNOWN,
+        "NumpyGeneric": np.generic,
+    }
+
+    constants_dict = {
+        "KIND_POSITIONAL_ONLY": inspect.Parameter.POSITIONAL_ONLY.value,
+        "KIND_POSITIONAL_OR_KEYWORD": inspect.Parameter.POSITIONAL_OR_KEYWORD.value,
+        "KIND_VAR_POSITIONAL": inspect.Parameter.VAR_POSITIONAL.value,
+        "KIND_KEYWORD_ONLY": inspect.Parameter.KEYWORD_ONLY.value,
+        "KIND_VAR_KEYWORD": inspect.Parameter.VAR_KEYWORD.value,
+        "INSPECT_EMPTY": inspect._empty,
+    }
+
+    _signature.init_globals(types_dict, constants_dict)
+    return _signature, True
+
+
+_signature, _signature_c_available = _init_signature_module()
+if _signature is None:
+    _signature_c_available = False
 
 
 @dataclass(frozen=True)
@@ -63,7 +179,7 @@ def parse_function_parameters(func):
     return params, fixed_param_indices, n_positional_or_default_args, catch_var_positional_name
 
 
-def get_signature_and_runtime_args(
+def _get_signature_and_runtime_args_py(
     args,
     kwargs,
     *,
@@ -336,3 +452,40 @@ def convert_signature_to_argument_specs(
         signature_spec.append(ap)
 
     return signature_spec
+
+
+def get_signature_and_runtime_args(
+    args,
+    kwargs,
+    *,
+    params,
+    fixed_param_indices,
+    n_positional_or_default_args,
+    catch_var_positional_name,
+):
+    if _signature_c_available:
+        return _signature.get_signature_and_runtime_args(
+            args,
+            kwargs,
+            params,
+            fixed_param_indices,
+            n_positional_or_default_args,
+            catch_var_positional_name,
+            settings.add_shape_descriptors,
+            settings.ignore_fixed_shape_in_nested_calls,
+            settings.reorder_kwargs,
+        )
+
+    return _get_signature_and_runtime_args_py(
+        args,
+        kwargs,
+        params=params,
+        fixed_param_indices=fixed_param_indices,
+        n_positional_or_default_args=n_positional_or_default_args,
+        catch_var_positional_name=catch_var_positional_name,
+    )
+
+
+def get_signature_and_runtime_args_py(*args, **kwargs):
+    """Python implementation - exposed for testing parity with C implementation."""
+    return _get_signature_and_runtime_args_py(*args, **kwargs)
