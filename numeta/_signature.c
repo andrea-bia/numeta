@@ -44,6 +44,111 @@ static int KIND_VAR_POSITIONAL = 2;
 static int KIND_KEYWORD_ONLY = 3;
 static int KIND_VAR_KEYWORD = 4;
 
+#ifndef PyTuple_ITEMS
+#define PyTuple_ITEMS(op) (((PyTupleObject *)(op))->ob_item)
+#endif
+
+// ============================================================================
+// One-Entry Monomorphic Cache (PIC)
+// ============================================================================
+#define MAX_CACHED_ARGS 8
+
+typedef enum {
+    CHECK_NONE = 0,
+    CHECK_EXACT_TYPE,   // Py_TYPE(arg) == cached_type
+    CHECK_NUMPY_ARRAY   // PyArray_Check(arg) && matching dtype/ndim/flags
+} CheckType;
+
+typedef struct {
+    CheckType check_kind;
+    PyTypeObject *type;     // For CHECK_EXACT_TYPE (borrowed ref from cache owner?) -> INCREF'd
+    // For CHECK_NUMPY_ARRAY:
+    PyArray_Descr *dtype;   // INCREF'd
+    int ndim;
+    int is_fortran;
+} ArgCache;
+
+typedef struct {
+    int valid;
+    PyObject *func;         // The compiled function (INCREF'd)
+    int nargs;
+    ArgCache args[MAX_CACHED_ARGS];
+} OneEntryCache;
+
+static void cache_clear(OneEntryCache *cache) {
+    if (!cache->valid) return;
+    Py_XDECREF(cache->func);
+    for (int i = 0; i < cache->nargs; i++) {
+        Py_XDECREF(cache->args[i].type);
+        Py_XDECREF(cache->args[i].dtype);
+    }
+    cache->valid = 0;
+}
+
+// Check if current args match the cache. Returns 1 on match, 0 on mismatch.
+static inline int cache_check(OneEntryCache *cache, PyObject **args, Py_ssize_t nargs) {
+    if (!cache->valid || nargs != cache->nargs) return 0;
+
+    for (int i = 0; i < nargs; i++) {
+        PyObject *arg = args[i];
+        ArgCache *c = &cache->args[i];
+
+        if (c->check_kind == CHECK_EXACT_TYPE) {
+            if (Py_TYPE(arg) != c->type) return 0;
+        } 
+        else if (c->check_kind == CHECK_NUMPY_ARRAY) {
+            if (!PyArray_Check(arg)) return 0;
+            PyArrayObject *arr = (PyArrayObject*)arg;
+            if (PyArray_NDIM(arr) != c->ndim) return 0;
+            if (PyArray_ISFORTRAN(arr) != c->is_fortran) return 0;
+            // Check dtype equality (pointer check often sufficient if singleton, but use Equiv)
+            if (!PyArray_EquivTypes(PyArray_DESCR(arr), c->dtype)) return 0;
+        } 
+        else {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void cache_update(OneEntryCache *cache, PyObject *func, PyObject **args, Py_ssize_t nargs) {
+    if (nargs > MAX_CACHED_ARGS) {
+        cache_clear(cache);
+        return;
+    }
+
+    cache_clear(cache); // Release old refs
+
+    cache->nargs = (int)nargs;
+    cache->func = func;
+    Py_INCREF(func);
+
+    for (int i = 0; i < nargs; i++) {
+        PyObject *arg = args[i];
+        ArgCache *c = &cache->args[i];
+
+        if (PyArray_Check(arg)) {
+            c->check_kind = CHECK_NUMPY_ARRAY;
+            PyArrayObject *arr = (PyArrayObject*)arg;
+            c->ndim = PyArray_NDIM(arr);
+            c->is_fortran = PyArray_ISFORTRAN(arr);
+            c->dtype = PyArray_DESCR(arr);
+            Py_INCREF(c->dtype);
+            c->type = NULL;
+        } else {
+            c->check_kind = CHECK_EXACT_TYPE;
+            c->type = Py_TYPE(arg);
+            Py_INCREF(c->type);
+            c->dtype = NULL;
+        }
+    }
+    cache->valid = 1;
+}
+
+// ============================================================================
+// BaseFunction Type
+// ============================================================================
+
 typedef struct {
     int add_shape_descriptors;
     int ignore_fixed_shape_in_nested_calls;
@@ -801,6 +906,8 @@ typedef struct {
     PyObject *fast_call_dict;      // Dict[Signature, CompiledFunc]
     PyObject *BuilderHelperCls;    // BuilderHelper class for symbolic check
     Settings settings;
+    OneEntryCache cache;           // Monomorphic cache
+    int has_comptime_args;         // If true, disable cache (value dependency)
 } BaseFunctionObject;
 
 static void BaseFunction_dealloc(BaseFunctionObject *self) {
@@ -809,6 +916,7 @@ static void BaseFunction_dealloc(BaseFunctionObject *self) {
     Py_XDECREF(self->catch_var_name_obj);
     Py_XDECREF(self->fast_call_dict);
     Py_XDECREF(self->BuilderHelperCls);
+    cache_clear(&self->cache);
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -822,6 +930,8 @@ static PyObject *BaseFunction_new(PyTypeObject *type, PyObject *args, PyObject *
         self->catch_var_name_cstr = NULL;
         self->fast_call_dict = NULL;
         self->BuilderHelperCls = NULL;
+        self->cache.valid = 0;
+        self->has_comptime_args = 0;
         // Default settings
         self->settings.add_shape_descriptors = 0;
         self->settings.ignore_fixed_shape_in_nested_calls = 0;
@@ -882,6 +992,22 @@ static PyObject *BaseFunction_configure_dispatch(BaseFunctionObject *self, PyObj
     self->settings.ignore_fixed_shape_in_nested_calls = ignore_fixed;
     self->settings.reorder_kwargs = reorder;
 
+    // Check for comptime args
+    self->has_comptime_args = 0;
+    Py_ssize_t num_params = PyList_Size(params);
+    for (Py_ssize_t i = 0; i < num_params; i++) {
+        PyObject *p = PyList_GetItem(params, i);
+        PyObject *is_comp = PyObject_GetAttr(p, str_is_comptime);
+        if (is_comp && PyObject_IsTrue(is_comp)) {
+            self->has_comptime_args = 1;
+            Py_DECREF(is_comp);
+            break;
+        }
+        Py_XDECREF(is_comp);
+    }
+    // Invalidate cache if config changes
+    cache_clear(&self->cache);
+
     Py_RETURN_NONE;
 }
 
@@ -912,14 +1038,7 @@ static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyO
     ParseResult result;
     PyObject *stack_buf[MAX_STACK_ARGS];
     PyObject *ret_val = NULL;
-
-    if (_parse_signature_core(&input, &result, stack_buf, MAX_STACK_ARGS) < 0) {
-        Py_XDECREF(tmp_kwargs);
-        return NULL;
-    }
-
-    // Clean up temporary kwargs if we created it
-    Py_XDECREF(tmp_kwargs);
+    PyObject *func = NULL;
 
     // --- Check Symbolic Context (BuilderHelper.current_builder) ---
     int force_symbolic = 0;
@@ -932,6 +1051,28 @@ static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyO
             PyErr_Clear(); // Attribute might not exist yet?
         }
     }
+
+    // --- Fast Path: Monomorphic Cache ---
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+    if (!force_symbolic && !self->has_comptime_args && 
+        (!kwargs || PyDict_Size(kwargs) == 0) &&
+        self->cache.valid && nargs <= MAX_CACHED_ARGS) {
+        
+        PyObject **args_items = PyTuple_ITEMS(args); // Borrowed
+        if (cache_check(&self->cache, args_items, nargs)) {
+             // Cache hit!
+             Py_XDECREF(tmp_kwargs);
+             return PyObject_Vectorcall(self->cache.func, args_items, (size_t)nargs, NULL);
+        }
+    }
+
+    if (_parse_signature_core(&input, &result, stack_buf, MAX_STACK_ARGS) < 0) {
+        Py_XDECREF(tmp_kwargs);
+        return NULL;
+    }
+
+    // Clean up temporary kwargs if we created it
+    Py_XDECREF(tmp_kwargs);
 
     // --- Not executable (symbolic) OR Cache Miss OR Forced Symbolic ---
     if (!result.to_execute || force_symbolic) {
@@ -953,7 +1094,7 @@ static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyO
     }
 
     // --- Executable: Cache Lookup ---
-    PyObject *func = PyDict_GetItem(self->fast_call_dict, result.sig_tuple);
+    func = PyDict_GetItem(self->fast_call_dict, result.sig_tuple);
 
     if (func == NULL) {
         // Cache miss -> Compilation required
@@ -980,6 +1121,12 @@ static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyO
         (size_t)result.nruntime,
         NULL
     );
+
+    // --- Update Monomorphic Cache ---
+    if (ret_val && func && !force_symbolic && !self->has_comptime_args && 
+        (!kwargs || PyDict_Size(kwargs) == 0)) {
+        cache_update(&self->cache, func, result.runtime_args_buf, result.nruntime);
+    }
 
     _parse_result_cleanup(&result);
     Py_DECREF(result.sig_tuple);
