@@ -486,6 +486,52 @@ def get_signature_and_runtime_args(
     )
 
 
+def fast_dispatch(
+    args,
+    kwargs,
+    *,
+    params,
+    fixed_param_indices,
+    n_positional_or_default_args,
+    catch_var_positional_name,
+    fast_call_dict,
+):
+    """Signature parse + dict lookup + call in one shot.
+
+    Returns a 4-tuple (hit, to_execute, payload, runtime_args):
+      hit=True  => payload is the actual function result (cache hit, called via Vectorcall)
+      hit=False, to_execute=True  => payload is signature (cache miss, caller must load+call)
+      hit=False, to_execute=False => payload is signature (symbolic, caller handles)
+    """
+    if _signature_c_available:
+        return _signature.fast_dispatch(
+            args,
+            kwargs,
+            params,
+            fixed_param_indices,
+            n_positional_or_default_args,
+            catch_var_positional_name,
+            settings.add_shape_descriptors,
+            settings.ignore_fixed_shape_in_nested_calls,
+            settings.reorder_kwargs,
+            fast_call_dict,
+        )
+
+    # Python fallback
+    to_execute, sig, runtime_args = _get_signature_and_runtime_args_py(
+        args,
+        kwargs,
+        params=params,
+        fixed_param_indices=fixed_param_indices,
+        n_positional_or_default_args=n_positional_or_default_args,
+        catch_var_positional_name=catch_var_positional_name,
+    )
+    if to_execute and sig in fast_call_dict:
+        result = fast_call_dict[sig](*runtime_args)
+        return (True, True, result, None)
+    return (False, to_execute, sig, runtime_args)
+
+
 def get_signature_and_runtime_args_py(*args, **kwargs):
     """Python implementation - exposed for testing parity with C implementation."""
     return _get_signature_and_runtime_args_py(*args, **kwargs)

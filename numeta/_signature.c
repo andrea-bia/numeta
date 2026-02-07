@@ -374,35 +374,59 @@ static PyObject* get_signature_from_arg(PyObject *arg, PyObject *name,
     return NULL;
 }
 
-// Pre-calculate total signature size to avoid list reallocations
-static PyObject* get_signature_and_runtime_args(PyObject *self, PyObject *args) {
+// ============================================================================
+// Core signature parsing helper
+// ============================================================================
+// Shared by get_signature_and_runtime_args() and fast_dispatch().
+//
+// Writes runtime args into runtime_args_buf[0..nruntime_out-1].
+// Writes signature items into sig_list (a pre-allocated PyList).
+// Returns 0 on success, -1 on error (with exception set).
+// The caller owns the references placed in runtime_args_buf (borrowed+INCREF'd).
+
+#define MAX_STACK_ARGS 64
+
+typedef struct {
     PyObject *py_args;
     PyObject *kwargs;
     PyObject *params;
     PyObject *fixed_param_indices;
     int n_pos_def_args;
-    char *catch_var_name_str;
-    int add_shape_descriptors;
-    int ignore_fixed_shape;
-    int reorder_kwargs;
+    const char *catch_var_name_str;
+    Settings settings;
+} ParseInput;
 
-    if (!PyArg_ParseTuple(args, "OOOOisipp", &py_args, &kwargs, &params, &fixed_param_indices, 
-                          &n_pos_def_args, &catch_var_name_str, 
-                          &add_shape_descriptors, &ignore_fixed_shape, &reorder_kwargs)) {
-        return NULL;
-    }
+typedef struct {
+    int to_execute;
+    PyObject *sig_tuple;        // New reference (tuple)
+    PyObject **runtime_args_buf; // C array of new refs (caller must DECREF)
+    Py_ssize_t nruntime;
+    // For heap-allocated buffer cleanup
+    PyObject **heap_buf;        // Non-NULL if we had to heap-allocate
+} ParseResult;
 
-    Settings settings = {add_shape_descriptors, ignore_fixed_shape, reorder_kwargs};
+// caller_stack_buf: a stack-allocated buffer from the CALLER's frame (not ours)
+// caller_stack_buf_size: its capacity
+// If the number of args exceeds this, we heap-allocate internally.
+static int _parse_signature_core(ParseInput *input, ParseResult *out,
+                                  PyObject **caller_stack_buf,
+                                  Py_ssize_t caller_stack_buf_size) {
+    PyObject *py_args = input->py_args;
+    PyObject *kwargs = input->kwargs;
+    PyObject *params = input->params;
+    PyObject *fixed_param_indices = input->fixed_param_indices;
+    const char *catch_var_name_str = input->catch_var_name_str;
+    Settings *settings = &input->settings;
+
     int to_execute = 1;
-    
+
     Py_ssize_t args_len = PyTuple_Size(py_args);
     Py_ssize_t num_fixed = PyList_Size(fixed_param_indices);
-    
-    // Pre-calculate total signature size
+
     PyObject *unused_kwargs = PyDict_Copy(kwargs);
-    if (!unused_kwargs) return NULL;
-    
-    // Count variable args and kwargs
+    if (!unused_kwargs) return -1;
+
+    // Count positional args consumed by fixed params (first pass)
     Py_ssize_t pos_idx = 0;
     for (Py_ssize_t i = 0; i < num_fixed; i++) {
         PyObject *param_idx_obj = PyList_GetItem(fixed_param_indices, i);
@@ -411,52 +435,67 @@ static PyObject* get_signature_and_runtime_args(PyObject *self, PyObject *args) 
         PyObject *p_kind = PyObject_GetAttr(param, str_kind);
         long kind = PyLong_AsLong(p_kind);
         Py_DECREF(p_kind);
-        
+
         if (kind == KIND_POSITIONAL_ONLY || kind == KIND_POSITIONAL_OR_KEYWORD) {
             if (pos_idx < args_len) {
                 pos_idx++;
             }
         }
     }
-    
+
     Py_ssize_t var_args_count = args_len - pos_idx;
     Py_ssize_t var_kwargs_count = PyDict_Size(unused_kwargs);
     Py_ssize_t total_sig_size = num_fixed + var_args_count + var_kwargs_count;
-    
-    // Pre-allocate with exact sizes - no reallocations!
-    PyObject *runtime_args = PyList_New(0);  // Will use SET_ITEM after
-    PyObject *signature = PyList_New(total_sig_size);
-    if (!runtime_args || !signature) {
-        Py_XDECREF(runtime_args);
-        Py_XDECREF(signature);
-        Py_DECREF(unused_kwargs);
-        return NULL;
+
+    // Allocate runtime_args buffer: use caller's stack buf if it fits, else heap
+    PyObject **runtime_args_buf;
+    PyObject **heap_buf = NULL;
+
+    // total_sig_size is an upper bound on runtime args count
+    if (total_sig_size <= caller_stack_buf_size) {
+        runtime_args_buf = caller_stack_buf;
+    } else {
+        heap_buf = (PyObject **)PyMem_Malloc(total_sig_size * sizeof(PyObject *));
+        if (!heap_buf) {
+            Py_DECREF(unused_kwargs);
+            PyErr_NoMemory();
+            return -1;
+        }
+        runtime_args_buf = heap_buf;
     }
-    
-    // Reset for actual processing
+    Py_ssize_t nruntime = 0;
+
+    // Signature list (pre-allocated)
+    PyObject *signature = PyList_New(total_sig_size);
+    if (!signature) {
+        Py_DECREF(unused_kwargs);
+        if (heap_buf) PyMem_Free(heap_buf);
+        return -1;
+    }
+
+    // Second pass: actual processing
     pos_idx = 0;
     Py_ssize_t sig_idx = 0;
-    
+
     for (Py_ssize_t i = 0; i < num_fixed; i++) {
         PyObject *param_idx_obj = PyList_GetItem(fixed_param_indices, i);
         Py_ssize_t param_idx = PyLong_AsSsize_t(param_idx_obj);
         PyObject *param = PyList_GetItem(params, param_idx);
-        
+
         PyObject *p_kind = PyObject_GetAttr(param, str_kind);
         PyObject *p_name = PyObject_GetAttr(param, str_name);
         PyObject *p_default = PyObject_GetAttr(param, str_default);
         PyObject *p_is_comptime = PyObject_GetAttr(param, str_is_comptime);
-        
+
         if (!p_kind || !p_name || !p_default || !p_is_comptime) {
             Py_XDECREF(p_kind); Py_XDECREF(p_name); Py_XDECREF(p_default); Py_XDECREF(p_is_comptime);
-            Py_DECREF(unused_kwargs); Py_DECREF(runtime_args); Py_DECREF(signature);
-            return NULL;
+            goto error;
         }
 
         long kind = PyLong_AsLong(p_kind);
         int is_comptime = PyObject_IsTrue(p_is_comptime);
         PyObject *arg = NULL;
-        
+
         if (kind == KIND_POSITIONAL_ONLY || kind == KIND_POSITIONAL_OR_KEYWORD) {
             if (pos_idx < args_len) {
                 arg = PyTuple_GetItem(py_args, pos_idx);
@@ -473,8 +512,7 @@ static PyObject* get_signature_and_runtime_args(PyObject *self, PyObject *args) 
                 } else {
                     PyErr_Format(PyExc_ValueError, "Missing required argument: %S", p_name);
                     Py_DECREF(p_kind); Py_DECREF(p_name); Py_DECREF(p_default); Py_DECREF(p_is_comptime);
-                    Py_DECREF(unused_kwargs); Py_DECREF(runtime_args); Py_DECREF(signature);
-                    return NULL;
+                    goto error;
                 }
             }
         } else {
@@ -488,87 +526,263 @@ static PyObject* get_signature_and_runtime_args(PyObject *self, PyObject *args) 
             } else {
                 PyErr_Format(PyExc_ValueError, "Missing required argument: %S", p_name);
                 Py_DECREF(p_kind); Py_DECREF(p_name); Py_DECREF(p_default); Py_DECREF(p_is_comptime);
-                Py_DECREF(unused_kwargs); Py_DECREF(runtime_args); Py_DECREF(signature);
-                return NULL;
+                goto error;
             }
         }
-        
+
         if (is_comptime) {
             PyList_SET_ITEM(signature, sig_idx++, arg);
         } else {
-            PyObject *sig_item = get_signature_from_arg(arg, p_name, &to_execute, &settings);
+            PyObject *sig_item = get_signature_from_arg(arg, p_name, &to_execute, settings);
             if (!sig_item) {
                 Py_DECREF(arg);
                 Py_DECREF(p_kind); Py_DECREF(p_name); Py_DECREF(p_default); Py_DECREF(p_is_comptime);
-                Py_DECREF(unused_kwargs); Py_DECREF(runtime_args); Py_DECREF(signature);
-                return NULL;
+                goto error;
             }
             PyList_SET_ITEM(signature, sig_idx++, sig_item);
-            PyList_Append(runtime_args, arg);
-            Py_DECREF(arg);
+            // Store in C buffer (new ref — arg is already INCREF'd)
+            runtime_args_buf[nruntime++] = arg;
+            // Don't DECREF arg here — ownership transferred to buffer
+            goto skip_decref_arg;
         }
-        
+
+skip_decref_arg:
         Py_DECREF(p_kind); Py_DECREF(p_name); Py_DECREF(p_default); Py_DECREF(p_is_comptime);
+        continue;
     }
-    
-    // Catch *args - use cached name pattern
+
+    // Catch *args
     if (pos_idx < args_len) {
         for (Py_ssize_t j = 0; pos_idx < args_len; pos_idx++, j++) {
             PyObject *arg = PyTuple_GetItem(py_args, pos_idx);
-            PyObject *name_tuple = PyTuple_Pack(2, PyUnicode_FromString(catch_var_name_str), 
+            PyObject *name_tuple = PyTuple_Pack(2, PyUnicode_FromString(catch_var_name_str),
                                                PyLong_FromLong(j));
-            if (!name_tuple) {
-                Py_DECREF(unused_kwargs); Py_DECREF(runtime_args); Py_DECREF(signature);
-                return NULL;
-            }
-            
-            PyObject *sig_item = get_signature_from_arg(arg, name_tuple, &to_execute, &settings);
+            if (!name_tuple) goto error;
+
+            PyObject *sig_item = get_signature_from_arg(arg, name_tuple, &to_execute, settings);
             Py_DECREF(name_tuple);
-            if (!sig_item) {
-                Py_DECREF(unused_kwargs); Py_DECREF(runtime_args); Py_DECREF(signature);
-                return NULL;
-            }
-            
+            if (!sig_item) goto error;
+
             PyList_SET_ITEM(signature, sig_idx++, sig_item);
-            PyList_Append(runtime_args, arg);
+            Py_INCREF(arg);  // We borrow from tuple, need our own ref
+            runtime_args_buf[nruntime++] = arg;
         }
     }
-    
+
     // Catch **kwargs
     PyObject *keys = PyDict_Keys(unused_kwargs);
-    if (settings.reorder_kwargs) {
+    if (settings->reorder_kwargs) {
         PyList_Sort(keys);
     }
-    
+
     Py_ssize_t num_keys = PyList_Size(keys);
     for (Py_ssize_t k = 0; k < num_keys; k++) {
         PyObject *key = PyList_GetItem(keys, k);
         PyObject *val = PyDict_GetItem(unused_kwargs, key);
-        
-        PyObject *sig_item = get_signature_from_arg(val, key, &to_execute, &settings);
+
+        PyObject *sig_item = get_signature_from_arg(val, key, &to_execute, settings);
         if (!sig_item) {
-            Py_DECREF(keys); Py_DECREF(unused_kwargs); Py_DECREF(runtime_args); Py_DECREF(signature);
-            return NULL;
+            Py_DECREF(keys);
+            goto error;
         }
         PyList_SET_ITEM(signature, sig_idx++, sig_item);
-        PyList_Append(runtime_args, val);
+        Py_INCREF(val);
+        runtime_args_buf[nruntime++] = val;
     }
     Py_DECREF(keys);
     Py_DECREF(unused_kwargs);
-    
-    // Trim signature list to actual size (in case of errors in counting)
+
+    // Trim signature list to actual size
     if (sig_idx < total_sig_size) {
         PyList_SetSlice(signature, sig_idx, total_sig_size, NULL);
     }
-    
+
     PyObject *sig_tuple = PyList_AsTuple(signature);
     Py_DECREF(signature);
-    
-    PyObject *result = PyTuple_Pack(3, to_execute ? Py_True : Py_False, sig_tuple, runtime_args);
-    Py_DECREF(sig_tuple);
-    Py_DECREF(runtime_args);
-    
-    return result;
+    if (!sig_tuple) {
+        // Clean up runtime_args_buf refs
+        for (Py_ssize_t i = 0; i < nruntime; i++) Py_DECREF(runtime_args_buf[i]);
+        if (heap_buf) PyMem_Free(heap_buf);
+        return -1;
+    }
+
+    out->to_execute = to_execute;
+    out->sig_tuple = sig_tuple;
+    out->runtime_args_buf = runtime_args_buf;
+    out->nruntime = nruntime;
+    out->heap_buf = heap_buf;
+    return 0;
+
+error:
+    Py_DECREF(unused_kwargs);
+    Py_DECREF(signature);
+    // Clean up any runtime args we already stored
+    for (Py_ssize_t i = 0; i < nruntime; i++) Py_DECREF(runtime_args_buf[i]);
+    if (heap_buf) PyMem_Free(heap_buf);
+    return -1;
+}
+
+// Helper to build a Python list from the runtime_args C buffer
+static PyObject* _runtime_args_to_list(PyObject **buf, Py_ssize_t n) {
+    PyObject *list = PyList_New(n);
+    if (!list) return NULL;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        Py_INCREF(buf[i]);
+        PyList_SET_ITEM(list, i, buf[i]);
+    }
+    return list;
+}
+
+// Helper to clean up a ParseResult (DECREF runtime args + free heap buf)
+static void _parse_result_cleanup(ParseResult *r) {
+    for (Py_ssize_t i = 0; i < r->nruntime; i++) {
+        Py_DECREF(r->runtime_args_buf[i]);
+    }
+    if (r->heap_buf) PyMem_Free(r->heap_buf);
+}
+
+// ============================================================================
+// get_signature_and_runtime_args — original API, unchanged behavior
+// ============================================================================
+static PyObject* get_signature_and_runtime_args(PyObject *self, PyObject *args) {
+    PyObject *py_args;
+    PyObject *kwargs;
+    PyObject *params;
+    PyObject *fixed_param_indices;
+    int n_pos_def_args;
+    char *catch_var_name_str;
+    int add_shape_descriptors;
+    int ignore_fixed_shape;
+    int reorder_kwargs;
+
+    if (!PyArg_ParseTuple(args, "OOOOisipp", &py_args, &kwargs, &params, &fixed_param_indices,
+                          &n_pos_def_args, &catch_var_name_str,
+                          &add_shape_descriptors, &ignore_fixed_shape, &reorder_kwargs)) {
+        return NULL;
+    }
+
+    ParseInput input = {
+        py_args, kwargs, params, fixed_param_indices,
+        n_pos_def_args, catch_var_name_str,
+        {add_shape_descriptors, ignore_fixed_shape, reorder_kwargs}
+    };
+    ParseResult result;
+    PyObject *stack_buf[MAX_STACK_ARGS];
+
+    if (_parse_signature_core(&input, &result, stack_buf, MAX_STACK_ARGS) < 0) {
+        return NULL;
+    }
+
+    // Build the Python list from the C buffer
+    PyObject *runtime_args_list = _runtime_args_to_list(result.runtime_args_buf, result.nruntime);
+    _parse_result_cleanup(&result);
+
+    if (!runtime_args_list) {
+        Py_DECREF(result.sig_tuple);
+        return NULL;
+    }
+
+    PyObject *ret = PyTuple_Pack(3, result.to_execute ? Py_True : Py_False,
+                                 result.sig_tuple, runtime_args_list);
+    Py_DECREF(result.sig_tuple);
+    Py_DECREF(runtime_args_list);
+    return ret;
+}
+
+// ============================================================================
+// fast_dispatch — signature parse + dict lookup + Vectorcall in C
+// ============================================================================
+// Returns a 4-tuple: (hit, to_execute, payload, runtime_args_or_None)
+//   hit=True,  to_execute=True  => payload is the actual function result
+//   hit=False, to_execute=True  => payload is signature tuple (cache miss, Python must load)
+//   hit=False, to_execute=False => payload is signature tuple (symbolic, Python handles)
+static PyObject* fast_dispatch(PyObject *self, PyObject *args) {
+    PyObject *py_args;
+    PyObject *kwargs;
+    PyObject *params;
+    PyObject *fixed_param_indices;
+    int n_pos_def_args;
+    char *catch_var_name_str;
+    int add_shape_descriptors;
+    int ignore_fixed_shape;
+    int reorder_kwargs;
+    PyObject *fast_call_dict;
+
+    if (!PyArg_ParseTuple(args, "OOOOisippO", &py_args, &kwargs, &params, &fixed_param_indices,
+                          &n_pos_def_args, &catch_var_name_str,
+                          &add_shape_descriptors, &ignore_fixed_shape, &reorder_kwargs,
+                          &fast_call_dict)) {
+        return NULL;
+    }
+
+    ParseInput input = {
+        py_args, kwargs, params, fixed_param_indices,
+        n_pos_def_args, catch_var_name_str,
+        {add_shape_descriptors, ignore_fixed_shape, reorder_kwargs}
+    };
+    ParseResult result;
+    PyObject *stack_buf[MAX_STACK_ARGS];
+
+    if (_parse_signature_core(&input, &result, stack_buf, MAX_STACK_ARGS) < 0) {
+        return NULL;
+    }
+
+    // --- Not executable (symbolic) → return to Python ---
+    if (!result.to_execute) {
+        PyObject *runtime_args_list = _runtime_args_to_list(result.runtime_args_buf, result.nruntime);
+        _parse_result_cleanup(&result);
+        if (!runtime_args_list) {
+            Py_DECREF(result.sig_tuple);
+            return NULL;
+        }
+        PyObject *ret = PyTuple_Pack(4, Py_False, Py_False,
+                                     result.sig_tuple, runtime_args_list);
+        Py_DECREF(result.sig_tuple);
+        Py_DECREF(runtime_args_list);
+        return ret;
+    }
+
+    // --- Executable: try cache lookup ---
+    // PyDict_GetItem returns borrowed ref, does NOT set exception on miss
+    PyObject *func = PyDict_GetItem(fast_call_dict, result.sig_tuple);
+
+    if (func == NULL) {
+        // Cache miss → return to Python for compilation + loading
+        PyObject *runtime_args_list = _runtime_args_to_list(result.runtime_args_buf, result.nruntime);
+        _parse_result_cleanup(&result);
+        if (!runtime_args_list) {
+            Py_DECREF(result.sig_tuple);
+            return NULL;
+        }
+        PyObject *ret = PyTuple_Pack(4, Py_False, Py_True,
+                                     result.sig_tuple, runtime_args_list);
+        Py_DECREF(result.sig_tuple);
+        Py_DECREF(runtime_args_list);
+        return ret;
+    }
+
+    // --- Cache hit! Call via Vectorcall ---
+    PyObject *call_result = PyObject_Vectorcall(
+        func,
+        result.runtime_args_buf,
+        (size_t)result.nruntime,
+        NULL  // no kwnames
+    );
+
+    // Clean up
+    _parse_result_cleanup(&result);
+
+    if (!call_result) {
+        // Function raised an exception
+        Py_DECREF(result.sig_tuple);
+        return NULL;
+    }
+
+    PyObject *ret = PyTuple_Pack(4, Py_True, Py_True,
+                                 call_result, Py_None);
+    Py_DECREF(result.sig_tuple);
+    Py_DECREF(call_result);
+    return ret;
 }
 
 static PyObject *init_globals(PyObject *self, PyObject *args) {
@@ -633,6 +847,7 @@ static PyObject *init_globals(PyObject *self, PyObject *args) {
 
 static PyMethodDef SignatureMethods[] = {
     {"get_signature_and_runtime_args", get_signature_and_runtime_args, METH_VARARGS, "Optimize signature parsing"},
+    {"fast_dispatch", fast_dispatch, METH_VARARGS, "Parse signature + dict lookup + vectorcall dispatch"},
     {"init_globals", init_globals, METH_VARARGS, "Initialize globals"},
     {NULL, NULL, 0, NULL}
 };

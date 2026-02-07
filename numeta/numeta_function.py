@@ -14,6 +14,7 @@ from .array_shape import ArrayShape, SCALAR, UNKNOWN
 from .external_library import ExternalLibrary
 from .signature import (
     convert_signature_to_argument_specs,
+    fast_dispatch,
     get_signature_and_runtime_args,
     parse_function_parameters,
 )
@@ -411,21 +412,26 @@ class NumetaFunction:
                 return tuple(return_values)
         else:
 
-            # TODO: probably overhead, to do in C?
-            to_execute, signature, runtime_args = get_signature_and_runtime_args(
+            hit, to_execute, payload, runtime_args = fast_dispatch(
                 args,
                 kwargs,
                 params=self.params,
                 fixed_param_indices=self.fixed_param_indices,
                 n_positional_or_default_args=self.n_positional_or_default_args,
                 catch_var_positional_name=self.catch_var_positional_name,
+                fast_call_dict=self._fast_call,
             )
 
-            if not to_execute:
-                self.construct_compiled_target(signature)
-                return self._compiled_functions[signature].symbolic_function
+            if hit:
+                return payload
 
-            return self.execute(signature, runtime_args)
+            if not to_execute:
+                self.construct_compiled_target(payload)
+                return self._compiled_functions[payload].symbolic_function
+
+            # Cache miss — load, then call
+            self.load(payload)
+            return self._fast_call[payload](*runtime_args)
 
     def get_symbolic_function(self, name, signature):
         argument_specs = convert_signature_to_argument_specs(
