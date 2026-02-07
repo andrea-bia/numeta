@@ -215,7 +215,20 @@ class NumetaCompiledFunction(ExternalLibrary):
             return lib
 
 
-class NumetaFunction:
+try:
+    from ._signature import BaseFunction
+
+    _use_c_dispatch = True
+except ImportError:
+
+    class BaseFunction:
+        def _configure_dispatch(self, *args):
+            pass
+
+    _use_c_dispatch = False
+
+
+class NumetaFunction(BaseFunction, ExternalLibrary):
     """
     Representation of a JIT-compiled function.
     """
@@ -232,7 +245,7 @@ class NumetaFunction:
         inline: bool | int = False,
         backend: str | None = None,
     ) -> None:
-        super().__init__()
+        ExternalLibrary.__init__(self, func.__name__, to_link=True)
         self.name = func.__name__
         if directory is None:
             directory = tempfile.mkdtemp()
@@ -265,6 +278,19 @@ class NumetaFunction:
         self._pyc_extensions = {}
         self._fast_call = {}
 
+        # Configure C-level dispatch
+        self._configure_dispatch(
+            self.params,
+            self.fixed_param_indices,
+            self.n_positional_or_default_args,
+            self.catch_var_positional_name,
+            self._fast_call,
+            BuilderHelper,
+            settings.add_shape_descriptors,
+            settings.ignore_fixed_shape_in_nested_calls,
+            settings.reorder_kwargs,
+        )
+
     def clear(self):
         for compiled in self._compiled_functions.values():
             NumetaFunction.used_compiled_names.remove(compiled.func_name)
@@ -272,6 +298,7 @@ class NumetaFunction:
         self._compiled_functions = {}
         self._pyc_extensions = {}
         self._fast_call = {}
+        self._fast_call.clear()
 
     def get_symbolic_functions(self):
         return [v.symbolic_function for v in self._compiled_functions.values()]
@@ -290,17 +317,122 @@ class NumetaFunction:
         )
         return signature
 
-    def __call__(self, *args, **kwargs):
-        """
-        **Note**: Support for fixed shapes for arrays works when not using numpy arrays.
-        But if the function is called with numeta types hint like nm.float32[2, 3] it will create a symbolic function with fixed shapes arguments.
-        Calling it is another story and not implemented yet.
-        """
+    def _handle_cache_miss(self, signature, runtime_args):
+        """Called by C dispatch on cache miss."""
+        if signature not in self._compiled_functions:
+            self.construct_compiled_target(signature)
 
+        self.load(signature)
+        return self._fast_call[signature](*runtime_args)
+
+    def _handle_symbolic_call(self, signature, runtime_args):
+        """Called by C dispatch when symbolic execution is required."""
         builder = BuilderHelper.current_builder
-        if builder is not None:
-            # We are already contructing a symbolic function
+        if signature not in self._compiled_functions:
+            self.construct_compiled_target(signature)
+        symbolic_fun = self._compiled_functions[signature].symbolic_function
+        return_specs = self.return_signatures.get(signature, [])
 
+        # first check the runtime arguments
+        from .ast.tools import check_node
+
+        runtime_args = [check_node(arg) for arg in runtime_args]
+
+        # Optionally add the array descriptor
+        full_runtime_args = []
+        for arg in runtime_args:
+            if settings.add_shape_descriptors and arg._shape.has_comptime_undefined_dims():
+                full_runtime_args.append(arg._get_shape_descriptor())
+            full_runtime_args.append(arg)
+
+        do_inline = False
+        if isinstance(self.inline, bool):
+            do_inline = self.inline
+        elif isinstance(self.inline, int):
+            if symbolic_fun.count_statements() <= self.inline:
+                do_inline = True
+
+        return_arguments = []
+        return_values = []
+        return_pointers = []
+        if return_specs:
+            for dtype, rank in return_specs:
+                if rank == 0:
+                    out_var = builder.generate_local_variables("fc_r", dtype=dtype)
+                    return_arguments.append(out_var)
+                    return_values.append(out_var)
+                    continue
+
+                shape_var = builder.generate_local_variables(
+                    "fc_out_shape", dtype=size_t, shape=ArrayShape((rank,))
+                )
+                return_arguments.append(shape_var)
+                array_shape = ArrayShape(tuple([None] * rank))
+
+                if settings.use_numpy_allocator or self.backend == "c":
+                    from numeta.fortran.external_modules.iso_c_binding import iso_c
+                    from numeta.datatype import c_ptr
+
+                    out_ptr = builder.generate_local_variables("fc_out_ptr", dtype=c_ptr)
+                    return_arguments.append(out_ptr)
+                    if self.backend == "c":
+                        array_shape = ArrayShape(
+                            tuple(shape_var[i] for i in range(rank)), fortran_order=False
+                        )
+                    out_array = builder.generate_local_variables(
+                        "fc_r", dtype=dtype, shape=array_shape, pointer=True
+                    )
+                    return_pointers.append((out_ptr, out_array, shape_var, rank))
+                    return_values.append(out_array)
+                else:
+                    out_array = builder.generate_local_variables(
+                        "fc_r", dtype=dtype, shape=array_shape, allocatable=True
+                    )
+                    return_arguments.append(out_array)
+                    return_values.append(out_array)
+
+        if do_inline:
+            builder.inline(symbolic_fun, *full_runtime_args, *return_arguments)
+        else:
+            symbolic_fun(*full_runtime_args, *return_arguments)
+
+        for out_ptr, out_array, shape_var, rank in return_pointers:
+            shape_fortran = shape_var
+            if self.backend == "fortran" and rank != 1:
+                shape_fortran = shape_var[rank - 1 : 1 : -1]
+            from numeta.fortran.external_modules.iso_c_binding import iso_c
+
+            iso_c.c_f_pointer(out_ptr, out_array, shape_fortran)
+
+        if return_specs:
+            if len(return_values) == 1:
+                return return_values[0]
+            return tuple(return_values)
+
+    def __setstate__(self, state):
+        """Restore state from pickle."""
+        self.__dict__.update(state)
+        # Re-configure C dispatch from restored attributes
+        # Note: _fast_call is cleared during pickle but that's fine
+        self._configure_dispatch(
+            self.params,
+            self.fixed_param_indices,
+            self.n_positional_or_default_args,
+            self.catch_var_positional_name,
+            self._fast_call,
+            BuilderHelper,
+            settings.add_shape_descriptors,
+            settings.ignore_fixed_shape_in_nested_calls,
+            settings.reorder_kwargs,
+        )
+
+    if not _use_c_dispatch:
+
+        def __call__(self, *args, **kwargs):
+            """
+            Fallback implementation of __call__ when C dispatch is unavailable.
+            """
+            builder = BuilderHelper.current_builder
             _, signature, runtime_args = get_signature_and_runtime_args(
                 args,
                 kwargs,
@@ -310,128 +442,13 @@ class NumetaFunction:
                 catch_var_positional_name=self.catch_var_positional_name,
             )
 
-            if signature not in self._compiled_functions:
-                self.construct_compiled_target(signature)
-            symbolic_fun = self._compiled_functions[signature].symbolic_function
-            return_specs = self.return_signatures.get(signature, [])
+            if builder is not None:
+                return self._handle_symbolic_call(signature, runtime_args)
 
-            # first check the runtime arguments
-            # they should be symbolic nodes
-            from .ast.tools import check_node
+            if signature in self._fast_call:
+                return self._fast_call[signature](*runtime_args)
 
-            runtime_args = [check_node(arg) for arg in runtime_args]
-
-            # Optionally add the array descriptor for arrays with runtime-dependent dimensions
-            full_runtime_args = []
-            for arg in runtime_args:
-                if settings.add_shape_descriptors and arg._shape.has_comptime_undefined_dims():
-                    full_runtime_args.append(arg._get_shape_descriptor())
-                full_runtime_args.append(arg)
-
-            do_inline = False
-            if isinstance(self.inline, bool):
-                do_inline = self.inline
-            elif isinstance(self.inline, int):
-                if symbolic_fun.count_statements() <= self.inline:
-                    do_inline = True
-
-            return_arguments = []
-            return_values = []
-            return_pointers = []
-            if return_specs:
-                for dtype, rank in return_specs:
-                    if rank == 0:
-                        out_var = builder.generate_local_variables(
-                            "fc_r",
-                            dtype=dtype,
-                        )
-                        return_arguments.append(out_var)
-                        return_values.append(out_var)
-                        continue
-
-                    shape_var = builder.generate_local_variables(
-                        "fc_out_shape",
-                        dtype=size_t,
-                        shape=ArrayShape((rank,)),
-                    )
-                    return_arguments.append(shape_var)
-
-                    array_shape = ArrayShape(tuple([None] * rank))
-
-                    if settings.use_numpy_allocator or self.backend == "c":
-                        from numeta.fortran.external_modules.iso_c_binding import iso_c
-                        from numeta.datatype import c_ptr
-
-                        out_ptr = builder.generate_local_variables(
-                            "fc_out_ptr",
-                            dtype=c_ptr,
-                        )
-                        return_arguments.append(out_ptr)
-
-                        if self.backend == "c":
-                            array_shape = ArrayShape(
-                                tuple(shape_var[i] for i in range(rank)),
-                                fortran_order=False,
-                            )
-
-                        out_array = builder.generate_local_variables(
-                            "fc_r",
-                            dtype=dtype,
-                            shape=array_shape,
-                            pointer=True,
-                        )
-                        return_pointers.append((out_ptr, out_array, shape_var, rank))
-                        return_values.append(out_array)
-                    else:
-                        out_array = builder.generate_local_variables(
-                            "fc_r",
-                            dtype=dtype,
-                            shape=array_shape,
-                            allocatable=True,
-                        )
-                        return_arguments.append(out_array)
-                        return_values.append(out_array)
-
-            if do_inline:
-                builder.inline(symbolic_fun, *full_runtime_args, *return_arguments)
-            else:
-                # This add a Call statement to the current builder
-                symbolic_fun(*full_runtime_args, *return_arguments)
-
-            for out_ptr, out_array, shape_var, rank in return_pointers:
-                shape_fortran = shape_var
-                if self.backend == "fortran" and rank != 1:
-                    shape_fortran = shape_var[rank - 1 : 1 : -1]
-                from numeta.fortran.external_modules.iso_c_binding import iso_c
-
-                iso_c.c_f_pointer(out_ptr, out_array, shape_fortran)
-
-            if return_specs:
-                if len(return_values) == 1:
-                    return return_values[0]
-                return tuple(return_values)
-        else:
-
-            hit, to_execute, payload, runtime_args = fast_dispatch(
-                args,
-                kwargs,
-                params=self.params,
-                fixed_param_indices=self.fixed_param_indices,
-                n_positional_or_default_args=self.n_positional_or_default_args,
-                catch_var_positional_name=self.catch_var_positional_name,
-                fast_call_dict=self._fast_call,
-            )
-
-            if hit:
-                return payload
-
-            if not to_execute:
-                self.construct_compiled_target(payload)
-                return self._compiled_functions[payload].symbolic_function
-
-            # Cache miss — load, then call
-            self.load(payload)
-            return self._fast_call[payload](*runtime_args)
+            return self._handle_cache_miss(signature, runtime_args)
 
     def get_symbolic_function(self, name, signature):
         argument_specs = convert_signature_to_argument_specs(

@@ -1,5 +1,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <stddef.h>
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <numpy/arrayobject.h>
 #include <numpy/arrayscalars.h>
@@ -34,6 +35,7 @@ static PyObject *str_intent = NULL;
 static PyObject *str_in = NULL;
 static PyObject *str_inout = NULL;
 static PyObject *str_underscore_shape = NULL;
+static PyObject *str_current_builder = NULL;
 
 // Constants
 static int KIND_POSITIONAL_ONLY = 0;
@@ -785,6 +787,225 @@ static PyObject* fast_dispatch(PyObject *self, PyObject *args) {
     return ret;
 }
 
+// ============================================================================
+// BaseFunction Type - The optimized base class for NumetaFunction
+// ============================================================================
+
+typedef struct {
+    PyObject_HEAD
+    PyObject *params;              // List of params
+    PyObject *fixed_param_indices; // List of indices
+    int n_pos_def_args;
+    PyObject *catch_var_name_obj;  // PyUnicode or Py_None
+    const char *catch_var_name_cstr; // Pointer to internal buffer of above (or NULL)
+    PyObject *fast_call_dict;      // Dict[Signature, CompiledFunc]
+    PyObject *BuilderHelperCls;    // BuilderHelper class for symbolic check
+    Settings settings;
+} BaseFunctionObject;
+
+static void BaseFunction_dealloc(BaseFunctionObject *self) {
+    Py_XDECREF(self->params);
+    Py_XDECREF(self->fixed_param_indices);
+    Py_XDECREF(self->catch_var_name_obj);
+    Py_XDECREF(self->fast_call_dict);
+    Py_XDECREF(self->BuilderHelperCls);
+    Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static PyObject *BaseFunction_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    BaseFunctionObject *self = (BaseFunctionObject *)type->tp_alloc(type, 0);
+    if (self != NULL) {
+        self->params = NULL;
+        self->fixed_param_indices = NULL;
+        self->n_pos_def_args = 0;
+        self->catch_var_name_obj = NULL;
+        self->catch_var_name_cstr = NULL;
+        self->fast_call_dict = NULL;
+        self->BuilderHelperCls = NULL;
+        // Default settings
+        self->settings.add_shape_descriptors = 0;
+        self->settings.ignore_fixed_shape_in_nested_calls = 0;
+        self->settings.reorder_kwargs = 0;
+    }
+    return (PyObject *)self;
+}
+
+// _configure_dispatch(params, fixed_indices, n_pos, catch_name, fast_call_dict, builder_helper, settings...)
+static PyObject *BaseFunction_configure_dispatch(BaseFunctionObject *self, PyObject *args) {
+    PyObject *params;
+    PyObject *fixed_indices;
+    int n_pos;
+    PyObject *catch_name;
+    PyObject *fast_call_dict;
+    PyObject *builder_helper;
+    int add_shape, ignore_fixed, reorder;
+
+    if (!PyArg_ParseTuple(args, "OOiOOOiii", 
+        &params, &fixed_indices, &n_pos, &catch_name, &fast_call_dict, &builder_helper,
+        &add_shape, &ignore_fixed, &reorder)) {
+        return NULL;
+    }
+
+    Py_XINCREF(params);
+    Py_XDECREF(self->params);
+    self->params = params;
+
+    Py_XINCREF(fixed_indices);
+    Py_XDECREF(self->fixed_param_indices);
+    self->fixed_param_indices = fixed_indices;
+
+    self->n_pos_def_args = n_pos;
+
+    Py_XINCREF(catch_name);
+    Py_XDECREF(self->catch_var_name_obj);
+    self->catch_var_name_obj = catch_name;
+
+    if (catch_name == Py_None) {
+        self->catch_var_name_cstr = NULL;
+    } else if (PyUnicode_Check(catch_name)) {
+        self->catch_var_name_cstr = PyUnicode_AsUTF8(catch_name);
+        if (!self->catch_var_name_cstr) return NULL;
+    } else {
+        PyErr_SetString(PyExc_TypeError, "catch_var_name must be str or None");
+        return NULL;
+    }
+
+    Py_XINCREF(fast_call_dict);
+    Py_XDECREF(self->fast_call_dict);
+    self->fast_call_dict = fast_call_dict;
+
+    Py_XINCREF(builder_helper);
+    Py_XDECREF(self->BuilderHelperCls);
+    self->BuilderHelperCls = builder_helper;
+
+    self->settings.add_shape_descriptors = add_shape;
+    self->settings.ignore_fixed_shape_in_nested_calls = ignore_fixed;
+    self->settings.reorder_kwargs = reorder;
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyObject *kwargs) {
+    // Check if configured
+    if (!self->params || !self->fast_call_dict) {
+        PyErr_SetString(PyExc_RuntimeError, "BaseFunction dispatch not configured");
+        return NULL;
+    }
+
+    // Default kwargs to empty dict if NULL (call from python with no kwargs)
+    PyObject *tmp_kwargs = NULL;
+    if (kwargs == NULL) {
+        tmp_kwargs = PyDict_New();
+        if (!tmp_kwargs) return NULL;
+        kwargs = tmp_kwargs;
+    }
+
+    ParseInput input = {
+        args, kwargs, 
+        self->params, 
+        self->fixed_param_indices,
+        self->n_pos_def_args, 
+        self->catch_var_name_cstr,
+        self->settings
+    };
+
+    ParseResult result;
+    PyObject *stack_buf[MAX_STACK_ARGS];
+    PyObject *ret_val = NULL;
+
+    if (_parse_signature_core(&input, &result, stack_buf, MAX_STACK_ARGS) < 0) {
+        Py_XDECREF(tmp_kwargs);
+        return NULL;
+    }
+
+    // Clean up temporary kwargs if we created it
+    Py_XDECREF(tmp_kwargs);
+
+    // --- Check Symbolic Context (BuilderHelper.current_builder) ---
+    int force_symbolic = 0;
+    if (self->BuilderHelperCls && self->BuilderHelperCls != Py_None) {
+        PyObject *builder = PyObject_GetAttr(self->BuilderHelperCls, str_current_builder);
+        if (builder) {
+            if (builder != Py_None) force_symbolic = 1;
+            Py_DECREF(builder);
+        } else {
+            PyErr_Clear(); // Attribute might not exist yet?
+        }
+    }
+
+    // --- Not executable (symbolic) OR Cache Miss OR Forced Symbolic ---
+    if (!result.to_execute || force_symbolic) {
+        // Symbolic execution required
+        PyObject *runtime_args_list = _runtime_args_to_list(result.runtime_args_buf, result.nruntime);
+        _parse_result_cleanup(&result);
+        if (!runtime_args_list) {
+            Py_DECREF(result.sig_tuple);
+            return NULL;
+        }
+        
+        // Callback: self._handle_symbolic_call(signature, runtime_args)
+        ret_val = PyObject_CallMethod((PyObject*)self, "_handle_symbolic_call", "OO", 
+                                      result.sig_tuple, runtime_args_list);
+        
+        Py_DECREF(result.sig_tuple);
+        Py_DECREF(runtime_args_list);
+        return ret_val;
+    }
+
+    // --- Executable: Cache Lookup ---
+    PyObject *func = PyDict_GetItem(self->fast_call_dict, result.sig_tuple);
+
+    if (func == NULL) {
+        // Cache miss -> Compilation required
+        PyObject *runtime_args_list = _runtime_args_to_list(result.runtime_args_buf, result.nruntime);
+        _parse_result_cleanup(&result);
+        if (!runtime_args_list) {
+            Py_DECREF(result.sig_tuple);
+            return NULL;
+        }
+
+        // Callback: self._handle_cache_miss(signature, runtime_args)
+        ret_val = PyObject_CallMethod((PyObject*)self, "_handle_cache_miss", "OO", 
+                                      result.sig_tuple, runtime_args_list);
+        
+        Py_DECREF(result.sig_tuple);
+        Py_DECREF(runtime_args_list);
+        return ret_val;
+    }
+
+    // --- Cache Hit: Vectorcall ---
+    ret_val = PyObject_Vectorcall(
+        func,
+        result.runtime_args_buf,
+        (size_t)result.nruntime,
+        NULL
+    );
+
+    _parse_result_cleanup(&result);
+    Py_DECREF(result.sig_tuple);
+    
+    return ret_val;
+}
+
+static PyMethodDef BaseFunction_methods[] = {
+    {"_configure_dispatch", (PyCFunction)BaseFunction_configure_dispatch, METH_VARARGS,
+     "Configure the C-level dispatch state"},
+    {NULL}  /* Sentinel */
+};
+
+static PyTypeObject BaseFunctionType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "numeta._signature.BaseFunction",
+    .tp_doc = "Optimized dispatch base class",
+    .tp_basicsize = sizeof(BaseFunctionObject),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_new = BaseFunction_new,
+    .tp_dealloc = (destructor)BaseFunction_dealloc,
+    .tp_call = (ternaryfunc)BaseFunction_call,
+    .tp_methods = BaseFunction_methods,
+};
+
 static PyObject *init_globals(PyObject *self, PyObject *args) {
     PyObject *types_dict;
     PyObject *constants_dict;
@@ -841,6 +1062,7 @@ static PyObject *init_globals(PyObject *self, PyObject *args) {
     str_in = PyUnicode_InternFromString("in");
     str_inout = PyUnicode_InternFromString("inout");
     str_underscore_shape = PyUnicode_InternFromString("_shape");
+    str_current_builder = PyUnicode_InternFromString("current_builder");
 
     Py_RETURN_NONE;
 }
@@ -862,5 +1084,20 @@ static struct PyModuleDef signaturemodule = {
 
 PyMODINIT_FUNC PyInit__signature(void) {
     import_array();
-    return PyModule_Create(&signaturemodule);
+    
+    if (PyType_Ready(&BaseFunctionType) < 0)
+        return NULL;
+
+    PyObject *m = PyModule_Create(&signaturemodule);
+    if (m == NULL)
+        return NULL;
+
+    Py_INCREF(&BaseFunctionType);
+    if (PyModule_AddObject(m, "BaseFunction", (PyObject *)&BaseFunctionType) < 0) {
+        Py_DECREF(&BaseFunctionType);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    return m;
 }
