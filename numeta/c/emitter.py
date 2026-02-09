@@ -408,10 +408,7 @@ class CEmitter:
         dtype = getattr(source, "dtype", None)
         if dtype is None:
             return None
-        try:
-            return dtype
-        except Exception:
-            return None
+        return dtype
 
     def _build_signature(self, proc: IRProcedure) -> list[str]:
         arg_specs: list[str] = []
@@ -1017,7 +1014,7 @@ class CEmitter:
                     try:
                         src_bytes = src_dtype.get_nbytes()
                         target_bytes = target_dtype.get_nbytes()
-                    except Exception:
+                    except (AttributeError, TypeError):
                         src_bytes = None
                         target_bytes = None
                     if (
@@ -1654,7 +1651,7 @@ class CEmitter:
             if len(expr.args) > 1 and isinstance(expr.args[1], IRLiteral):
                 try:
                     dim_index = int(expr.args[1].value)
-                except Exception:
+                except (ValueError, TypeError):
                     dim_index = None
             if isinstance(base, IRVarRef) and base.var is not None:
                 info = self._array_info.get(base.var.name)
@@ -1804,18 +1801,6 @@ class CEmitter:
             if dtype is not None:
                 return dtype.get_cnumpy()
         # Fallback
-        return "double"
-        if var.vtype is None:
-            return "double"
-        name = var.vtype.dtype.name
-        if name == "real":
-            return "double"
-        if name == "integer":
-            return "long long"
-        if name == "complex":
-            return "npy_cdouble"
-        if name == "logical":
-            return "npy_bool"
         return "double"
 
     def _render_dim(self, dim: Any) -> str:
