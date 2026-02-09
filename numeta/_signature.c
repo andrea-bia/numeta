@@ -1,6 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stddef.h>
+#include <dlfcn.h>
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <numpy/arrayobject.h>
 #include <numpy/arrayscalars.h>
@@ -49,101 +50,16 @@ static int KIND_VAR_KEYWORD = 4;
 #endif
 
 // ============================================================================
-// One-Entry Monomorphic Cache (PIC)
+// Forward declarations for BaseFunction
 // ============================================================================
-#define MAX_CACHED_ARGS 8
 
-typedef enum {
-    CHECK_NONE = 0,
-    CHECK_EXACT_TYPE,   // Py_TYPE(arg) == cached_type
-    CHECK_NUMPY_ARRAY   // PyArray_Check(arg) && matching dtype/ndim/flags
-} CheckType;
+typedef struct BaseFunctionObject BaseFunctionObject;
 
-typedef struct {
-    CheckType check_kind;
-    PyTypeObject *type;     // For CHECK_EXACT_TYPE (borrowed ref from cache owner?) -> INCREF'd
-    // For CHECK_NUMPY_ARRAY:
-    PyArray_Descr *dtype;   // INCREF'd
-    int ndim;
-    int is_fortran;
-} ArgCache;
-
-typedef struct {
-    int valid;
-    PyObject *func;         // The compiled function (INCREF'd)
-    int nargs;
-    ArgCache args[MAX_CACHED_ARGS];
-} OneEntryCache;
-
-static void cache_clear(OneEntryCache *cache) {
-    if (!cache->valid) return;
-    Py_XDECREF(cache->func);
-    for (int i = 0; i < cache->nargs; i++) {
-        Py_XDECREF(cache->args[i].type);
-        Py_XDECREF(cache->args[i].dtype);
-    }
-    cache->valid = 0;
-}
-
-// Check if current args match the cache. Returns 1 on match, 0 on mismatch.
-static inline int cache_check(OneEntryCache *cache, PyObject **args, Py_ssize_t nargs) {
-    if (!cache->valid || nargs != cache->nargs) return 0;
-
-    for (int i = 0; i < nargs; i++) {
-        PyObject *arg = args[i];
-        ArgCache *c = &cache->args[i];
-
-        if (c->check_kind == CHECK_EXACT_TYPE) {
-            if (Py_TYPE(arg) != c->type) return 0;
-        } 
-        else if (c->check_kind == CHECK_NUMPY_ARRAY) {
-            if (!PyArray_Check(arg)) return 0;
-            PyArrayObject *arr = (PyArrayObject*)arg;
-            if (PyArray_NDIM(arr) != c->ndim) return 0;
-            if (PyArray_ISFORTRAN(arr) != c->is_fortran) return 0;
-            // Check dtype equality (pointer check often sufficient if singleton, but use Equiv)
-            if (!PyArray_EquivTypes(PyArray_DESCR(arr), c->dtype)) return 0;
-        } 
-        else {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static void cache_update(OneEntryCache *cache, PyObject *func, PyObject **args, Py_ssize_t nargs) {
-    if (nargs > MAX_CACHED_ARGS) {
-        cache_clear(cache);
-        return;
-    }
-
-    cache_clear(cache); // Release old refs
-
-    cache->nargs = (int)nargs;
-    cache->func = func;
-    Py_INCREF(func);
-
-    for (int i = 0; i < nargs; i++) {
-        PyObject *arg = args[i];
-        ArgCache *c = &cache->args[i];
-
-        if (PyArray_Check(arg)) {
-            c->check_kind = CHECK_NUMPY_ARRAY;
-            PyArrayObject *arr = (PyArrayObject*)arg;
-            c->ndim = PyArray_NDIM(arr);
-            c->is_fortran = PyArray_ISFORTRAN(arr);
-            c->dtype = PyArray_DESCR(arr);
-            Py_INCREF(c->dtype);
-            c->type = NULL;
-        } else {
-            c->check_kind = CHECK_EXACT_TYPE;
-            c->type = Py_TYPE(arg);
-            Py_INCREF(c->type);
-            c->dtype = NULL;
-        }
-    }
-    cache->valid = 1;
-}
+// Signature parser function type - returns 0 on success, -1 on error
+// Populates sig[], runtime_args[], and sets *nargs_out (signature len) and *nruntime_out
+typedef int (*SignatureParserFunc)(PyObject *args, PyObject **runtime_args, 
+                                    PyObject **sig, int *nargs_out, int *nruntime_out, 
+                                    void *self);
 
 // ============================================================================
 // BaseFunction Type
@@ -153,6 +69,7 @@ typedef struct {
     int add_shape_descriptors;
     int ignore_fixed_shape_in_nested_calls;
     int reorder_kwargs;
+    int use_c_dispatch;
 } Settings;
 
 // Optimized instance check - inline and use fast path
@@ -896,7 +813,7 @@ static PyObject* fast_dispatch(PyObject *self, PyObject *args) {
 // BaseFunction Type - The optimized base class for NumetaFunction
 // ============================================================================
 
-typedef struct {
+typedef struct BaseFunctionObject {
     PyObject_HEAD
     PyObject *params;              // List of params
     PyObject *fixed_param_indices; // List of indices
@@ -906,8 +823,7 @@ typedef struct {
     PyObject *fast_call_dict;      // Dict[Signature, CompiledFunc]
     PyObject *BuilderHelperCls;    // BuilderHelper class for symbolic check
     Settings settings;
-    OneEntryCache cache;           // Monomorphic cache
-    int has_comptime_args;         // If true, disable cache (value dependency)
+    SignatureParserFunc parser_func;  // Custom generated parser (NULL = use generic)
 } BaseFunctionObject;
 
 static void BaseFunction_dealloc(BaseFunctionObject *self) {
@@ -916,7 +832,8 @@ static void BaseFunction_dealloc(BaseFunctionObject *self) {
     Py_XDECREF(self->catch_var_name_obj);
     Py_XDECREF(self->fast_call_dict);
     Py_XDECREF(self->BuilderHelperCls);
-    cache_clear(&self->cache);
+    // Note: dlclose is tricky with Python - we'll skip explicit close
+    // The OS will clean up when the process exits
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -930,12 +847,12 @@ static PyObject *BaseFunction_new(PyTypeObject *type, PyObject *args, PyObject *
         self->catch_var_name_cstr = NULL;
         self->fast_call_dict = NULL;
         self->BuilderHelperCls = NULL;
-        self->cache.valid = 0;
-        self->has_comptime_args = 0;
+        self->parser_func = NULL;
         // Default settings
         self->settings.add_shape_descriptors = 0;
         self->settings.ignore_fixed_shape_in_nested_calls = 0;
         self->settings.reorder_kwargs = 0;
+        self->settings.use_c_dispatch = 1;
     }
     return (PyObject *)self;
 }
@@ -948,11 +865,11 @@ static PyObject *BaseFunction_configure_dispatch(BaseFunctionObject *self, PyObj
     PyObject *catch_name;
     PyObject *fast_call_dict;
     PyObject *builder_helper;
-    int add_shape, ignore_fixed, reorder;
+    int add_shape, ignore_fixed, reorder, use_c_dispatch;
 
-    if (!PyArg_ParseTuple(args, "OOiOOOiii", 
+    if (!PyArg_ParseTuple(args, "OOiOOOiiii", 
         &params, &fixed_indices, &n_pos, &catch_name, &fast_call_dict, &builder_helper,
-        &add_shape, &ignore_fixed, &reorder)) {
+        &add_shape, &ignore_fixed, &reorder, &use_c_dispatch)) {
         return NULL;
     }
 
@@ -991,22 +908,7 @@ static PyObject *BaseFunction_configure_dispatch(BaseFunctionObject *self, PyObj
     self->settings.add_shape_descriptors = add_shape;
     self->settings.ignore_fixed_shape_in_nested_calls = ignore_fixed;
     self->settings.reorder_kwargs = reorder;
-
-    // Check for comptime args
-    self->has_comptime_args = 0;
-    Py_ssize_t num_params = PyList_Size(params);
-    for (Py_ssize_t i = 0; i < num_params; i++) {
-        PyObject *p = PyList_GetItem(params, i);
-        PyObject *is_comp = PyObject_GetAttr(p, str_is_comptime);
-        if (is_comp && PyObject_IsTrue(is_comp)) {
-            self->has_comptime_args = 1;
-            Py_DECREF(is_comp);
-            break;
-        }
-        Py_XDECREF(is_comp);
-    }
-    // Invalidate cache if config changes
-    cache_clear(&self->cache);
+    self->settings.use_c_dispatch = use_c_dispatch;
 
     Py_RETURN_NONE;
 }
@@ -1018,6 +920,16 @@ static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyO
         return NULL;
     }
 
+    // Check if C dispatch is disabled via settings (fallback to Python implementation)
+    if (!self->settings.use_c_dispatch) {
+        PyObject *method = PyObject_GetAttrString((PyObject*)self, "_python_call");
+        if (!method) return NULL;
+        PyObject *result = PyObject_Call(method, args, kwargs);
+        
+        Py_DECREF(method);
+        return result;
+    }
+    
     // Default kwargs to empty dict if NULL (call from python with no kwargs)
     PyObject *tmp_kwargs = NULL;
     if (kwargs == NULL) {
@@ -1048,24 +960,79 @@ static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyO
             if (builder != Py_None) force_symbolic = 1;
             Py_DECREF(builder);
         } else {
-            PyErr_Clear(); // Attribute might not exist yet?
+            PyErr_Clear();
         }
     }
 
-    // --- Fast Path: Monomorphic Cache ---
+    // --- Try Custom Parser First (Fast Path) ---
+    // If we have a custom parser, no kwargs, and not in symbolic mode, use it
     Py_ssize_t nargs = PyTuple_GET_SIZE(args);
-    if (!force_symbolic && !self->has_comptime_args && 
-        (!kwargs || PyDict_Size(kwargs) == 0) &&
-        self->cache.valid && nargs <= MAX_CACHED_ARGS) {
+    if (self->parser_func && !force_symbolic && (!kwargs || PyDict_Size(kwargs) == 0)) {
         
-        PyObject **args_items = PyTuple_ITEMS(args); // Borrowed
-        if (cache_check(&self->cache, args_items, nargs)) {
-             // Cache hit!
-             Py_XDECREF(tmp_kwargs);
-             return PyObject_Vectorcall(self->cache.func, args_items, (size_t)nargs, NULL);
+        // Use separate buffers for runtime_args and sig
+        PyObject *sig_buf[MAX_STACK_ARGS] = {NULL};
+        int parsed_nargs = 0;
+        int parsed_nruntime = 0;
+        int parser_result = self->parser_func(args, stack_buf, sig_buf, &parsed_nargs, &parsed_nruntime, self);
+        
+        if (parser_result == 0) {
+            // Parser succeeded
+            PyObject **runtime_args = stack_buf;
+            PyObject **sig = sig_buf;
+            
+            // Build signature tuple
+            PyObject *sig_tuple = PyTuple_New(parsed_nargs);
+            if (!sig_tuple) {
+                Py_XDECREF(tmp_kwargs);
+                return NULL;
+            }
+            for (int i = 0; i < parsed_nargs; i++) {
+                PyTuple_SET_ITEM(sig_tuple, i, sig[i]);  // Steals reference
+            }
+            
+            // Lookup compiled function
+            func = PyDict_GetItem(self->fast_call_dict, sig_tuple);
+            
+            if (func) {
+                // Cache hit - call directly
+                Py_DECREF(sig_tuple);  // We don't need this anymore
+                Py_XDECREF(tmp_kwargs);
+                return PyObject_Vectorcall(func, runtime_args, (size_t)parsed_nruntime, NULL);
+            }
+            
+            // Cache miss - fall through to slow path with the parsed data
+            // We need to construct runtime_args_list from runtime_args
+            PyObject *runtime_args_list = PyList_New(parsed_nruntime);
+            if (!runtime_args_list) {
+                Py_DECREF(sig_tuple);
+                Py_XDECREF(tmp_kwargs);
+                return NULL;
+            }
+            for (int i = 0; i < parsed_nruntime; i++) {
+                Py_INCREF(runtime_args[i]);
+                PyList_SET_ITEM(runtime_args_list, i, runtime_args[i]);
+            }
+            
+            Py_XDECREF(tmp_kwargs);
+            ret_val = PyObject_CallMethod((PyObject*)self, "_handle_cache_miss", "OO", 
+                                          sig_tuple, runtime_args_list);
+            
+            Py_DECREF(sig_tuple);
+            Py_DECREF(runtime_args_list);
+            return ret_val;
+        }
+
+        // Parser failed: release any partially-constructed signature entries,
+        // clear parser error state, and fall back to the generic parser.
+        for (int i = 0; i < MAX_STACK_ARGS; i++) {
+            Py_XDECREF(sig_buf[i]);
+        }
+        if (PyErr_Occurred()) {
+            PyErr_Clear();
         }
     }
 
+    // --- Slow Path: Generic Parser ---
     if (_parse_signature_core(&input, &result, stack_buf, MAX_STACK_ARGS) < 0) {
         Py_XDECREF(tmp_kwargs);
         return NULL;
@@ -1074,7 +1041,7 @@ static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyO
     // Clean up temporary kwargs if we created it
     Py_XDECREF(tmp_kwargs);
 
-    // --- Not executable (symbolic) OR Cache Miss OR Forced Symbolic ---
+    // --- Not executable (symbolic) OR Forced Symbolic ---
     if (!result.to_execute || force_symbolic) {
         // Symbolic execution required
         PyObject *runtime_args_list = _runtime_args_to_list(result.runtime_args_buf, result.nruntime);
@@ -1122,21 +1089,49 @@ static PyObject *BaseFunction_call(BaseFunctionObject *self, PyObject *args, PyO
         NULL
     );
 
-    // --- Update Monomorphic Cache ---
-    if (ret_val && func && !force_symbolic && !self->has_comptime_args && 
-        (!kwargs || PyDict_Size(kwargs) == 0)) {
-        cache_update(&self->cache, func, result.runtime_args_buf, result.nruntime);
-    }
-
     _parse_result_cleanup(&result);
     Py_DECREF(result.sig_tuple);
     
     return ret_val;
 }
 
+// _set_custom_parser(lib_path, func_name) - Load custom parser from compiled .so
+static PyObject *BaseFunction_set_custom_parser(BaseFunctionObject *self, PyObject *args) {
+    const char *lib_path;
+    const char *func_name;
+    
+    if (!PyArg_ParseTuple(args, "ss", &lib_path, &func_name)) {
+        return NULL;
+    }
+    
+    // Load the library with RTLD_GLOBAL so it can see symbols from _signature.so
+    // Note: dlclose is tricky with Python - we don't store the handle
+    // The OS will clean up when the process exits
+    void *handle = dlopen(lib_path, RTLD_NOW | RTLD_GLOBAL);
+    if (!handle) {
+        PyErr_Format(PyExc_RuntimeError, "Failed to load parser library: %s", dlerror());
+        return NULL;
+    }
+    
+    // Get the function pointer
+    SignatureParserFunc parser = (SignatureParserFunc)dlsym(handle, func_name);
+    if (!parser) {
+        dlclose(handle);
+        PyErr_Format(PyExc_RuntimeError, "Failed to find parser function '%s': %s", func_name, dlerror());
+        return NULL;
+    }
+    
+    // Store the parser function (we don't store the handle - OS cleans up on exit)
+    self->parser_func = parser;
+    
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef BaseFunction_methods[] = {
     {"_configure_dispatch", (PyCFunction)BaseFunction_configure_dispatch, METH_VARARGS,
      "Configure the C-level dispatch state"},
+    {"_set_custom_parser", (PyCFunction)BaseFunction_set_custom_parser, METH_VARARGS,
+     "Load and set a custom signature parser from a compiled shared library"},
     {NULL}  /* Sentinel */
 };
 

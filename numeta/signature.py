@@ -532,6 +532,232 @@ def fast_dispatch(
     return (False, to_execute, sig, runtime_args)
 
 
+def compile_custom_signature_parser(name, params, directory):
+    """
+    Generate and compile a custom C signature parser for the given function parameters.
+
+    This function creates an optimized C implementation of the signature parsing logic
+    specific to the function's parameter structure. This avoids the overhead of
+    generic Python signature parsing for simple functions.
+
+    The generated parser:
+    1. Checks argument types using fast C-API calls (PyArray_Check, etc).
+    2. Constructs the signature tuple directly without Python function calls.
+    3. Populates the runtime_args array directly.
+
+    Args:
+        name (str): The name of the function (used for naming the C function).
+        params (list[ParameterInfo]): List of parameter information objects describing
+                                      the expected arguments.
+        directory (Path): The directory where the compiled shared library should be stored.
+
+    Returns:
+        tuple[str, str] | None: A tuple containing (library_path, entry_point_name)
+                                if compilation succeeds. Returns None if the function
+                                is not eligible for optimization (e.g. has varargs)
+                                or if compilation fails.
+    """
+    # Only generate custom parser for simple functions:
+    # - no *args/**kwargs
+    # - no defaults
+    # - only POSITIONAL_OR_KEYWORD parameters (no positional-only/keyword-only)
+    # Only support POSITIONAL_OR_KEYWORD parameters (no positional-only, keyword-only, varargs)
+    has_unsupported_kinds = any(
+        getattr(p, "kind", inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        != inspect.Parameter.POSITIONAL_OR_KEYWORD
+        for p in params
+    )
+
+    # Skip if there are default arguments, as the simple custom parser expects strict argument count
+    has_defaults = any(
+        getattr(p, "default", inspect.Parameter.empty) is not inspect.Parameter.empty
+        for p in params
+    )
+
+    if has_defaults or has_unsupported_kinds:
+        return None
+
+    # Helper to extract parameter information
+    params_info = []
+    for i, p in enumerate(params):
+        p_name = getattr(p, "name", str(p))
+        is_comptime = getattr(p, "is_comptime", False)
+
+        params_info.append(
+            {
+                "index": i,
+                "name": p_name,
+                "is_comptime": is_comptime,
+            }
+        )
+
+    # Count required and optional args
+    total_count = len(params_info)
+
+    # Generate parser function name
+    func_name = f"parse_{name}_signature"
+
+    # Build interned string declarations for parameter names
+    name_includes = []
+    name_assignments = []
+    for p in params_info:
+        p_name = p["name"]
+        var_name = f"str_{p_name}"
+        name_includes.append(f"static PyObject *{var_name} = NULL;")
+        name_assignments.append(
+            f'    if (!{var_name}) {var_name} = PyUnicode_InternFromString("{p_name}");'
+        )
+
+    # Generate argument processing using NumPy C API directly
+    arg_processing = []
+    runtime_idx = 0
+    for i in range(total_count):
+        param_name = params_info[i]["name"]
+        is_comptime = params_info[i]["is_comptime"]
+
+        code = f"""    // Arg {i}: {param_name}{' (comptime)' if is_comptime else ''}
+    {{
+        PyObject *arg_{i} = PyTuple_GET_ITEM(args, {i});
+"""
+
+        if is_comptime:
+            # Comptime argument: pass value directly to signature, skip runtime_args
+            code += f"""        Py_INCREF(arg_{i});
+        sig[{i}] = arg_{i};
+    }}"""
+        else:
+            # Runtime argument: extract type signature and add to runtime_args
+            code += f"""        
+        // Check if it's a numpy array using NumPy C API (fast!)
+        if (PyArray_Check(arg_{i})) {{
+            PyArrayObject *arr = (PyArrayObject*)arg_{i};
+            PyObject *dtype = (PyObject*)PyArray_DESCR(arr);
+            int ndim = PyArray_NDIM(arr);
+            int is_f = PyArray_ISFORTRAN(arr);
+            
+            Py_INCREF(dtype);
+            sig[{i}] = PyTuple_Pack(4, str_{param_name}, dtype,
+                                    PyLong_FromLong(ndim), is_f ? Py_True : Py_False);
+            Py_DECREF(dtype);
+        }} else if (PyArray_CheckScalar(arg_{i})) {{
+            // NumPy scalar (e.g. numpy.void, numpy.int64)
+            PyObject *dtype = PyObject_GetAttrString(arg_{i}, "dtype");
+            if (!dtype) return -1;
+            
+            PyObject *names = PyObject_GetAttrString(dtype, "names");
+            int is_struct = (names && names != Py_None);
+            Py_XDECREF(names);
+            
+            if (is_struct) {{
+                sig[{i}] = PyTuple_Pack(3, str_{param_name}, dtype, PyLong_FromLong(0));
+            }} else {{
+                sig[{i}] = PyTuple_Pack(2, str_{param_name}, dtype);
+            }}
+            Py_DECREF(dtype);
+        }} else {{
+            // Not a numpy array - use Python type
+            PyObject *t = (PyObject*)Py_TYPE(arg_{i});
+            Py_INCREF(t);
+            sig[{i}] = PyTuple_Pack(2, str_{param_name}, t);
+            Py_DECREF(t);
+        }}
+        if (!sig[{i}]) return -1;
+        runtime_args[{runtime_idx}] = arg_{i};
+    }}"""
+            runtime_idx += 1
+
+        arg_processing.append(code)
+
+    # Generate template with NumPy C API initialization
+    template = f"""#define PY_SSIZE_T_CLEAN
+#include <Python.h>
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#include <numpy/arrayobject.h>
+
+// NumPy API initialization - only runs once
+static int numpy_initialized = 0;
+static void init_numpy() {{
+    if (!numpy_initialized) {{
+        if (_import_array() < 0) {{
+            PyErr_Print();
+            PyErr_SetString(PyExc_ImportError, "numpy.core.multiarray failed to import");
+        }}
+        numpy_initialized = 1;
+    }}
+}}
+
+{chr(10).join(name_includes)}
+
+int {func_name}(PyObject *args, PyObject **runtime_args, PyObject **sig, int *nargs_out, int *nruntime_out, void *self) {{
+    init_numpy();  // Initialize NumPy on first call
+    
+{chr(10).join(name_assignments)}
+    if (PyTuple_GET_SIZE(args) != {total_count}) {{
+        PyErr_Format(PyExc_TypeError, "{name}() takes exactly {total_count} arguments (%%zd given)", PyTuple_GET_SIZE(args));
+        return -1;
+    }}
+{chr(10).join(arg_processing)}
+    *nargs_out = {total_count};
+    *nruntime_out = {runtime_idx};
+    return 0;
+}}
+"""
+    parser_code = template
+
+    # Setup paths
+    # Use a hash of params to ensure uniqueness if name collides?
+    # We'll use a random suffix or hash of the signature to allow recompilation if needed.
+    import hashlib
+
+    sig_hash = hashlib.md5(f"{name}_{params}".encode()).hexdigest()[:8]
+    parser_name = f"_parser_{name}_{sig_hash}"
+
+    parser_dir = directory / "parsers"
+    parser_dir.mkdir(exist_ok=True)
+
+    c_file = parser_dir / f"{parser_name}.c"
+
+    # We construct the shared library path
+    # Compiler.compile_to_library typically produces "lib{name}.so" in the directory
+    # But we want to be sure about the name to load it later.
+    # The Compiler class handles the platform specific extension?
+    # compile_to_library hardcodes "lib{name}.so" in the implementation I read earlier.
+    so_file = parser_dir / f"lib{parser_name}.so"
+
+    # Check if already compiled
+    if so_file.exists():
+        return str(so_file), func_name
+
+    # Write C code
+    c_file.write_text(parser_code)
+
+    # Compile using Compiler class
+    try:
+        from .compiler import Compiler
+
+        # Get include paths dynamically
+        py_include = sysconfig.get_paths()["include"]
+        np_include = np.get_include()
+
+        # Initialize compiler (GCC)
+        compiler = Compiler("gcc", ["-O3"])
+
+        # Compile to shared library
+        compiler.compile_to_library(
+            name=parser_name,
+            src_files=[c_file],
+            directory=parser_dir,
+            include_dirs=[py_include, np_include],
+        )
+
+        return str(so_file), func_name
+    except Exception as e:
+        # If compilation fails, return None (fallback to generic parser)
+        # We print a warning so the user knows optimization failed but execution continues
+        print(f"Warning: Failed to compile custom parser for {name}: {e}")
+        return None
+
+
 def get_signature_and_runtime_args_py(*args, **kwargs):
     """Python implementation - exposed for testing parity with C implementation."""
     return _get_signature_and_runtime_args_py(*args, **kwargs)

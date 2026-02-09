@@ -16,6 +16,7 @@ class Settings:
         default_backend="fortran",
         default_do_checks=True,
         default_compile_flags="-O3 -march=native",
+        use_c_dispatch=True,
     ):
         """Initialize the settings.
         Parameters
@@ -38,6 +39,9 @@ class Settings:
             If True, instead of passing array in a nested call as fixed shape,
             they are passed with undefined dimensions.
             This can help limiting the number of generated functions if they have no dependence on the fixed shape.
+        use_c_dispatch : bool
+            If True (default), use the optimized C extension for argument parsing and dispatch
+            if available. If False, force the use of the pure Python implementation.
         """
         self.iso_C = iso_C
         if self.iso_C:
@@ -51,6 +55,7 @@ class Settings:
         self.set_default_backend(default_backend)
         self.set_default_do_checks(default_do_checks)
         self.set_default_compile_flags(default_compile_flags)
+        self.use_c_dispatch = use_c_dispatch
 
     @staticmethod
     def _normalize_compile_flags(compile_flags):
@@ -179,6 +184,16 @@ class Settings:
             raise TypeError("compile_flags cannot be None")
         normalized = self._normalize_compile_flags(compile_flags)
         self.__default_compile_flags = normalized
+
+    @property
+    def use_c_dispatch(self):
+        return self.__use_c_dispatch
+
+    @use_c_dispatch.setter
+    def use_c_dispatch(self, value):
+        if not isinstance(value, bool):
+            raise TypeError("use_c_dispatch must be a bool")
+        self.__use_c_dispatch = value
 
 
 settings = Settings(iso_C=True, use_numpy_allocator=True)

@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import warnings
 from typing import Iterable
+import sysconfig
 
 from .compiler import Compiler
 from .settings import settings
@@ -225,15 +226,22 @@ except ImportError:
         def _configure_dispatch(self, *args):
             pass
 
+        def _set_custom_parser(self, *args):
+            pass
+
     _use_c_dispatch = False
 
 
-class NumetaFunction(BaseFunction, ExternalLibrary):
+class NumetaFunction(BaseFunction):
     """
     Representation of a JIT-compiled function.
     """
 
     used_compiled_names: set[str] = set()
+
+    @property
+    def uses_c_dispatch(self):
+        return _use_c_dispatch and self._use_c_dispatch_instance
 
     def __init__(
         self,
@@ -278,6 +286,8 @@ class NumetaFunction(BaseFunction, ExternalLibrary):
         self._pyc_extensions = {}
         self._fast_call = {}
 
+        self._use_c_dispatch_instance = settings.use_c_dispatch
+
         # Configure C-level dispatch
         self._configure_dispatch(
             self.params,
@@ -289,7 +299,16 @@ class NumetaFunction(BaseFunction, ExternalLibrary):
             settings.add_shape_descriptors,
             settings.ignore_fixed_shape_in_nested_calls,
             settings.reorder_kwargs,
+            self._use_c_dispatch_instance,
         )
+
+        # Generate and compile custom signature parser
+        if self.uses_c_dispatch:
+            from .signature import compile_custom_signature_parser
+
+            result = compile_custom_signature_parser(self.name, self.params, self.directory)
+            if result:
+                self._set_custom_parser(*result)
 
     def clear(self):
         for compiled in self._compiled_functions.values():
@@ -424,31 +443,33 @@ class NumetaFunction(BaseFunction, ExternalLibrary):
             settings.add_shape_descriptors,
             settings.ignore_fixed_shape_in_nested_calls,
             settings.reorder_kwargs,
+            self._use_c_dispatch_instance,
         )
 
+    def _python_call(self, *args, **kwargs):
+        """
+        Fallback implementation of __call__ when C dispatch is unavailable.
+        """
+        builder = BuilderHelper.current_builder
+        _, signature, runtime_args = get_signature_and_runtime_args(
+            args,
+            kwargs,
+            params=self.params,
+            fixed_param_indices=self.fixed_param_indices,
+            n_positional_or_default_args=self.n_positional_or_default_args,
+            catch_var_positional_name=self.catch_var_positional_name,
+        )
+
+        if builder is not None:
+            return self._handle_symbolic_call(signature, runtime_args)
+
+        if signature in self._fast_call:
+            return self._fast_call[signature](*runtime_args)
+
+        return self._handle_cache_miss(signature, runtime_args)
+
     if not _use_c_dispatch:
-
-        def __call__(self, *args, **kwargs):
-            """
-            Fallback implementation of __call__ when C dispatch is unavailable.
-            """
-            builder = BuilderHelper.current_builder
-            _, signature, runtime_args = get_signature_and_runtime_args(
-                args,
-                kwargs,
-                params=self.params,
-                fixed_param_indices=self.fixed_param_indices,
-                n_positional_or_default_args=self.n_positional_or_default_args,
-                catch_var_positional_name=self.catch_var_positional_name,
-            )
-
-            if builder is not None:
-                return self._handle_symbolic_call(signature, runtime_args)
-
-            if signature in self._fast_call:
-                return self._fast_call[signature](*runtime_args)
-
-            return self._handle_cache_miss(signature, runtime_args)
+        __call__ = _python_call
 
     def get_symbolic_function(self, name, signature):
         argument_specs = convert_signature_to_argument_specs(
