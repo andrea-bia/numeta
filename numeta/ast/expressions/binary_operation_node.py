@@ -9,8 +9,6 @@ class BinaryOperationNode(ExpressionNode):
 
     def __init__(self, left, op, right):
         self.op = op
-        # self.left = left
-        # self.right = right
         self.left = check_node(left)
         self.right = check_node(right)
 
@@ -43,10 +41,6 @@ class BinaryOperationNode(ExpressionNode):
         )
 
     def extract_entities(self):
-        # if hasattr(self.left, "extract_entities"):
-        #    yield from self.left.extract_entities()
-        # if hasattr(self.right, "extract_entities"):
-        #    yield from self.right.extract_entities()
         yield from self.left.extract_entities()
         yield from self.right.extract_entities()
 
@@ -73,12 +67,6 @@ class EqBinaryNode(BinaryOperationNode):
             )
         # TODO: Too slow
 
-    # from numeta.ast.named_entity import NamedEntity
-    ##Always raise Warning except for the case when we evaluating two variables
-    # if isinstance(self.left, NamedEntity) and isinstance(self.right, NamedEntity):
-    #    return self.left.name == self.right.name
-    # raise Warning(f"Do not use '==' operator for non-NamedEntity: {type(self.left)} and {type(self.right)}")
-
 
 class NeBinaryNode(BinaryOperationNode):
     def __init__(self, left, right):
@@ -97,11 +85,3 @@ class NeBinaryNode(BinaryOperationNode):
             )
 
         # TODO: Too slow
-
-    # from numeta.ast.named_entity import NamedEntity
-
-    ## Always raise Warning except for the case when we evaluating two variables
-    # if isinstance(self.left, NamedEntity) and isinstance(self.right, NamedEntity):
-    #    return self.left.name != self.right.name
-
-    # raise Warning(f"Do not use '!=' operator for non-NamedEntity: {type(self.left)} and {type(self.right)}")

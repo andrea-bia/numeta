@@ -50,18 +50,15 @@ class ExternalLibraryWrapper(ExternalLibrary):
 def convert_argument(name, hint, bind_c=True):
     if isinstance(hint, ArrayType):
         dtype = hint.dtype
-        # ftype = dtype.get_fortran(bind_c=bind_c)
         shape = hint.shape
     elif isinstance(hint, FortranType):
         dtype = DataType.from_ftype(hint)
         shape = SCALAR
     elif isinstance(hint, type) and issubclass(hint, DataType):
         dtype = hint
-        # ftype = hint.get_fortran(bind_c=bind_c)
         shape = SCALAR
     elif isinstance(hint, type) and DataType.is_np_dtype(hint):
         dtype = DataType.from_np_dtype(hint)
-        # ftype = dtype.get_fortran(bind_c=bind_c)
         shape = SCALAR
     else:
         raise TypeError(f"Expected a numpy or numeta dtype got {type(hint).__name__}")

@@ -77,9 +77,6 @@ class Compiler:
             command.extend([f"-L{lib_dir}" for lib_dir in rpath_dirs])
             command.append("-Wl,--enable-new-dtags")
             command.extend([f"-Wl,-rpath,{lib_dir}" for lib_dir in rpath_dirs])
-            # command.append("-L.")
-            # command.append("-Wl,--enable-new-dtags")
-            # command.append("-Wl,-rpath,'$ORIGIN'")
         command.extend(additional_flags)
         return command
 
