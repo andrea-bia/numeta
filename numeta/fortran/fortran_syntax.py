@@ -586,4 +586,3 @@ def _render_type_blocks(dtype) -> list[str]:
         return [ftype.type]
 
     raise TypeError(f"dtype must be a DataType subclass, got {dtype}")
-    return [ftype.type]

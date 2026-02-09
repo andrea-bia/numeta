@@ -23,14 +23,6 @@ def check_node(node):
         return LiteralNode(node)
     else:
         return node
-        # otherwise is so slow
-        # TODO: maybe to move check node at the print time
-        from .nodes import Node
-
-        if isinstance(node, Node):
-            return node
-        else:
-            raise ValueError(f"Unknown node type: {node.__class__.__name__} value: {node}")
 
 
 def update_variables(element, variables_couples):
