@@ -20,10 +20,6 @@ class GetItem(ExpressionNode):
 
     @property
     def dtype(self):
-        return getattr(self.variable, "dtype", None)
-
-    @property
-    def dtype(self):
         return self.variable.dtype
 
     @property
