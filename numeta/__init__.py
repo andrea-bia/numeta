@@ -42,3 +42,5 @@ from .numeta_library import NumetaLibrary
 from .wrappers import *
 from .ast import *
 from .settings import settings
+
+settings.initialize_default_datatypes()

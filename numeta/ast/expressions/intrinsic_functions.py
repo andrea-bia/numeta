@@ -54,13 +54,13 @@ class MathIntrinsic(IntrinsicFunction):
     @property
     def dtype(self):
         from numeta.datatype import int32, int64
-        from numeta.ast.settings import settings as ast_settings
+        from numeta.settings import settings
 
         # We look at the first argument to determine the output type base
         arg_dtype = self.arguments[0].dtype
 
         if arg_dtype in (int32, int64):
-            return ast_settings.DEFAULT_FLOAT
+            return settings.syntax.DEFAULT_FLOAT
 
         # For real or complex, return the same type
         return arg_dtype
@@ -150,9 +150,9 @@ class Real(UnaryIntrinsicFunction):
 
     @property
     def dtype(self):
-        from numeta.ast.settings import settings as ast_settings
+        from numeta.settings import settings
 
-        return ast_settings.DEFAULT_FLOAT
+        return settings.syntax.DEFAULT_FLOAT
 
 
 class Imag(UnaryIntrinsicFunction):
@@ -160,9 +160,9 @@ class Imag(UnaryIntrinsicFunction):
 
     @property
     def dtype(self):
-        from numeta.ast.settings import settings as ast_settings
+        from numeta.settings import settings
 
-        return ast_settings.DEFAULT_FLOAT
+        return settings.syntax.DEFAULT_FLOAT
 
 
 class Conjugate(UnaryIntrinsicFunction):
@@ -170,9 +170,9 @@ class Conjugate(UnaryIntrinsicFunction):
 
     @property
     def dtype(self):
-        from numeta.ast.settings import settings as ast_settings
+        from numeta.settings import settings
 
-        return ast_settings.DEFAULT_COMPLEX
+        return settings.syntax.DEFAULT_COMPLEX
 
     @property
     def _shape(self):
@@ -183,17 +183,17 @@ class Complex(IntrinsicFunction):
     token = "cmplx"
 
     def __init__(self, real, imaginary, kind=None):
-        from numeta.ast.settings import settings as ast_settings
+        from numeta.settings import settings
 
         if kind is None:
-            kind = ast_settings.DEFAULT_COMPLEX.get_fortran().kind
+            kind = settings.syntax.DEFAULT_COMPLEX.get_fortran().kind
         super().__init__(real, imaginary, kind)
 
     @property
     def dtype(self):
-        from numeta.ast.settings import settings as ast_settings
+        from numeta.settings import settings
 
-        return ast_settings.DEFAULT_COMPLEX
+        return settings.syntax.DEFAULT_COMPLEX
 
     @property
     def _shape(self):

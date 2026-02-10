@@ -1,7 +1,8 @@
+from numeta.settings import settings
+
 from .nodes import NamedEntity
 from .scope import Scope
 from .statements import ProcedureDeclaration, ProcedureInterfaceDeclaration, Call
-from .settings import settings
 
 
 class Procedure(NamedEntity):
@@ -37,7 +38,7 @@ class Procedure(NamedEntity):
         self.to_print = to_print
         self.arguments = {}  # dictionary because we need an ordered set
         self.scope = Scope()
-        self.bind_c = settings.procedure_bind_c if bind_c is None else bind_c
+        self.bind_c = settings.syntax.procedure_bind_c if bind_c is None else bind_c
         self.declaration = None
 
         from .namespace import Namespace

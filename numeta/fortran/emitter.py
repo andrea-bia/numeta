@@ -4,8 +4,10 @@ from typing import Any
 
 import numpy as np
 
-from numeta.fortran.settings import settings as syntax_settings
+from numeta.settings import settings
 from numeta.ast.statements.tools import print_block
+
+syntax_settings = settings.syntax
 
 from .fortran_syntax import render_expr_blocks, render_stmt_lines
 

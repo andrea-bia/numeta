@@ -1,6 +1,7 @@
+from numeta.settings import settings
+
 from .statement import Statement
 from numeta.ast.nodes import Node
-from numeta.ast.settings import settings
 from numeta.array_shape import UNKNOWN
 
 
@@ -22,10 +23,10 @@ class VariableDeclaration(Statement):
                 # But the struct definition is usually self contained or handled by module dependencies
                 pass
 
-        if settings.array_lower_bound != 1:
+        if settings.syntax.array_lower_bound != 1:
             # HACK: Non stardard array lower bound so we have to shift it
             # and well need the integer kind
-            yield from settings.DEFAULT_INT.get_fortran().extract_entities()
+            yield from settings.syntax.DEFAULT_INT.get_fortran().extract_entities()
 
         if self.variable._shape is not UNKNOWN:
             for element in self.variable._shape.dims:

@@ -1,5 +1,7 @@
 from numeta.ast import ExternalNamespace
-from numeta.fortran.settings import settings as syntax_settings
+from numeta.settings import settings
+
+syntax_settings = settings.syntax
 
 
 class OmpNamespace(ExternalNamespace):

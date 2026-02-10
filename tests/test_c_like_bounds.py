@@ -1,6 +1,6 @@
 import numpy as np
 import numeta as nm
-from numeta.ast.settings import settings
+from numeta.settings import settings
 
 
 def test_slice_exclusive_bounds(backend):
@@ -19,7 +19,7 @@ def test_slice_exclusive_bounds(backend):
 
 def test_slice_inclusive_bounds(backend):
 
-    settings.unset_c_like_bounds()
+    settings.syntax.unset_c_like_bounds()
 
     @nm.jit(backend=backend)
     def fill(a):
@@ -28,7 +28,7 @@ def test_slice_inclusive_bounds(backend):
     arr = np.zeros(6, dtype=np.int64)
     fill(arr)
 
-    settings.set_c_like_bounds()
+    settings.syntax.set_c_like_bounds()
 
     expected = np.zeros(6, dtype=np.int64)
     expected[:5] = 1

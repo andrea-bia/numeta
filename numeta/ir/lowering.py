@@ -4,7 +4,7 @@ from typing import Any
 
 from numeta.array_shape import SCALAR, UNKNOWN
 from numeta.ast import Variable
-from numeta.ast.settings import settings as syntax_settings
+from numeta.settings import settings
 from numeta.ast.expressions import (
     BinaryOperationNode,
     FunctionCall,
@@ -92,6 +92,7 @@ def _lower_value_type_from_dtype(dtype, shape) -> IRValueType:
 
 
 def lower_procedure(procedure: Procedure, backend: str = "fortran") -> IRProcedure:
+    syntax_settings = settings.syntax
     var_cache: dict[int, IRVar] = {}
 
     def _get_vtype(expr, shape=None):
@@ -174,7 +175,7 @@ def lower_procedure(procedure: Procedure, backend: str = "fortran") -> IRProcedu
                 source=expr,
             )
         if isinstance(expr, GetItem):
-            indices = _lower_indices(expr.sliced)
+            indices = _lower_indices(expr.sliced, syntax_settings)
             shape = _safe_shape(expr)
             return IRGetItem(
                 base=lower_expr(expr.variable),
@@ -370,20 +371,20 @@ def _safe_shape(expr):
         return UNKNOWN
 
 
-def _lower_indices(slice_) -> list[IRExpr | IRSlice]:
+def _lower_indices(slice_, syntax_settings) -> list[IRExpr | IRSlice]:
     if isinstance(slice_, tuple):
-        return [_lower_single_index(item) for item in slice_]
-    return [_lower_single_index(slice_)]
+        return [_lower_single_index(item, syntax_settings) for item in slice_]
+    return [_lower_single_index(slice_, syntax_settings)]
 
 
-def _lower_single_index(item) -> IRExpr | IRSlice:
+def _lower_single_index(item, syntax_settings) -> IRExpr | IRSlice:
     if isinstance(item, slice):
-        return _normalize_slice(item)
-    expr = _lower_index_value(item) or IROpaqueExpr(payload=item, source=item)
+        return _normalize_slice(item, syntax_settings)
+    expr = _lower_index_value(item, syntax_settings) or IROpaqueExpr(payload=item, source=item)
     return _shift_expr(expr, -syntax_settings.array_lower_bound)
 
 
-def _lower_index_value(value) -> IRExpr | None:
+def _lower_index_value(value, syntax_settings) -> IRExpr | None:
     if value is None:
         return None
     if isinstance(value, (int, float, bool, str)):
@@ -394,56 +395,62 @@ def _lower_index_value(value) -> IRExpr | None:
         return IRVarRef(var=IRVar(name=value.name), source=value)
     if isinstance(value, BinaryOperationNode):
         op = _map_binary_op(value.op)
-        left = _lower_index_value(value.left) or IROpaqueExpr(payload=value.left, source=value.left)
-        right = _lower_index_value(value.right) or IROpaqueExpr(
+        left = _lower_index_value(value.left, syntax_settings) or IROpaqueExpr(
+            payload=value.left, source=value.left
+        )
+        right = _lower_index_value(value.right, syntax_settings) or IROpaqueExpr(
             payload=value.right, source=value.right
         )
         return IRBinary(op=op, left=left, right=right)
     if isinstance(value, GetItem):
-        base = _lower_index_value(value.variable) or IROpaqueExpr(
+        base = _lower_index_value(value.variable, syntax_settings) or IROpaqueExpr(
             payload=value.variable, source=value.variable
         )
-        return IRGetItem(base=base, indices=_lower_indices(value.sliced))
+        return IRGetItem(base=base, indices=_lower_indices(value.sliced, syntax_settings))
     if isinstance(value, GetAttr):
-        base = _lower_index_value(value.variable) or IROpaqueExpr(
+        base = _lower_index_value(value.variable, syntax_settings) or IROpaqueExpr(
             payload=value.variable, source=value.variable
         )
         return IRGetAttr(base=base, name=value.attr)
     if isinstance(value, FunctionCall):
-        callee = _lower_index_value(value.function) or IROpaqueExpr(
+        callee = _lower_index_value(value.function, syntax_settings) or IROpaqueExpr(
             payload=value.function, source=value.function
         )
         return IRCallExpr(
             callee=callee,
             args=[
-                arg for arg in (_lower_index_value(a) for a in value.arguments) if arg is not None
+                arg
+                for arg in (_lower_index_value(a, syntax_settings) for a in value.arguments)
+                if arg is not None
             ],
         )
     if isinstance(value, IntrinsicFunction):
         return IRIntrinsic(
             name=getattr(value, "token", ""),
             args=[
-                arg for arg in (_lower_index_value(a) for a in value.arguments) if arg is not None
+                arg
+                for arg in (_lower_index_value(a, syntax_settings) for a in value.arguments)
+                if arg is not None
             ],
         )
     return IROpaqueExpr(payload=value, source=value)
 
 
-def _normalize_slice(slice_: slice) -> IRSlice:
+def _normalize_slice(slice_: slice, syntax_settings) -> IRSlice:
     lbound = syntax_settings.array_lower_bound
     c_like = syntax_settings.c_like_bounds
 
     if slice_.start is None:
         start = IRLiteral(value=0)
     else:
-        start = _lower_index_value(slice_.start) or IROpaqueExpr(
+        start = _lower_index_value(slice_.start, syntax_settings) or IROpaqueExpr(
             payload=slice_.start, source=slice_.start
         )
         start = _shift_expr(start, -lbound)
 
     stop = None
     if slice_.stop is not None:
-        stop_expr = _lower_index_value(slice_.stop) or IROpaqueExpr(
+        stop_expr = _lower_index_value(slice_.stop, syntax_settings) or IROpaqueExpr(
             payload=slice_.stop, source=slice_.stop
         )
         shift = (0 if c_like else 1) - lbound
@@ -451,7 +458,7 @@ def _normalize_slice(slice_: slice) -> IRSlice:
 
     step = None
     if slice_.step is not None:
-        step = _lower_index_value(slice_.step) or IROpaqueExpr(
+        step = _lower_index_value(slice_.step, syntax_settings) or IROpaqueExpr(
             payload=slice_.step, source=slice_.step
         )
 

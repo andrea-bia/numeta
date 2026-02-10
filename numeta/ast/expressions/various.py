@@ -9,9 +9,9 @@ class Re(ExpressionNode):
 
     @property
     def dtype(self):
-        from numeta.ast.settings import settings as ast_settings
+        from numeta.settings import settings
 
-        return ast_settings.DEFAULT_FLOAT
+        return settings.syntax.DEFAULT_FLOAT
 
     @property
     def _shape(self):
@@ -30,9 +30,9 @@ class Im(ExpressionNode):
 
     @property
     def dtype(self):
-        from numeta.ast.settings import settings as ast_settings
+        from numeta.settings import settings
 
-        return ast_settings.DEFAULT_FLOAT
+        return settings.syntax.DEFAULT_FLOAT
 
     @property
     def _shape(self):

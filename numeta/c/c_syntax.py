@@ -7,7 +7,9 @@ import numpy as np
 from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
 from numeta.datatype import DataType
 from numeta.ast.statements.tools import print_block
-from numeta.c.settings import settings as syntax_settings
+from numeta.settings import settings
+
+syntax_settings = settings.syntax
 
 from numeta.fortran.fortran_type import FortranType
 from numeta.ast.nodes import NamedEntity

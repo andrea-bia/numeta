@@ -1,5 +1,6 @@
+from numeta.settings import settings
+
 from .expression_node import ExpressionNode
-from numeta.ast.settings import settings
 from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
 from numeta.exceptions import NumetaNotImplementedError
 
@@ -27,7 +28,7 @@ class GetItem(ExpressionNode):
         def get_dim_slice(slice_, max_dim):
             start = slice_.start
             if start is None:
-                start = settings.array_lower_bound
+                start = settings.syntax.array_lower_bound
             stop = slice_.stop
             if stop is None and max_dim is not None:
                 stop = max_dim
@@ -35,7 +36,7 @@ class GetItem(ExpressionNode):
                 raise NotImplementedError("Step slicing not implemented for shape extraction")
             if stop is None:
                 return None
-            return stop - start + settings.array_lower_bound
+            return stop - start + settings.syntax.array_lower_bound
 
         dims = []
         if self.variable._shape is UNKNOWN:
@@ -119,7 +120,7 @@ class GetItem(ExpressionNode):
                         "Step slicing not implemented for slice merging"
                     )
 
-                lb = settings.array_lower_bound
+                lb = settings.syntax.array_lower_bound
 
                 if self.sliced.start is None and self.sliced.stop is None:
                     new_start = key.start
@@ -144,7 +145,7 @@ class GetItem(ExpressionNode):
                 new_key = slice(new_start, new_stop, None)
 
             else:
-                lb = settings.array_lower_bound
+                lb = settings.syntax.array_lower_bound
                 base_start = self.sliced.start if self.sliced.start is not None else lb
                 new_key = base_start + key - lb
 

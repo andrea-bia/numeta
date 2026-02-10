@@ -1,10 +1,11 @@
+from numeta.settings import settings
+
 from .variable import Variable
 from .struct_type import StructType
 from .procedure import Procedure
 from .function import Function
 from .namespace import Namespace, ExternalNamespace, builtins_namespace
 from .scope import Scope
-from .settings import settings
 from .types import Type
 
 from .expressions import (

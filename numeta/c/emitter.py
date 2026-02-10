@@ -6,7 +6,6 @@ import numpy as np
 
 from numeta.datatype import DataType
 from numeta.settings import settings as nm_settings
-from numeta.ast.settings import settings as ast_settings
 from numeta.ast.namespace import Namespace
 from numeta.ast.variable import Variable
 

@@ -5,8 +5,10 @@ from typing import Any
 import numpy as np
 
 from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
-from numeta.fortran.settings import settings as syntax_settings
+from numeta.settings import settings
 from numeta.ast.statements.tools import print_block
+
+syntax_settings = settings.syntax
 
 from numeta.fortran.fortran_type import FortranType
 from numeta.ast.nodes import NamedEntity

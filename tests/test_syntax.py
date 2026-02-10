@@ -14,8 +14,9 @@ from numeta.c.c_syntax import (
 )
 from numeta.ast.statements import VariableDeclaration, Call
 from numeta.ast import Procedure, Namespace, Scope
-from numeta.ast.settings import settings as syntax_settings
 from numeta.settings import settings
+
+syntax_settings = settings.syntax
 
 
 def render_expr(expr, backend):
