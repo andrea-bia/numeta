@@ -1,10 +1,14 @@
+from __future__ import annotations
+from typing import Any
+
 import numpy as np
 from numeta.builder_helper import BuilderHelper
 from numeta.datatype import DataType, get_datatype
 from numeta.array_shape import ArrayShape
+from numeta.ast.variable import Variable
 
 
-def constant(value, dtype: DataType | np.generic | None = None, order="C", name=None):
+def constant(value: Any, dtype: Any = None, order: str = "C", name: str | None = None) -> Variable:
     if order not in ["C", "F"]:
         raise ValueError(f"Invalid order: {order}, must be 'C' or 'F'")
 

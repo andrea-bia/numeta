@@ -1,34 +1,39 @@
+from __future__ import annotations
+
 import ast
 import inspect
+from types import FrameType
+from typing import Any
+
 from numeta.ast import If, Else, ElseIf, Scope
 
 
 class CondHelper:
-    curr = None
+    curr: CondHelper | None = None
 
     @classmethod
-    def get_instance(cls):
+    def get_instance(cls) -> CondHelper:
         if cls.curr is None:
             raise SyntaxError("No if created yet.")
         return cls.curr
 
     @classmethod
-    def set_instance(cls, instance):
+    def set_instance(cls, instance: CondHelper) -> None:
         cls.curr = instance
 
-    def __init__(self):
-        self.number_if = 0
-        self.if_stack = []
-        self.source_cache = {}
+    def __init__(self) -> None:
+        self.number_if: int = 0
+        self.if_stack: list[int] = []
+        self.source_cache: dict[int, tuple[list[str], ast.Module, int]] = {}
 
-    def add_if(self, lineno):
+    def add_if(self, lineno: int) -> None:
         self.if_stack.append(lineno)
         self.number_if += 1
 
-    def pop_if(self):
+    def pop_if(self) -> int:
         return self.if_stack.pop()
 
-    def get_source_cache(self, frame):
+    def get_source_cache(self, frame: FrameType) -> tuple[list[str], ast.Module, int, int, int]:
         if frame.f_code.co_filename.startswith("<fc_if_"):
             if_id = int(frame.f_code.co_filename.split("_")[-1].split(">")[0])
             source_lines, tree, starting_line_number = self.source_cache[if_id]
@@ -51,7 +56,7 @@ class CondHelper:
 
         return source_lines, tree, if_id, if_line_number, endif_line_number
 
-    def analyze_frame_and_get_if(self, frame):
+    def analyze_frame_and_get_if(self, frame: FrameType) -> bool:
         """
         Analyze the frame, sets the internal variables
         and returns:
@@ -75,7 +80,7 @@ class CondHelper:
                 self.if_stack.append(frame.f_lineno)
                 return True
 
-    def finalize(self):
+    def finalize(self) -> None:
         if len(self.if_stack) > 0:
             raise SyntaxError("Unmatched if statement")
 
@@ -84,8 +89,11 @@ _helper = CondHelper()
 CondHelper.set_instance(_helper)
 
 
-def cond(cond):
-    frame = inspect.currentframe().f_back
+def cond(cond: Any) -> bool:
+    current_frame = inspect.currentframe()
+    if current_frame is None or current_frame.f_back is None:
+        raise RuntimeError("Cannot get caller frame")
+    frame: FrameType = current_frame.f_back
     helper = CondHelper.get_instance()
     is_if = helper.analyze_frame_and_get_if(frame)
 
@@ -97,8 +105,11 @@ def cond(cond):
     return True
 
 
-def endif():
-    frame = inspect.currentframe().f_back
+def endif() -> None:
+    current_frame = inspect.currentframe()
+    if current_frame is None or current_frame.f_back is None:
+        raise RuntimeError("Cannot get caller frame")
+    frame: FrameType = current_frame.f_back
 
     helper = CondHelper.get_instance()
 
@@ -110,26 +121,36 @@ def endif():
         endif_line_number,
     ) = helper.get_source_cache(frame)
 
-    previous_if = None
+    previous_if: ast.If | None = None
     for node in ast.walk(tree):
         if isinstance(node, ast.If) and node.lineno == if_line_number:
             previous_if = node
             break
 
+    if previous_if is None:
+        raise SyntaxError("Could not find matching if statement")
+
     from collections import deque
 
-    def get_previous_if(node):
+    def get_previous_if(node: ast.AST) -> ast.stmt | None:
         # BFS to find the previous if statement in the tree wrt node
 
-        queue = deque([node])
+        queue: deque[ast.AST] = deque([node])
         while queue:
             current_node = queue.popleft()
             for child in ast.iter_child_nodes(current_node):
                 if isinstance(child, ast.Expr) and child.lineno == endif_line_number:
-                    return queue[-1]
+                    result = queue[-1] if queue else None
+                    if isinstance(result, ast.stmt):
+                        return result
+                    return None
                 queue.append(child)
+        return None
 
-    if get_previous_if(tree.body[0]).lineno != previous_if.lineno:
+    prev_if_node = get_previous_if(tree.body[0])
+    if prev_if_node is None or (
+        isinstance(prev_if_node, ast.stmt) and prev_if_node.lineno != previous_if.lineno
+    ):
         msg = "Unmatched if statement for an endif()\n"
         msg += "Check this if statement\n"
         msg += ast.unparse(previous_if)
@@ -141,7 +162,7 @@ def endif():
     Scope.end()
 
 
-def write_elif(current_if, source_lines, frame, if_id):
+def write_elif(current_if: ast.If, source_lines: list[str], frame: FrameType, if_id: int) -> None:
     while hasattr(current_if, "orelse") and len(current_if.orelse) != 0:
         else_body = current_if.orelse
 
@@ -188,7 +209,7 @@ def write_elif(current_if, source_lines, frame, if_id):
                 break
 
 
-def treat_else(else_body, frame, if_id):
+def treat_else(else_body: list[ast.stmt], frame: FrameType, if_id: int) -> None:
     # close the previous scope
     Scope.end()
 

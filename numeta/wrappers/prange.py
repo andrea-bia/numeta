@@ -1,9 +1,13 @@
+from __future__ import annotations
+from typing import Any, Iterator
+
 from numeta.builder_helper import BuilderHelper
 from numeta.settings import settings
 from numeta.fortran.external_modules.omp import omp
+from numeta.ast.variable import Variable
 
 
-def prange(*args, **kwargs):
+def prange(*args, **kwargs: Any) -> Iterator[Variable]:
     if len(args) == 1:
         start = 0
         stop = args[0]

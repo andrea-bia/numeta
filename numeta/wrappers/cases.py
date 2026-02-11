@@ -1,7 +1,10 @@
+from __future__ import annotations
+from typing import Any, Iterator
+
 from numeta.ast import Switch, Case
 
 
-def cases(select, cases_range: range):
+def cases(select: Any, cases_range: range) -> Iterator[int]:
     if not isinstance(cases_range, range):
         raise ValueError("The second argument must be a range object")
 

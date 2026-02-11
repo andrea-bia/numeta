@@ -1,3 +1,6 @@
+from __future__ import annotations
+from typing import Any, Sequence
+
 from numeta.ast import Variable, ExternalNamespace
 from numeta.fortran.fortran_type import FortranType
 from numeta.external_library import ExternalLibrary
@@ -14,16 +17,28 @@ class ExternalLibraryWrapper(ExternalLibrary):
     __slots__ = ["methods", "namespaces"]
 
     def __init__(
-        self, name, directory=None, include=None, additional_flags=None, to_link=True, rpath=False
-    ):
+        self,
+        name: str,
+        directory: str | None = None,
+        include: str | None = None,
+        additional_flags: str | None = None,
+        to_link: bool = True,
+        rpath: bool = False,
+    ) -> None:
         super().__init__(name, directory, include, additional_flags, to_link=to_link, rpath=rpath)
         self.methods = ExternalNamespace(name, self, hidden=True)
         self.namespaces = {}
 
-    def add_namespace(self, name, hidden=False):
+    def add_namespace(self, name: str, hidden: bool = False) -> None:
         self.namespaces[name] = ExternalNamespace(name, self, hidden=hidden)
 
-    def add_method(self, name, argtypes, restype, bind_c=True):
+    def add_method(
+        self,
+        name: str,
+        argtypes: Sequence[DataType | ArrayType | FortranType | type],
+        restype: DataType | ArrayType | FortranType | type | None,
+        bind_c: bool = True,
+    ) -> None:
         symbolic_arguments = [
             convert_argument(f"a{i}", arg, bind_c=bind_c) for i, arg in enumerate(argtypes)
         ]
@@ -33,7 +48,7 @@ class ExternalLibraryWrapper(ExternalLibrary):
 
         self.methods.add_method(name, symbolic_arguments, return_type, bind_c=bind_c)
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str):
         try:
             if name in self.__slots__:
                 super().__getattr__(name)
@@ -47,7 +62,9 @@ class ExternalLibraryWrapper(ExternalLibrary):
             raise AttributeError(f"ExternalLibrary object has no namespace {name}")
 
 
-def convert_argument(name, hint, bind_c=True):
+def convert_argument(
+    name: str, hint: DataType | ArrayType | FortranType | type, bind_c: bool = True
+) -> Variable:
     if isinstance(hint, ArrayType):
         dtype = hint.dtype
         shape = hint.shape

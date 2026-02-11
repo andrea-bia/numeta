@@ -1,11 +1,13 @@
-import numpy as np
+from __future__ import annotations
+from typing import Any
 
 from numeta.builder_helper import BuilderHelper
 from numeta.datatype import DataType, get_datatype
 from numeta.fortran.external_modules.iso_c_binding import iso_c
+from numeta.ast.variable import Variable
 
 
-def cast(variable, dtype: DataType | np.generic):
+def cast(variable: Any, dtype: Any) -> Variable:
     dtype = get_datatype(dtype)
 
     builder = BuilderHelper.get_current_builder()

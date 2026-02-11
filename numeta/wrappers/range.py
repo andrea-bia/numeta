@@ -1,9 +1,13 @@
+from __future__ import annotations
+from typing import Iterator
+
 from numeta.builder_helper import BuilderHelper
 from numeta.ast import For
 from numeta.settings import settings
+from numeta.ast.variable import Variable
 
 
-def range(*args):
+def range(*args) -> Iterator[Variable]:
     if len(args) == 1:
         start = 0
         stop = args[0]

@@ -1,22 +1,25 @@
+from __future__ import annotations
+from typing import Any
+
 import numpy as np
-from numeta.ast import Variable, Namespace
+from numeta.ast import Variable as AstVariable, Namespace
 from numeta.datatype import DataType, float64, get_datatype
 from numeta.array_shape import ArrayShape
 from numeta.numeta_function import NumetaCompiledFunction
 from numeta.settings import settings
 
-_n_global_constant = 0
+_n_global_constant: int = 0
 
 
 def declare_global_constant(
-    shape,
-    dtype: DataType | np.generic = float64,
-    order="C",
-    name=None,
-    value=None,
-    directory=None,
-    backend=None,
-):
+    shape: tuple[Any, ...] | list[Any] | int | ArrayShape,
+    dtype: Any = float64,
+    order: str = "C",
+    name: str | None = None,
+    value: Any = None,
+    directory: str | None = None,
+    backend: str | None = None,
+) -> AstVariable:
     if backend is None:
         backend = settings.default_backend
     if order not in ["C", "F"]:
@@ -26,7 +29,7 @@ def declare_global_constant(
     if not isinstance(shape, ArrayShape):
         if not isinstance(shape, (tuple, list)):
             shape = (shape,)
-        shape = ArrayShape(shape, fortran_order=fortran_order)
+        shape = ArrayShape(tuple(shape), fortran_order=fortran_order)
 
     dtype_arg = get_datatype(dtype)
 
@@ -38,7 +41,7 @@ def declare_global_constant(
     # Lets create a namespace to host the global_constant variable.
     global_constant_namespace = Namespace(f"{name}_namespace")
 
-    var = Variable(
+    var = AstVariable(
         name=name,
         dtype=dtype_arg,
         shape=shape,

@@ -1,10 +1,18 @@
-import numpy as np
+from __future__ import annotations
+from typing import Any
+
 from numeta.builder_helper import BuilderHelper
 from numeta.datatype import DataType, float64, get_datatype
 from numeta.array_shape import ArrayShape
+from numeta.ast.variable import Variable
 
 
-def empty(shape, dtype: DataType | np.generic = float64, order="C", name=None):
+def empty(
+    shape: tuple[Any, ...] | list[Any] | int | ArrayShape,
+    dtype: Any = float64,
+    order: str = "C",
+    name: str | None = None,
+) -> Variable:
     if order not in ["C", "F"]:
         raise ValueError(f"Invalid order: {order}, must be 'C' or 'F'")
 
@@ -12,7 +20,7 @@ def empty(shape, dtype: DataType | np.generic = float64, order="C", name=None):
     if not isinstance(shape, ArrayShape):
         if not isinstance(shape, (tuple, list)):
             shape = (shape,)
-        shape = ArrayShape(shape, fortran_order=fortran_order)
+        shape = ArrayShape(tuple(shape), fortran_order=fortran_order)
 
     dtype = get_datatype(dtype)
 

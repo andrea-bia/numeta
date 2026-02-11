@@ -1,10 +1,13 @@
-import numpy as np
+from __future__ import annotations
+from typing import Any
+
 from numeta.datatype import DataType, float64
 from numeta.fortran.fortran_type import FortranType
+from numeta.ast.variable import Variable
 from .empty import empty
 
 
-def zeros(shape, dtype: DataType | FortranType | np.generic = float64, order="C", name=None):
+def zeros(shape: Any, dtype: Any = float64, order: str = "C", name: str | None = None) -> Variable:
     array = empty(shape, dtype=dtype, order=order, name=name)
     array[:] = 0.0
     return array
