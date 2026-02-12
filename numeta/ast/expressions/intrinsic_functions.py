@@ -133,7 +133,9 @@ class Shape(UnaryIntrinsicFunction):
 
     @property
     def dtype(self):
-        return self.arguments[0].dtype
+        from numeta.settings import settings
+
+        return settings.syntax.DEFAULT_INTEGER
 
     @property
     def _shape(self):

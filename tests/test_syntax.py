@@ -159,7 +159,7 @@ def test_complex_function(backend):
         (nm.negative, 1, "-"),
         (nm.logical_not, 1, ".not."),
         (nm.allocated, 1, "allocated"),
-        # TODO(Shape, 1, "shape"),
+        (nm.shape, 1, "shape"),
         (nm.all, 1, "all"),
         (nm.real, 1, "real"),
         (nm.imag, 1, "aimag"),
@@ -201,15 +201,35 @@ def test_intrinsic_functions_with_updated_variables(func, nargs, token, backend)
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
+    arr = Variable("arr", syntax_settings.DEFAULT_INTEGER, shape=(3, 2))
     args = [x] if nargs == 1 else [x, y]
+    if func is nm.shape:
+        args[0] = arr
     if func is nm.size:
         args[1] = 1
     expr = func(*args)
+    new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
+    new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
+    new_arr = Variable("new_arr", syntax_settings.DEFAULT_INTEGER, shape=(5, 4))
+    substitutions = [(x, new_x), (y, new_y), (arr, new_arr)]
+    expr = expr.get_with_updated_variables(substitutions)
+
     expected_args = ["x"] if nargs == 1 else ["x", "y"]
+    if func is nm.shape:
+        expected_args[0] = "new_arr"
+    else:
+        expected_args = ["new_x"] if nargs == 1 else ["new_x", "new_y"]
     if func is nm.size:
         expected_args[1] = "1" if backend == "c" else "1_c_int64_t"
     expected = f"{token}({', '.join(expected_args)})\n"
     assert_render(expr, backend, fortran=expected, c=expected)
+
+
+def test_shape_intrinsic_dtype_is_integer_kind():
+    settings.set_default_from_datatype(nm.int64, iso_c=True)
+    arr = Variable("arr", syntax_settings.DEFAULT_REAL, shape=(4, 5))
+    expr = nm.shape(arr)
+    assert expr.dtype == syntax_settings.DEFAULT_INTEGER
 
 
 def test_variable_declaration_scalar(backend):
@@ -588,7 +608,7 @@ def test_update_variables_re_im_nodes(backend):
         (nm.negative, 1, "-"),
         (nm.logical_not, 1, ".not."),
         (nm.allocated, 1, "allocated"),
-        # TODO(Shape, 1, "shape"),
+        (nm.shape, 1, "shape"),
         (nm.all, 1, "all"),
         (nm.real, 1, "real"),
         (nm.imag, 1, "aimag"),
@@ -630,15 +650,21 @@ def test_intrinsic_functions(func, nargs, token, backend):
     settings.set_default_from_datatype(nm.int64, iso_c=True)
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
+    arr = Variable("arr", syntax_settings.DEFAULT_INTEGER, shape=(3, 2))
     args = [x] if nargs == 1 else [x, y]
+    if func is nm.shape:
+        args[0] = arr
     if func is nm.size:
         args[1] = 1
     expr = func(*args)
     new_x = Variable("new_x", syntax_settings.DEFAULT_INTEGER)
     new_y = Variable("new_y", syntax_settings.DEFAULT_INTEGER)
-    expr = expr.get_with_updated_variables([(x, new_x), (y, new_y)])
+    new_arr = Variable("new_arr", syntax_settings.DEFAULT_INTEGER, shape=(5, 4))
+    expr = expr.get_with_updated_variables([(x, new_x), (y, new_y), (arr, new_arr)])
 
     expected_args = ["new_x"] if nargs == 1 else ["new_x", "new_y"]
+    if func is nm.shape:
+        expected_args[0] = "new_arr"
     if func is nm.size:
         expected_args[1] = "1" if backend == "c" else "1_c_int64_t"
     expected = f"{token}({', '.join(expected_args)})\n"
