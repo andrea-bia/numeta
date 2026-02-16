@@ -1,4 +1,5 @@
 from .statement import StatementWithScope
+from numeta.exceptions import raise_with_source
 from .various import Comment, Import, TypingPolicy, Section
 from .tools import (
     get_nested_dependencies_or_declarations,
@@ -8,6 +9,7 @@ from .tools import (
 
 class NamespaceDeclaration(StatementWithScope):
     def __init__(self, namespace):
+        super().__init__(add_to_scope=False, enter_scope=False)
         self.namespace = namespace
 
         entities = list(self.namespace.variables.values())
@@ -59,7 +61,9 @@ class NamespaceDeclaration(StatementWithScope):
         yield from self.struct_types_dec.values()
 
         if self.interfaces:
-            raise NotImplementedError("Interfaces are not supported yet")
+            raise_with_source(
+                NotImplementedError, "Interfaces are not supported yet", source_node=self
+            )
 
         yield TypingPolicy(implicit_type="none", add_to_scope=False)
 

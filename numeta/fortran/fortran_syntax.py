@@ -6,6 +6,7 @@ import numpy as np
 
 from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
 from numeta.settings import settings
+from numeta.exceptions import raise_with_source
 from numeta.ast.statements.tools import print_block
 
 syntax_settings = settings.syntax
@@ -55,11 +56,18 @@ from numeta.ast.statements.variable_declaration import VariableDeclaration
 from numeta.ast.statements.various import Comment, PointerAssignment, Print, SimpleStatement
 
 
-def _literal_blocks_from_dtype(value: Any, dtype: Any) -> list[str]:
+def _literal_blocks_from_dtype(
+    value: Any, dtype: Any, source_node: object | None = None
+) -> list[str]:
     from numeta.datatype import DataType
 
     if not (isinstance(dtype, type) and issubclass(dtype, DataType)):
-        raise TypeError(f"dtype must be a DataType subclass, got {dtype}")
+        raise_with_source(
+            TypeError,
+            f"dtype must be a DataType subclass, got {dtype}",
+            source_node=source_node,
+        )
+        raise AssertionError("unreachable")
 
     ftype = dtype.get_fortran()
     kind = ftype.get_kind_str()
@@ -76,17 +84,18 @@ def _literal_blocks_from_dtype(value: Any, dtype: Any) -> list[str]:
     if ftype.type == "character":
         return [f'"{value}"']
 
-    raise ValueError(f"Unknown type: {ftype.type}")
+    raise_with_source(ValueError, f"Unknown type: {ftype.type}", source_node=source_node)
+    raise AssertionError("unreachable")
 
 
 def render_expr_blocks(expr: Any) -> list[str]:
     if expr is None:
         return [""]
     if isinstance(expr, LiteralNode):
-        return _literal_blocks_from_dtype(expr.value, expr.dtype)
+        return _literal_blocks_from_dtype(expr.value, expr.dtype, source_node=expr)
     if isinstance(expr, (int, float, complex, bool, str, np.generic)):
         literal = LiteralNode(expr)
-        return _literal_blocks_from_dtype(literal.value, literal.dtype)
+        return _literal_blocks_from_dtype(literal.value, literal.dtype, source_node=literal)
     if isinstance(expr, Variable):
         return [expr.name]
     if isinstance(expr, NamedEntity):
@@ -274,7 +283,11 @@ def _render_stmt_blocks(stmt: Any) -> list[str] | None:
     if isinstance(stmt, PointerAssignment):
         return [
             *render_expr_blocks(stmt.pointer),
-            *_render_shape_blocks(stmt.pointer_shape, fortran_order=True),
+            *_render_shape_blocks(
+                stmt.pointer_shape,
+                fortran_order=True,
+                source_node=stmt.pointer,
+            ),
             "=>",
             *render_expr_blocks(stmt.target),
         ]
@@ -359,7 +372,12 @@ def _render_scoped_start_blocks(stmt: Any) -> list[str]:
         if syntax_settings.struct_type_bind_c:
             return ["type", ", ", "bind(C)", " ", "::", " ", stmt.struct_type.name]
         return ["type", " ", "::", " ", stmt.struct_type.name]
-    raise NotImplementedError(f"Unsupported scoped statement: {type(stmt)}")
+    raise_with_source(
+        NotImplementedError,
+        f"Unsupported scoped statement: {type(stmt)}",
+        source_node=stmt,
+    )
+    raise AssertionError("unreachable")
 
 
 def _render_scoped_end_blocks(stmt: Any) -> list[str]:
@@ -385,7 +403,12 @@ def _render_scoped_end_blocks(stmt: Any) -> list[str]:
         return ["end", " ", "function", " ", stmt.function.name]
     if isinstance(stmt, StructTypeDeclaration):
         return ["end", " ", "type", " ", stmt.struct_type.name]
-    raise NotImplementedError(f"Unsupported scoped statement: {type(stmt)}")
+    raise_with_source(
+        NotImplementedError,
+        f"Unsupported scoped statement: {type(stmt)}",
+        source_node=stmt,
+    )
+    raise AssertionError("unreachable")
 
 
 def _render_scoped_statements(stmt: Any) -> list[Any]:
@@ -465,7 +488,7 @@ def _render_function_interface_start_blocks(function: Any) -> list[str]:
 
 
 def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
-    result = _render_type_blocks(stmt.variable.dtype)
+    result = _render_type_blocks(stmt.variable.dtype, source_node=stmt.variable)
 
     if stmt.variable.allocatable:
         result += [", ", "allocatable", ", ", "dimension"]
@@ -480,7 +503,9 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
     elif stmt.variable._shape.dims:
         result += [", ", "dimension"]
         result += _render_shape_blocks(
-            stmt.variable._shape.dims, fortran_order=stmt.variable._shape.fortran_order
+            stmt.variable._shape.dims,
+            fortran_order=stmt.variable._shape.fortran_order,
+            source_node=stmt.variable,
         )
 
     if stmt.variable.intent is not None:
@@ -503,28 +528,44 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
 
     if stmt.variable.assign is not None:
         if isinstance(stmt.variable.assign, (int, float, complex, bool, str)):
-            values = _literal_blocks_from_dtype(stmt.variable.assign, stmt.variable.dtype)
+            values = _literal_blocks_from_dtype(
+                stmt.variable.assign,
+                stmt.variable.dtype,
+                source_node=stmt.variable,
+            )
         elif isinstance(stmt.variable.assign, np.ndarray):
             values = []
             for v in stmt.variable.assign.ravel():
-                values += _literal_blocks_from_dtype(v, stmt.variable.dtype)
+                values += _literal_blocks_from_dtype(
+                    v, stmt.variable.dtype, source_node=stmt.variable
+                )
                 values.append(", ")
             if values:
                 values.pop()
         else:
-            raise ValueError("Can only assign scalars or numpy ndarrays")
+            raise_with_source(
+                ValueError,
+                "Can only assign scalars or numpy ndarrays",
+                source_node=stmt.variable,
+            )
+            raise AssertionError("unreachable")
 
         if stmt.variable._shape is UNKNOWN:
-            raise ValueError(
+            raise_with_source(
+                ValueError,
                 "Cannot assign to a variable with unknown shape. "
-                "Please specify the shape of the variable."
+                "Please specify the shape of the variable.",
+                source_node=stmt.variable,
             )
+            raise AssertionError("unreachable")
         result += [";", " data ", stmt.variable.name, " / ", *values, " /"]
 
     return result
 
 
-def _render_shape_blocks(shape, fortran_order: bool = True) -> list[str]:
+def _render_shape_blocks(
+    shape, fortran_order: bool = True, source_node: object | None = None
+) -> list[str]:
     lbound = syntax_settings.array_lower_bound
     result = ["("]
 
@@ -558,7 +599,12 @@ def _render_shape_blocks(shape, fortran_order: bool = True) -> list[str]:
                     stop = render_expr_blocks(element.stop)
 
             if element.step is not None:
-                raise NotImplementedError("Step in array dimensions is not implemented yet")
+                raise_with_source(
+                    NotImplementedError,
+                    "Step in array dimensions is not implemented yet",
+                    source_node=source_node,
+                )
+                raise AssertionError("unreachable")
             return start + [":"] + stop
         return [str(lbound), ":", *render_expr_blocks(element + (lbound - 1))]
 
@@ -576,7 +622,7 @@ def _render_shape_blocks(shape, fortran_order: bool = True) -> list[str]:
     return result
 
 
-def _render_type_blocks(dtype) -> list[str]:
+def _render_type_blocks(dtype, source_node: object | None = None) -> list[str]:
     from numeta.datatype import DataType
 
     if isinstance(dtype, type) and issubclass(dtype, DataType):
@@ -587,4 +633,9 @@ def _render_type_blocks(dtype) -> list[str]:
             return [ftype.type, "(", kind, ")"]
         return [ftype.type]
 
-    raise TypeError(f"dtype must be a DataType subclass, got {dtype}")
+    raise_with_source(
+        TypeError,
+        f"dtype must be a DataType subclass, got {dtype}",
+        source_node=source_node,
+    )
+    raise AssertionError("unreachable")

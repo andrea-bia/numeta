@@ -1,5 +1,6 @@
 from numeta.ast.tools import check_node
 from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
+from numeta.exceptions import raise_with_source
 from .expression_node import ExpressionNode
 
 
@@ -7,6 +8,7 @@ class IntrinsicFunction(ExpressionNode):
     token = ""
 
     def __init__(self, *arguments):
+        super().__init__()
         self.arguments = [check_node(arg) for arg in arguments]
 
     def extract_entities(self):
@@ -128,7 +130,11 @@ class Shape(UnaryIntrinsicFunction):
 
     def __init__(self, argument):
         if argument._shape is SCALAR:
-            raise ValueError("The shape intrinsic function cannot be applied to a scalar.")
+            raise_with_source(
+                ValueError,
+                "The shape intrinsic function cannot be applied to a scalar.",
+                source_node=argument,
+            )
         super().__init__(argument)
 
     @property
@@ -141,8 +147,10 @@ class Shape(UnaryIntrinsicFunction):
     def _shape(self):
         var_shape = self.arguments[0]._shape
         if var_shape is SCALAR or var_shape is UNKNOWN:
-            raise ValueError(
-                "The shape intrinsic function can only be applied to variables with a defined shape."
+            raise_with_source(
+                ValueError,
+                "The shape intrinsic function can only be applied to variables with a defined shape.",
+                source_node=self.arguments[0],
             )
         return ArrayShape((len(var_shape.dims),))
 
@@ -209,21 +217,45 @@ class Transpose(UnaryIntrinsicFunction):
     def _shape(self):
         arg_shape = self.arguments[0]._shape
         if arg_shape is SCALAR:
-            raise ValueError("Cannot transpose a scalar.")
+            raise_with_source(
+                ValueError,
+                "Cannot transpose a scalar.",
+                source_node=self.arguments[0],
+            )
         if arg_shape is UNKNOWN:
-            raise ValueError("Cannot transpose a variable with unknown shape.")
+            raise_with_source(
+                ValueError,
+                "Cannot transpose a variable with unknown shape.",
+                source_node=self.arguments[0],
+            )
         if len(arg_shape.dims) != 2:
-            raise ValueError("Transpose can only be applied to 2-D arrays.")
+            raise_with_source(
+                ValueError,
+                "Transpose can only be applied to 2-D arrays.",
+                source_node=self.arguments[0],
+            )
         return ArrayShape(arg_shape.dims[::-1], fortran_order=arg_shape.fortran_order)
 
     @property
     def shape(self):
         if self.arguments[0]._shape is SCALAR:
-            raise ValueError("Cannot transpose a scalar.")
+            raise_with_source(
+                ValueError,
+                "Cannot transpose a scalar.",
+                source_node=self.arguments[0],
+            )
         elif self.arguments[0]._shape is UNKNOWN:
-            raise ValueError("Cannot transpose a variable with unknown shape.")
+            raise_with_source(
+                ValueError,
+                "Cannot transpose a variable with unknown shape.",
+                source_node=self.arguments[0],
+            )
         elif len(self.arguments[0]._shape.dims) != 2:
-            raise ValueError("Transpose can only be applied to 2-D arrays.")
+            raise_with_source(
+                ValueError,
+                "Transpose can only be applied to 2-D arrays.",
+                source_node=self.arguments[0],
+            )
         return ArrayShape(self.arguments[0]._shape.dims[::-1])
 
 

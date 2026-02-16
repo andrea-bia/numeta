@@ -14,6 +14,7 @@ class Statement(Node):
     """
 
     def __init__(self, add_to_scope=True):
+        super().__init__()
         if add_to_scope:
             Scope.add_to_current_scope(self)
 

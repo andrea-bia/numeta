@@ -2,11 +2,12 @@ from numeta.settings import settings
 
 from .expression_node import ExpressionNode
 from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
-from numeta.exceptions import NumetaNotImplementedError
+from numeta.exceptions import NumetaNotImplementedError, raise_with_source
 
 
 class GetItem(ExpressionNode):
     def __init__(self, variable, slice_):
+        super().__init__()
         self.variable = variable
         # define if only a slice [begin : end : step] of the Variable is asked
         self.sliced = slice_
@@ -33,7 +34,11 @@ class GetItem(ExpressionNode):
             if stop is None and max_dim is not None:
                 stop = max_dim
             if slice_.step is not None:
-                raise NotImplementedError("Step slicing not implemented for shape extraction")
+                raise_with_source(
+                    NotImplementedError,
+                    "Step slicing not implemented for shape extraction",
+                    source_node=self,
+                )
             if stop is None:
                 return None
             return stop - start + settings.syntax.array_lower_bound
@@ -116,8 +121,10 @@ class GetItem(ExpressionNode):
 
             elif isinstance(key, slice):
                 if self.sliced.step is not None or key.step is not None:
-                    raise NumetaNotImplementedError(
-                        "Step slicing not implemented for slice merging"
+                    raise_with_source(
+                        NumetaNotImplementedError,
+                        "Step slicing not implemented for slice merging",
+                        source_node=self,
                     )
 
                 lb = settings.syntax.array_lower_bound
@@ -158,6 +165,6 @@ class GetItem(ExpressionNode):
             error_str += f"\nOld slice: {self.sliced}"
             error_str += f"\nNew slice: {key}"
             error_str += f"\nImpossible to merge {self.variable.name}[{self.sliced}][{key}]"
-            raise ValueError(error_str)
+            raise_with_source(ValueError, error_str, source_node=self)
 
         return new_key

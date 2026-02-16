@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 import numpy as np
 
 from numeta.datatype import DataType
+from numeta.exceptions import raise_with_source
 from numeta.settings import settings as nm_settings
 from numeta.ast.namespace import Namespace
 from numeta.ast.variable import Variable
@@ -67,6 +68,26 @@ class CEmitter:
     @property
     def requires_math(self) -> bool:
         return self._requires_math
+
+    def _resolve_source_node(self, origin: object | None) -> object | None:
+        if origin is None:
+            return None
+        source = getattr(origin, "source", None)
+        if source is not None:
+            return source
+        if getattr(origin, "source_location", None) is not None:
+            return origin
+        return None
+
+    def _raise_with_source(
+        self, exception_class, message: str, origin: object | None = None
+    ) -> NoReturn:
+        raise_with_source(
+            exception_class,
+            message,
+            source_node=self._resolve_source_node(origin),
+        )
+        raise AssertionError("unreachable")
 
     def emit_procedure(self, proc: IRProcedure) -> tuple[str, bool]:
         self._array_info = {}
@@ -606,10 +627,18 @@ class CEmitter:
             return lines
         if isinstance(stmt, IRAllocate):
             if not isinstance(stmt.var, IRVarRef):
-                raise NotImplementedError("C backend allocate supports variable targets")
+                self._raise_with_source(
+                    NotImplementedError,
+                    "C backend allocate supports variable targets",
+                    origin=stmt,
+                )
             var = stmt.var.var
             if var is None:
-                raise NotImplementedError("C backend allocate requires named variables")
+                self._raise_with_source(
+                    NotImplementedError,
+                    "C backend allocate requires named variables",
+                    origin=stmt,
+                )
             name = var.name
             info = self._array_info.get(name)
             if info is None:
@@ -664,7 +693,11 @@ class CEmitter:
 
     def _render_numpy_allocate(self, stmt: IRCall, indent: int) -> list[str]:
         if len(stmt.args) < 2:
-            raise NotImplementedError("numpy_allocate requires pointer and size")
+            self._raise_with_source(
+                NotImplementedError,
+                "numpy_allocate requires pointer and size",
+                origin=stmt,
+            )
         ptr_arg = stmt.args[0]
         size_arg = stmt.args[1]
         self._tmp_counter += 1
@@ -754,7 +787,11 @@ class CEmitter:
         base_name = self._render_expr(arg.base)
         info = self._array_info.get(base_name)
         if info is None:
-            raise NotImplementedError("C backend requires array metadata for slice calls")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend requires array metadata for slice calls",
+                origin=arg,
+            )
 
         ctype = info["ctype"]
         dims_exprs = info["dims_exprs"]
@@ -866,20 +903,40 @@ class CEmitter:
         self, expr: IRIntrinsic, indent: int
     ) -> tuple[str, list[str], list[str]]:
         if len(expr.args) != 2:
-            raise NotImplementedError("C backend matmul expects two arguments")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend matmul expects two arguments",
+                origin=expr,
+            )
         left, right = expr.args
         if not isinstance(left, IRExpr) or not isinstance(right, IRExpr):
-            raise NotImplementedError("C backend matmul requires array expressions")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend matmul requires array expressions",
+                origin=expr,
+            )
 
         shape = expr.vtype.shape if expr.vtype else None
         if shape is None or shape.rank != 2:
-            raise NotImplementedError("C backend matmul requires 2D result")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend matmul requires 2D result",
+                origin=expr,
+            )
         if shape.dims is None:
-            raise NotImplementedError("C backend matmul requires known dims")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend matmul requires known dims",
+                origin=expr,
+            )
 
         dims = [self._render_dim(dim) for dim in shape.dims]
         if len(dims) != 2:
-            raise NotImplementedError("C backend matmul requires 2D dims")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend matmul requires 2D dims",
+                origin=expr,
+            )
 
         self._tmp_counter += 1
         temp_name = f"_nm_tmp_{self._tmp_counter}"
@@ -909,7 +966,11 @@ class CEmitter:
         if isinstance(right, IRVarRef) and right.var is not None:
             right_info = self._array_info.get(right.var.name)
         if left_info is None or right_info is None:
-            raise NotImplementedError("C backend matmul requires array variables")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend matmul requires array variables",
+                origin=expr,
+            )
 
         if not (left_info["fortran_order"] or right_info["fortran_order"]):
             left_info, right_info = right_info, left_info
@@ -958,11 +1019,19 @@ class CEmitter:
 
     def _render_c_f_pointer(self, stmt: IRCall, indent: int) -> list[str]:
         if len(stmt.args) < 2:
-            raise NotImplementedError("c_f_pointer requires source and target")
+            self._raise_with_source(
+                NotImplementedError,
+                "c_f_pointer requires source and target",
+                origin=stmt,
+            )
         source = stmt.args[0]
         target = stmt.args[1]
         if not isinstance(target, IRVarRef) or target.var is None:
-            raise NotImplementedError("c_f_pointer target must be variable")
+            self._raise_with_source(
+                NotImplementedError,
+                "c_f_pointer target must be variable",
+                origin=stmt,
+            )
 
         target_name = target.var.name
         if isinstance(source, IRCallExpr) and self._render_expr(source.callee) == "c_loc":
@@ -1092,14 +1161,26 @@ class CEmitter:
         self, target: IRVarRef, expr: IRIntrinsic, indent: int
     ) -> list[str]:
         if len(expr.args) != 2:
-            raise NotImplementedError("dot_product expects two args")
+            self._raise_with_source(
+                NotImplementedError,
+                "dot_product expects two args",
+                origin=expr,
+            )
         left, right = expr.args
         if not (isinstance(left, IRVarRef) and isinstance(right, IRVarRef)):
-            raise NotImplementedError("dot_product requires array variables")
+            self._raise_with_source(
+                NotImplementedError,
+                "dot_product requires array variables",
+                origin=expr,
+            )
         left_info = self._array_info.get(left.var.name if left.var else "")
         right_info = self._array_info.get(right.var.name if right.var else "")
         if left_info is None or right_info is None:
-            raise NotImplementedError("dot_product requires array metadata")
+            self._raise_with_source(
+                NotImplementedError,
+                "dot_product requires array metadata",
+                origin=expr,
+            )
 
         loop_var = "_nm_i_dot"
         dim = left_info["dims_exprs"][0]
@@ -1127,15 +1208,31 @@ class CEmitter:
         self, name: str, info: dict[str, Any], expr: IRIntrinsic, indent: int
     ) -> list[str]:
         if len(expr.args) != 1:
-            raise NotImplementedError("transpose expects one arg")
+            self._raise_with_source(
+                NotImplementedError,
+                "transpose expects one arg",
+                origin=expr,
+            )
         src = expr.args[0]
         if not isinstance(src, IRVarRef) or src.var is None:
-            raise NotImplementedError("transpose requires array variable")
+            self._raise_with_source(
+                NotImplementedError,
+                "transpose requires array variable",
+                origin=expr,
+            )
         src_info = self._array_info.get(src.var.name)
         if src_info is None:
-            raise NotImplementedError("transpose requires array metadata")
+            self._raise_with_source(
+                NotImplementedError,
+                "transpose requires array metadata",
+                origin=expr,
+            )
         if info.get("rank", 0) != 2:
-            raise NotImplementedError("transpose requires rank-2 arrays")
+            self._raise_with_source(
+                NotImplementedError,
+                "transpose requires rank-2 arrays",
+                origin=expr,
+            )
 
         i_var = "_nm_i_t"
         j_var = "_nm_j_t"
@@ -1158,15 +1255,27 @@ class CEmitter:
         self, name: str, info: dict[str, Any], expr: IRIntrinsic, indent: int
     ) -> list[str]:
         if len(expr.args) != 2:
-            raise NotImplementedError("matmul expects two args")
+            self._raise_with_source(
+                NotImplementedError,
+                "matmul expects two args",
+                origin=expr,
+            )
         left, right = expr.args
         if not (isinstance(left, IRVarRef) and isinstance(right, IRVarRef)):
-            raise NotImplementedError("matmul requires array variables")
+            self._raise_with_source(
+                NotImplementedError,
+                "matmul requires array variables",
+                origin=expr,
+            )
 
         left_info = self._array_info.get(left.var.name if left.var else "")
         right_info = self._array_info.get(right.var.name if right.var else "")
         if left_info is None or right_info is None:
-            raise NotImplementedError("matmul requires array metadata")
+            self._raise_with_source(
+                NotImplementedError,
+                "matmul requires array metadata",
+                origin=expr,
+            )
 
         if not (left_info["fortran_order"] or right_info["fortran_order"]):
             left_info, right_info = right_info, left_info
@@ -1203,7 +1312,11 @@ class CEmitter:
         base_name = self._render_expr(target.base)
         info = self._array_info.get(base_name)
         if info is None:
-            raise NotImplementedError("C backend requires array metadata for slice assignment")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend requires array metadata for slice assignment",
+                origin=target,
+            )
 
         indices: list[str] = []
         loops: list[tuple[str, str, str, str]] = []
@@ -1379,7 +1492,11 @@ class CEmitter:
 
     def _render_getitem(self, expr: IRGetItem) -> str:
         if not isinstance(expr.base, IRExpr):
-            raise NotImplementedError("C backend only supports variable array base")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend only supports variable array base",
+                origin=expr,
+            )
         base_name = self._render_expr(expr.base)
         if isinstance(expr.base, IRVarRef) and expr.base.var is not None:
             base_var_name = expr.base.var.name
@@ -1388,7 +1505,11 @@ class CEmitter:
                     return base_name
                 idx0 = expr.indices[0]
                 if isinstance(idx0, IRSlice):
-                    raise NotImplementedError("C backend does not support slicing shape dims")
+                    self._raise_with_source(
+                        NotImplementedError,
+                        "C backend does not support slicing shape dims",
+                        origin=expr,
+                    )
                 return f"{base_name}[{self._render_expr(cast(IRExpr, idx0))}]"
         info = self._array_info.get(base_name)
         if info is None:
@@ -1424,7 +1545,11 @@ class CEmitter:
                         indices.append(self._render_expr(cast(IRExpr, idx)))
                     linear = self._linear_index(indices, dims_exprs, shape.order == "F")
                     return f"({base_name})[{linear}]"
-            raise NotImplementedError("C backend requires array metadata for getitem")
+            self._raise_with_source(
+                NotImplementedError,
+                "C backend requires array metadata for getitem",
+                origin=expr,
+            )
         indices: list[str] = []
         for idx in expr.indices:
             if isinstance(idx, IRSlice):

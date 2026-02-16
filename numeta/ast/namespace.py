@@ -1,6 +1,7 @@
 import sys
 
 from numeta.array_shape import SCALAR
+from numeta.exceptions import raise_with_source
 
 from .nodes import NamedEntity
 from .procedure import Procedure
@@ -41,7 +42,11 @@ class Namespace(NamedEntity):
         elif name in self.procedures:
             return self.procedures[name]
         else:
-            raise AttributeError(f"Namespace {self.name} has no attribute {name}")
+            raise_with_source(
+                AttributeError,
+                f"Namespace {self.name} has no attribute {name}",
+                source_node=self,
+            )
 
     def add_struct_type(self, *struct_types):
         for struct_type in struct_types:

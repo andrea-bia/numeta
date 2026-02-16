@@ -1,13 +1,14 @@
 from .expression_node import ExpressionNode
 from numeta.ast.tools import check_node
 from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
-from numeta.exceptions import NumetaTypeError
+from numeta.exceptions import NumetaTypeError, raise_with_source
 
 
 class BinaryOperationNode(ExpressionNode):
     __slots__ = ["op", "left", "right"]
 
     def __init__(self, left, op, right):
+        super().__init__()
         self.op = op
         self.left = check_node(left)
         self.right = check_node(right)
@@ -54,6 +55,7 @@ class EqBinaryNode(BinaryOperationNode):
 
     def __init__(self, left, right):
         # faster than calling super().__init__(left, '.eq.', right)
+        ExpressionNode.__init__(self)
         self.op = ".eq."
         self.left = check_node(left)
         self.right = check_node(right)
@@ -62,14 +64,17 @@ class EqBinaryNode(BinaryOperationNode):
         try:
             return self.left.name == self.right.name
         except AttributeError:
-            raise NumetaTypeError(
-                f"Do not use '==' operator for non-NamedEntity: {type(self.left)} and {type(self.right)}"
+            raise_with_source(
+                NumetaTypeError,
+                f"Do not use '==' operator for non-NamedEntity: {type(self.left)} and {type(self.right)}",
+                source_node=self,
             )
         # TODO: Too slow
 
 
 class NeBinaryNode(BinaryOperationNode):
     def __init__(self, left, right):
+        ExpressionNode.__init__(self)
         self.op = ".ne."
         # self.left = left
         # self.right = right
@@ -80,8 +85,10 @@ class NeBinaryNode(BinaryOperationNode):
         try:
             return self.left.name != self.right.name
         except AttributeError:
-            raise NumetaTypeError(
-                f"Do not use '!=' operator for non-NamedEntity: {type(self.left)} and {type(self.right)}"
+            raise_with_source(
+                NumetaTypeError,
+                f"Do not use '!=' operator for non-NamedEntity: {type(self.left)} and {type(self.right)}",
+                source_node=self,
             )
 
         # TODO: Too slow

@@ -1,4 +1,5 @@
 from .nodes import NamedEntity
+from numeta.exceptions import raise_with_source
 
 
 class StructType(NamedEntity):
@@ -18,8 +19,10 @@ class StructType(NamedEntity):
         self.fields = fields
         for name, _, shape in self.fields:
             if shape.has_comptime_undefined_dims():
-                raise ValueError(
-                    f"Struct type '{name}' cannot have compile-time undefined dimensions."
+                raise_with_source(
+                    ValueError,
+                    f"Struct type '{name}' cannot have compile-time undefined dimensions.",
+                    source_node=self,
                 )
         self.parent = None
 

@@ -1,6 +1,7 @@
 from .nodes import NamedEntity
 from numeta.ast.nodes import NamedEntity
 from .tools import check_node
+from numeta.exceptions import raise_with_source
 
 
 class Function(NamedEntity):
@@ -22,7 +23,9 @@ class Function(NamedEntity):
             yield from arg.extract_entities()
 
     def get_declaration(self):
-        raise NotImplementedError("Function declaration is not supported")
+        raise_with_source(
+            NotImplementedError, "Function declaration is not supported", source_node=self
+        )
 
     def get_interface_declaration(self):
         from .statements import FunctionInterfaceDeclaration
@@ -31,11 +34,11 @@ class Function(NamedEntity):
 
     @property
     def dtype(self):
-        raise NotImplementedError("Function dtype is not defined")
+        raise_with_source(NotImplementedError, "Function dtype is not defined", source_node=self)
 
     @property
     def _shape(self):
-        raise NotImplementedError("Function shape is not defined")
+        raise_with_source(NotImplementedError, "Function shape is not defined", source_node=self)
 
     def get_result_variable(self):
         from numeta.ast.variable import Variable

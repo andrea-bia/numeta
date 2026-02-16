@@ -1,10 +1,12 @@
 from .expression_node import ExpressionNode
 from numeta.ast.tools import check_node
 from numeta.array_shape import ArrayShape
+from numeta.exceptions import raise_with_source
 
 
 class Re(ExpressionNode):
     def __init__(self, variable):
+        super().__init__()
         self.variable = variable
 
     @property
@@ -26,6 +28,7 @@ class Re(ExpressionNode):
 
 class Im(ExpressionNode):
     def __init__(self, variable):
+        super().__init__()
         self.variable = variable
 
     @property
@@ -47,18 +50,27 @@ class Im(ExpressionNode):
 
 class ArrayConstructor(ExpressionNode):
     def __init__(self, *elements):
+        super().__init__()
         self.elements = [check_node(e) for e in elements]
 
     @property
     def dtype(self):
         if not self.elements:
-            raise ValueError("ArrayConstructor must have at least one element")
+            raise_with_source(
+                ValueError,
+                "ArrayConstructor must have at least one element",
+                source_node=self,
+            )
         for element in self.elements:
             if element is None:
                 continue
             if hasattr(element, "dtype"):
                 return element.dtype
-        raise ValueError("ArrayConstructor must have at least one typed element")
+        raise_with_source(
+            ValueError,
+            "ArrayConstructor must have at least one typed element",
+            source_node=self,
+        )
 
     @property
     def _shape(self):

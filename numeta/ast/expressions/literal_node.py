@@ -2,12 +2,14 @@ import numpy as np
 
 from .expression_node import ExpressionNode
 from numeta.array_shape import SCALAR
+from numeta.exceptions import raise_with_source
 
 
 class LiteralNode(ExpressionNode):
     __slots__ = ["value", "__dtype"]
 
     def __init__(self, value):
+        super().__init__()
         from numeta.datatype import int64, float64, complex128, bool8, char
 
         self.value = value
@@ -23,8 +25,10 @@ class LiteralNode(ExpressionNode):
         elif isinstance(value, str):
             self.__dtype = char
         else:
-            raise ValueError(
-                f"Type {value.__class__.__name__} is unsupported for LiteralNode,\n value: {value}"
+            raise_with_source(
+                ValueError,
+                f"Type {value.__class__.__name__} is unsupported for LiteralNode,\n value: {value}",
+                source_node=self,
             )
 
     @property

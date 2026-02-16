@@ -20,6 +20,7 @@ class NamedEntity(Node, ABC):
     """
 
     def __init__(self, name, parent=None) -> None:
+        super().__init__()
         self.name = name
         self.parent = parent
 

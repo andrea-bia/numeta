@@ -1,8 +1,10 @@
 from .expression_node import ExpressionNode
+from numeta.exceptions import raise_with_source
 
 
 class GetAttr(ExpressionNode):
     def __init__(self, variable, attr):
+        super().__init__()
         self.variable = variable
         self.attr = attr
 
@@ -13,7 +15,11 @@ class GetAttr(ExpressionNode):
             for name, dtype, _ in struct_dtype._members:
                 if name == self.attr:
                     return dtype
-        raise ValueError(f"Attribute '{self.attr}' not found in struct type '{struct_dtype}'")
+        raise_with_source(
+            ValueError,
+            f"Attribute '{self.attr}' not found in struct type '{struct_dtype}'",
+            source_node=self,
+        )
 
     @property
     def _shape(self):
@@ -22,7 +28,11 @@ class GetAttr(ExpressionNode):
             for name, _, shape in struct_dtype._members:
                 if name == self.attr:
                     return shape
-        raise ValueError(f"Attribute '{self.attr}' not found in struct type '{struct_dtype}'")
+        raise_with_source(
+            ValueError,
+            f"Attribute '{self.attr}' not found in struct type '{struct_dtype}'",
+            source_node=self,
+        )
 
     def extract_entities(self):
         yield from self.variable.extract_entities()

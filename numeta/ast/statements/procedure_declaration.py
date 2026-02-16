@@ -8,6 +8,7 @@ from .tools import (
 
 class ProcedureDeclaration(StatementWithScope):
     def __init__(self, procedure):
+        super().__init__(add_to_scope=False, enter_scope=False)
         self.procedure = procedure
 
         # First check the arguments dependencies
@@ -98,6 +99,7 @@ class ProcedureDeclaration(StatementWithScope):
 
 class ProcedureInterfaceDeclaration(StatementWithScope):
     def __init__(self, procedure):
+        super().__init__(add_to_scope=False, enter_scope=False)
         self.procedure = procedure
 
     @property

@@ -7,6 +7,7 @@ class FunctionCall(ExpressionNode):
     __slots__ = ["function", "arguments"]
 
     def __init__(self, function, *arguments):
+        super().__init__()
         self.function = function
         self.arguments = [check_node(arg) for arg in arguments]
 

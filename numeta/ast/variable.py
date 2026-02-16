@@ -19,6 +19,7 @@ class Variable(NamedEntity, ExpressionNode):
         bind_c=False,
         use_c_types=False,
     ):
+        # Note: NamedEntity.__init__ calls Node.__init__ which captures source location
         super().__init__(name, parent=parent)
 
         if dtype is not None:

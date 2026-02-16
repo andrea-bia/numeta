@@ -1,5 +1,6 @@
 from numeta.ast.tools import check_node
 from numeta.ast.scope import Scope
+from numeta.exceptions import raise_with_source
 from .statement import Statement, StatementWithScope
 
 
@@ -51,7 +52,7 @@ class SimpleStatement(Statement):
     token = ""
 
     def __init__(self):
-        Scope.add_to_current_scope(self)
+        super().__init__(add_to_scope=True)
 
     @property
     def children(self):
@@ -155,13 +156,15 @@ class If(StatementWithScope):
 
 class ElseIf(StatementWithScope):
     def __init__(self, condition, /, *, add_to_scope=True, enter_scope=True):
+        super().__init__(add_to_scope=False, enter_scope=False)
         if add_to_scope:
             if not isinstance(Scope.current_scope.body[-1], If):
-                raise Exception(
-                    "Something went wrong with this else if. The last statement is not an if statement."
+                raise_with_source(
+                    Exception,
+                    "Something went wrong with this else if. The last statement is not an if statement.",
+                    source_node=self,
                 )
             Scope.current_scope.body[-1].orelse.append(self)
-        self.scope = Scope()
         if enter_scope:
             self.scope.enter()
         self.condition = check_node(condition)
@@ -173,13 +176,15 @@ class ElseIf(StatementWithScope):
 
 class Else(StatementWithScope):
     def __init__(self, /, *, add_to_scope=True, enter_scope=True):
+        super().__init__(add_to_scope=False, enter_scope=False)
         if add_to_scope:
             if not isinstance(Scope.current_scope.body[-1], If):
-                raise Exception(
-                    "Something went wrong with this else if. The last statement is not an if statement."
+                raise_with_source(
+                    Exception,
+                    "Something went wrong with this else if. The last statement is not an if statement.",
+                    source_node=self,
                 )
             Scope.current_scope.body[-1].orelse.append(self)
-        self.scope = Scope()
         if enter_scope:
             self.scope.enter()
 
@@ -258,10 +263,18 @@ class PointerAssignment(Statement):
         elif isinstance(self.target, GetItem):
             self.target.variable.target = True
         else:
-            raise Exception("The target of a pointer must be a variable or GetItem.")
+            raise_with_source(
+                Exception,
+                "The target of a pointer must be a variable or GetItem.",
+                source_node=self,
+            )
 
         if not isinstance(self.pointer, Variable):
-            raise Exception("The pointer must be a variable.")
+            raise_with_source(
+                Exception,
+                "The pointer must be a variable.",
+                source_node=self,
+            )
         self.pointer.pointer = True
 
     @property

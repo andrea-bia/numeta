@@ -1,14 +1,14 @@
 from numeta.ast.nodes import Node
 from abc import abstractmethod
 
-from numeta.exceptions import NumetaTypeError
+from numeta.exceptions import NumetaTypeError, raise_with_source
 
 
 class ExpressionNode(Node):
     __slots__ = []
 
     def __init__(self):
-        pass
+        super().__init__()
 
     @property
     @abstractmethod
@@ -33,7 +33,11 @@ class ExpressionNode(Node):
         return self
 
     def __bool__(self) -> bool:
-        raise NumetaTypeError("Do not use 'bool' operator for expressions.")
+        raise_with_source(
+            NumetaTypeError,
+            "Do not use 'bool' operator for expressions.",
+            source_node=self,
+        )
 
     def __rshift__(self, other):
         from numeta.ast.statements import Assignment

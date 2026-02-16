@@ -5,6 +5,7 @@ from typing import Any
 from numeta.array_shape import SCALAR, UNKNOWN
 from numeta.ast import Variable
 from numeta.settings import settings
+from numeta.exceptions import raise_with_source
 from numeta.ast.expressions import (
     BinaryOperationNode,
     FunctionCall,
@@ -100,19 +101,26 @@ def lower_procedure(procedure: Procedure, backend: str = "fortran") -> IRProcedu
             shape = _safe_shape(expr)
         dtype = getattr(expr, "dtype", None)
         if dtype is None:
-            raise ValueError(f"Cannot determine dtype for expression: {expr}")
+            raise_with_source(
+                ValueError,
+                f"Cannot determine dtype for expression: {expr}",
+                source_node=expr,
+            )
         if backend == "c":
             return _lower_value_type_from_dtype(dtype, shape)
         ftype = dtype.get_fortran()
         return _lower_value_type(ftype, shape)
-        raise ValueError(f"Cannot determine type for expression: {expr}")
 
     def lower_var(var: Variable, *, is_arg: bool) -> IRVar:
         key = id(var)
         if key in var_cache:
             return var_cache[key]
         if var.dtype is None:
-            raise ValueError(f"Variable {var.name} has no dtype")
+            raise_with_source(
+                ValueError,
+                f"Variable {var.name} has no dtype",
+                source_node=var,
+            )
         if backend == "c":
             vtype = _lower_value_type_from_dtype(var.dtype, var._shape)
         else:

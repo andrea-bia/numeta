@@ -5,6 +5,7 @@ from .tools import get_nested_dependencies_or_declarations, divide_variables_and
 
 class FunctionInterfaceDeclaration(StatementWithScope):
     def __init__(self, function):
+        super().__init__(add_to_scope=False, enter_scope=False)
         self.function = function
 
     @property
