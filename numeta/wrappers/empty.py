@@ -12,6 +12,7 @@ def empty(
     dtype: Any = float64,
     order: str = "C",
     name: str | None = None,
+    force_dynamic_allocation: bool = False,
 ) -> Variable:
     if order not in ["C", "F"]:
         raise ValueError(f"Invalid order: {order}, must be 'C' or 'F'")
@@ -24,7 +25,7 @@ def empty(
 
     dtype = get_datatype(dtype)
 
-    allocate = shape.has_comptime_undefined_dims()
+    allocate = force_dynamic_allocation or shape.has_comptime_undefined_dims()
     array = BuilderHelper.generate_local_variables(
         "fc_a",
         name=name,

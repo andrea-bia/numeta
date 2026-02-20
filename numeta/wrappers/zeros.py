@@ -7,7 +7,19 @@ from numeta.ast.variable import Variable
 from .empty import empty
 
 
-def zeros(shape: Any, dtype: Any = float64, order: str = "C", name: str | None = None) -> Variable:
-    array = empty(shape, dtype=dtype, order=order, name=name)
+def zeros(
+    shape: Any,
+    dtype: Any = float64,
+    order: str = "C",
+    name: str | None = None,
+    force_dynamic_allocation: bool = False,
+) -> Variable:
+    array = empty(
+        shape,
+        dtype=dtype,
+        order=order,
+        name=name,
+        force_dynamic_allocation=force_dynamic_allocation,
+    )
     array[:] = 0.0
     return array
