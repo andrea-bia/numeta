@@ -575,6 +575,12 @@ class CEmitter:
             if any(
                 (isinstance(arg, IRGetItem) and any(isinstance(i, IRSlice) for i in arg.indices))
                 or (isinstance(arg, IRIntrinsic) and arg.name == "matmul")
+                or (
+                    isinstance(arg, IRGetAttr)
+                    and arg.vtype is not None
+                    and arg.vtype.shape is not None
+                    and arg.vtype.shape.rank
+                )
                 for arg in stmt.args
             ):
                 return self._render_call_with_slices(stmt, indent)
@@ -765,17 +771,53 @@ class CEmitter:
         post_lines: list[str] = []
         call_args: list[str] = []
 
+        def needs_implicit_shape_descriptor(arg: IRExpr) -> bool:
+            if arg.vtype is None or arg.vtype.shape is None:
+                return False
+            dims = arg.vtype.shape.dims or []
+            for dim in dims:
+                if isinstance(dim, int):
+                    continue
+                if isinstance(dim, IRLiteral) and isinstance(dim.value, int):
+                    continue
+                return True
+            return False
+
+        def has_explicit_shape_descriptor(arg_idx: int) -> bool:
+            if arg_idx == 0:
+                return False
+            prev = stmt.args[arg_idx - 1]
+            if isinstance(prev, IRIntrinsic) and prev.name == "array_constructor":
+                return True
+            if isinstance(prev, IRVarRef) and prev.var is not None:
+                return prev.var.name.startswith("shape_")
+            return False
+
         for idx, arg in enumerate(stmt.args):
             if isinstance(arg, IRGetItem) and any(isinstance(i, IRSlice) for i in arg.indices):
                 temp_name, pre, post = self._materialize_slice(arg, indent)
                 pre_lines.extend(pre)
                 post_lines.extend(post)
+                dims = self._shape_dims_for_expr(arg)
+                if (
+                    dims
+                    and needs_implicit_shape_descriptor(arg)
+                    and not has_explicit_shape_descriptor(idx)
+                ):
+                    call_args.append(f"(npy_intp[]){{{', '.join(dims)}}}")
                 call_args.append(temp_name)
                 continue
             if isinstance(arg, IRIntrinsic) and arg.name == "matmul":
                 temp_name, pre, post = self._materialize_matmul(arg, indent)
                 pre_lines.extend(pre)
                 post_lines.extend(post)
+                dims = self._shape_dims_for_expr(arg)
+                if (
+                    dims
+                    and needs_implicit_shape_descriptor(arg)
+                    and not has_explicit_shape_descriptor(idx)
+                ):
+                    call_args.append(f"(npy_intp[]){{{', '.join(dims)}}}")
                 call_args.append(temp_name)
                 continue
             call_args.append(self._render_call_arg(arg))

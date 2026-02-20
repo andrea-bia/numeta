@@ -7,7 +7,7 @@ from numeta.settings import settings
 from numeta.ast.variable import Variable
 
 
-def range(*args) -> Iterator[Variable]:
+def range(*args, name: str | None = None) -> Iterator[Variable]:
     if len(args) == 1:
         start = 0
         stop = args[0]
@@ -24,7 +24,7 @@ def range(*args) -> Iterator[Variable]:
         raise ValueError("Invalid number of arguments")
 
     builder = BuilderHelper.get_current_builder()
-    I = builder.generate_local_variables("fc_i", dtype=settings.syntax.DEFAULT_INT)
+    I = builder.generate_local_variables("fc_i", name=name, dtype=settings.syntax.DEFAULT_INT)
 
     with For(I, start, stop - 1, step=step):
         yield I

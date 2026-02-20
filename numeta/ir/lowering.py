@@ -87,7 +87,7 @@ def _lower_value_type_from_dtype(dtype, shape) -> IRValueType:
         return IRValueType(dtype=ir_type, shape=None)
     if shape is UNKNOWN:
         return IRValueType(dtype=ir_type, shape=IRShape(rank=None, dims=None, order="C"))
-    dims = tuple(shape.dims)
+    dims = _lower_shape_dims(shape.dims, settings.syntax)
     order = "F" if getattr(shape, "fortran_order", False) else "C"
     return IRValueType(dtype=ir_type, shape=IRShape(rank=len(dims), dims=dims, order=order))
 
@@ -359,9 +359,20 @@ def _lower_value_type(ftype, shape) -> IRValueType:
         return IRValueType(dtype=dtype, shape=None)
     if shape is UNKNOWN:
         return IRValueType(dtype=dtype, shape=IRShape(rank=None, dims=None, order="C"))
-    dims = tuple(shape.dims)
+    dims = _lower_shape_dims(shape.dims, settings.syntax)
     order = "F" if getattr(shape, "fortran_order", False) else "C"
     return IRValueType(dtype=dtype, shape=IRShape(rank=len(dims), dims=dims, order=order))
+
+
+def _lower_shape_dims(dims, syntax_settings) -> tuple:
+    lowered = []
+    for dim in dims:
+        if isinstance(dim, int):
+            lowered.append(dim)
+            continue
+        lowered_dim = _lower_index_value(dim, syntax_settings)
+        lowered.append(lowered_dim if lowered_dim is not None else dim)
+    return tuple(lowered)
 
 
 def _lower_type(ftype) -> IRType:

@@ -86,7 +86,7 @@ def test_getattr_node(backend):
 def test_getitem_node(backend):
     arr = Variable("a", syntax_settings.DEFAULT_REAL, shape=(10, 10))
     expr = arr[1, 2]
-    assert_render(expr, backend, fortran="a(1, 2)\n", c="a[1][2]\n")
+    assert_render(expr, backend, fortran="a(2, 3)\n", c="a[1][2]\n")
 
 
 def test_unary_neg_node(backend):
@@ -116,10 +116,10 @@ def test_array_constructor(backend):
         "[",
         "arr",
         "(",
-        "1",
+        "2",
         ",",
         " ",
-        "1",
+        "2",
         ")",
         ", ",
         "5_c_int64_t",
@@ -251,7 +251,7 @@ def test_variable_declaration_array(backend):
     assert_render_stmt(
         dec,
         backend,
-        fortran=["real(c_double), dimension(0:4) :: a\n"],
+        fortran=["real(c_double), dimension(1:5) :: a\n"],
         c=["npy_float64 a[5];\n"],
     )
 
@@ -324,7 +324,7 @@ def test_variable_declaration_assign_array(backend):
         dec,
         backend,
         fortran=[
-            "real(c_double), dimension(0:1, 0:0) :: v; data v / 3.0_c_double, 5.0_c_double /\n"
+            "real(c_double), dimension(1:2, 1:1) :: v; data v / 3.0_c_double, 5.0_c_double /\n"
         ],
         c=["npy_float64 v[2][1] = {3.0, 5.0};\n"],
     )
@@ -405,7 +405,7 @@ def test_struct_type_declaration(backend):
         "type, bind(C) :: point\n",
         "    integer(c_int64_t) :: x\n",
         "    integer(c_int64_t) :: y\n",
-        "    real(c_double), dimension(0:4) :: arr\n",
+        "    real(c_double), dimension(1:5) :: arr\n",
         "end type point\n",
     ]
     expected_c = [
@@ -555,7 +555,7 @@ def test_update_variables_getitem_node(backend):
     expr = arr[1, 2]
     new_arr = Variable("new_a", syntax_settings.DEFAULT_REAL, shape=(40, 30))
     expr = expr.get_with_updated_variables([(arr, new_arr)])
-    assert_render(expr, backend, fortran="new_a(1, 2)\n", c="new_a[1][2]\n")
+    assert_render(expr, backend, fortran="new_a(2, 3)\n", c="new_a[1][2]\n")
 
 
 def test_update_variables_withgetitem_node(backend):
@@ -567,7 +567,7 @@ def test_update_variables_withgetitem_node(backend):
     assert_render_stmt(
         expr,
         backend,
-        fortran=["new_x(3)=5_c_int64_t\n"],
+        fortran=["new_x(4)=5_c_int64_t\n"],
         c=["new_x[3] = 5;\n"],
     )
 

@@ -82,11 +82,11 @@ def test_variable_declaration_syntax(backend):
     array = nm.int32[10, 20](name="array")
     dec = VariableDeclaration(array)
     assert render_stmt_lines(dec, indent=0) == [
-        "integer(c_int32_t), dimension(0:19, 0:9) :: array\n"
+        "integer(c_int32_t), dimension(1:20, 1:10) :: array\n"
     ]
 
     array_unknown = nm.int32[None](name="array_unknown")
     dec = VariableDeclaration(array_unknown)
     assert render_stmt_lines(dec, indent=0) == [
-        "integer(c_int32_t), dimension(0:*) :: array_unknown\n"
+        "integer(c_int32_t), dimension(1:*) :: array_unknown\n"
     ]

@@ -1,8 +1,7 @@
-from numeta.settings import settings
-
 from .expression_node import ExpressionNode
 from numeta.array_shape import ArrayShape, UNKNOWN, SCALAR
 from numeta.exceptions import NumetaNotImplementedError, raise_with_source
+from numeta.indexing import get_slice_dim, merge_slices, merge_scalar_index
 
 
 class GetItem(ExpressionNode):
@@ -26,42 +25,43 @@ class GetItem(ExpressionNode):
 
     @property
     def _shape(self):
-        def get_dim_slice(slice_, max_dim):
-            start = slice_.start
-            if start is None:
-                start = settings.syntax.array_lower_bound
-            stop = slice_.stop
-            if stop is None and max_dim is not None:
-                stop = max_dim
-            if slice_.step is not None:
-                raise_with_source(
-                    NotImplementedError,
-                    "Step slicing not implemented for shape extraction",
-                    source_node=self,
-                )
-            if stop is None:
-                return None
-            return stop - start + settings.syntax.array_lower_bound
-
         dims = []
         if self.variable._shape is UNKNOWN:
             if isinstance(self.sliced, slice):
-                dims.append(get_dim_slice(self.sliced, None))
+                if self.sliced.step is not None:
+                    raise_with_source(
+                        NotImplementedError,
+                        "Step slicing not implemented for shape extraction",
+                        source_node=self,
+                    )
+                dims.append(get_slice_dim(self.sliced, None))
             else:
-                dims.append(1)
+                return SCALAR
         elif self.variable._shape is SCALAR:
-            dims.append(1)
+            return SCALAR
         elif isinstance(self.sliced, tuple):
+            if all(not isinstance(element, slice) for element in self.sliced):
+                return SCALAR
             for i, element in enumerate(self.sliced):
                 if isinstance(element, slice):
-                    dims.append(get_dim_slice(element, self.variable._shape.dims[i]))
-                else:
-                    dims.append(1)
+                    if element.step is not None:
+                        raise_with_source(
+                            NotImplementedError,
+                            "Step slicing not implemented for shape extraction",
+                            source_node=self,
+                        )
+                    dims.append(get_slice_dim(element, self.variable._shape.dims[i]))
         else:
             if isinstance(self.sliced, slice):
-                dims.append(get_dim_slice(self.sliced, self.variable._shape.dims[0]))
+                if self.sliced.step is not None:
+                    raise_with_source(
+                        NotImplementedError,
+                        "Step slicing not implemented for shape extraction",
+                        source_node=self,
+                    )
+                dims.append(get_slice_dim(self.sliced, self.variable._shape.dims[0]))
             else:
-                dims.append(1)
+                return SCALAR
 
         return ArrayShape(tuple(dims))
 
@@ -115,6 +115,8 @@ class GetItem(ExpressionNode):
 
             a[5:10][2:4] -> a[6:8]
         """
+        new_key = None
+
         if isinstance(self.sliced, slice):
             if key is None:
                 new_key = self.sliced
@@ -127,34 +129,10 @@ class GetItem(ExpressionNode):
                         source_node=self,
                     )
 
-                lb = settings.syntax.array_lower_bound
-
-                if self.sliced.start is None and self.sliced.stop is None:
-                    new_start = key.start
-                    new_stop = key.stop
-                else:
-                    base_start = self.sliced.start if self.sliced.start is not None else lb
-
-                    if key.start is None:
-                        new_start = self.sliced.start
-                    elif self.sliced.start is None:
-                        new_start = key.start
-                    else:
-                        new_start = base_start + key.start - lb
-
-                    if key.stop is None:
-                        new_stop = self.sliced.stop
-                    elif self.sliced.start is None:
-                        new_stop = key.stop
-                    else:
-                        new_stop = base_start + key.stop - lb
-
-                new_key = slice(new_start, new_stop, None)
+                new_key = merge_slices(self.sliced, key)
 
             else:
-                lb = settings.syntax.array_lower_bound
-                base_start = self.sliced.start if self.sliced.start is not None else lb
-                new_key = base_start + key - lb
+                new_key = merge_scalar_index(self.sliced, key)
 
         elif key is None:
             new_key = self.sliced
@@ -167,4 +145,6 @@ class GetItem(ExpressionNode):
             error_str += f"\nImpossible to merge {self.variable.name}[{self.sliced}][{key}]"
             raise_with_source(ValueError, error_str, source_node=self)
 
+        if new_key is None:
+            raise_with_source(ValueError, "Failed to merge slices", source_node=self)
         return new_key

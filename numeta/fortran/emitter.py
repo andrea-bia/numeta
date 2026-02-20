@@ -356,11 +356,11 @@ class FortranEmitter:
         return blocks
 
     def _index_blocks(self, expr: IRExpr) -> list[str]:
-        shift = syntax_settings.array_lower_bound
+        shift = 1
         return self._shift_expr_blocks(expr, shift)
 
     def _slice_blocks(self, slice_: IRSlice) -> list[str]:
-        lbound = syntax_settings.array_lower_bound
+        lbound = 1
 
         if slice_.start is None:
             start_blocks = [str(lbound)]
@@ -396,19 +396,7 @@ class FortranEmitter:
             if shape is not None:
                 order = shape.order
 
-        lbound = syntax_settings.array_lower_bound
-        dim_blocks = []
-        for dim in dims:
-            if lbound != 1:
-                dim_blocks.append(
-                    [
-                        str(lbound),
-                        ":",
-                        *self._shift_expr_blocks(dim, lbound - 1),
-                    ]
-                )
-            else:
-                dim_blocks.append(self._expr_blocks(dim))
+        dim_blocks = [self._expr_blocks(dim) for dim in dims]
 
         if order == "C" and len(dim_blocks) > 1:
             dim_blocks = list(reversed(dim_blocks))
@@ -449,7 +437,7 @@ class FortranEmitter:
                 ", ",
                 "dimension",
                 "(",
-                str(syntax_settings.array_lower_bound),
+                "1",
                 ":",
                 "*",
                 ")",
@@ -495,7 +483,7 @@ class FortranEmitter:
         return print_block(blocks, indent=indent)
 
     def _shape_blocks(self, shape) -> list[str]:
-        lbound = syntax_settings.array_lower_bound
+        lbound = 1
         dims = list(shape.dims or [])
         if shape.order == "C" and len(dims) > 1:
             dims = list(reversed(dims))
@@ -512,10 +500,6 @@ class FortranEmitter:
                 blocks = render_expr_blocks(dim)
                 if blocks is None:
                     blocks = [str(dim)]
-            if lbound != 1:
-                shift = lbound - 1
-                op = "+" if shift >= 0 else "-"
-                return [str(lbound), ":", "(", *blocks, op, str(abs(shift)), ")"]
             return [str(lbound), ":", *blocks]
 
         result = ["("]

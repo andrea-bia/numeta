@@ -6,6 +6,7 @@ import numpy as np
 
 from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
 from numeta.settings import settings
+from numeta.indexing import to_fortran_index, to_fortran_slice_start, to_fortran_slice_stop
 from numeta.exceptions import raise_with_source
 from numeta.ast.statements.tools import print_block
 
@@ -169,7 +170,7 @@ def _render_getitem_blocks(expr: GetItem) -> list[str]:
     def render_block(block: Any) -> list[str]:
         if isinstance(block, slice):
             return _render_slice_blocks(block)
-        return _render_index_expr(block)
+        return _render_index_expr(to_fortran_index(block))
 
     result.append("(")
     if isinstance(expr.sliced, tuple):
@@ -189,11 +190,10 @@ def _render_getitem_blocks(expr: GetItem) -> list[str]:
 
 def _render_slice_blocks(slice_: slice) -> list[str]:
     result: list[str] = []
-    if slice_.start is not None:
-        result += _render_index_expr(slice_.start)
+    result += _render_index_expr(to_fortran_slice_start(slice_.start))
     result.append(":")
     if slice_.stop is not None:
-        stop = slice_.stop - 1 if syntax_settings.c_like_bounds else slice_.stop
+        stop = to_fortran_slice_stop(slice_.stop)
         result += _render_index_expr(stop)
     if slice_.step is not None:
         result.append(":")
@@ -302,10 +302,7 @@ def _render_allocate_blocks(stmt: Allocate) -> list[str]:
 
     dims = []
     for argument in stmt.shape:
-        if (lbound := syntax_settings.array_lower_bound) != 1:
-            dims.append([str(lbound), ":", *render_expr_blocks(argument + (lbound - 1))])
-        else:
-            dims.append([*render_expr_blocks(argument)])
+        dims.append([*render_expr_blocks(argument)])
 
     if not stmt.target._shape.fortran_order:
         dims = dims[::-1]
@@ -499,7 +496,7 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
             result += [", ", "dimension"]
             result += ["("] + [":", ","] * (len(stmt.variable._shape.dims) - 1) + [":", ")"]
     elif stmt.variable._shape is UNKNOWN:
-        result += [", ", "dimension", "(", str(syntax_settings.array_lower_bound), ":", "*", ")"]
+        result += [", ", "dimension", "(", "1", ":", "*", ")"]
     elif stmt.variable._shape.dims:
         result += [", ", "dimension"]
         result += _render_shape_blocks(
@@ -566,37 +563,21 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
 def _render_shape_blocks(
     shape, fortran_order: bool = True, source_node: object | None = None
 ) -> list[str]:
-    lbound = syntax_settings.array_lower_bound
+    lbound = 1
     result = ["("]
 
     def convert(element):
         if element is None:
             return [str(lbound), ":", "*"]
         if isinstance(element, int):
-            return [str(lbound), ":", str(element + (lbound - 1))]
+            return [str(lbound), ":", str(element)]
         if isinstance(element, slice):
-            shift_end = None
-            if element.start is None:
-                start = [str(lbound)]
-                shift_end = lbound - 1
-            elif isinstance(element.start, int):
-                start = [str(element.start)]
-            else:
-                start = render_expr_blocks(element.start)
-
-            if element.stop is None:
-                stop = [""]
-            elif isinstance(element.stop, int):
-                stop = (
-                    [str(element.stop + shift_end)]
-                    if shift_end is not None
-                    else [str(element.stop)]
-                )
-            else:
-                if shift_end is not None:
-                    stop = render_expr_blocks(element.stop + shift_end)
-                else:
-                    stop = render_expr_blocks(element.stop)
+            start = _render_index_expr(to_fortran_slice_start(element.start))
+            stop = (
+                [""]
+                if element.stop is None
+                else _render_index_expr(to_fortran_slice_stop(element.stop))
+            )
 
             if element.step is not None:
                 raise_with_source(
@@ -606,7 +587,31 @@ def _render_shape_blocks(
                 )
                 raise AssertionError("unreachable")
             return start + [":"] + stop
-        return [str(lbound), ":", *render_expr_blocks(element + (lbound - 1))]
+        if isinstance(element, GetItem):
+            base = render_expr_blocks(element.variable)
+
+            def render_idx(idx):
+                if isinstance(idx, slice):
+                    start_blocks = _render_index_expr(to_fortran_slice_start(idx.start))
+                    stop_blocks = (
+                        [""]
+                        if idx.stop is None
+                        else _render_index_expr(to_fortran_slice_stop(idx.stop))
+                    )
+                    return [*start_blocks, ":", *stop_blocks]
+                return _render_index_expr(to_fortran_index(idx))
+
+            if isinstance(element.sliced, tuple):
+                dims = [render_idx(idx) for idx in element.sliced]
+                if not element.variable._shape.fortran_order:
+                    dims = dims[::-1]
+                blocks = [*base, "(", *dims[0]]
+                for dim in dims[1:]:
+                    blocks += [",", " "] + dim
+                blocks.append(")")
+                return [str(lbound), ":", *blocks]
+            return [str(lbound), ":", *base, "(", *render_idx(element.sliced), ")"]
+        return [str(lbound), ":", *render_expr_blocks(element)]
 
     if isinstance(shape, tuple):
         dims = [convert(d) for d in shape]

@@ -1,6 +1,9 @@
 import numeta as nm
 import numpy as np
 import pytest
+from numeta.array_shape import ArrayShape
+from numeta.ast.variable import Variable
+from numeta.builder_helper import BuilderHelper
 
 
 @pytest.mark.parametrize(

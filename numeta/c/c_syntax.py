@@ -622,9 +622,7 @@ def _render_shape_blocks(
         if isinstance(element, int):
             return ["[", str(element), "]"]
         if isinstance(element, slice):
-            start = (
-                element.start if element.start is not None else syntax_settings.array_lower_bound
-            )
+            start = element.start if element.start is not None else 0
             stop = element.stop if element.stop is not None else ""
             if syntax_settings.c_like_bounds and isinstance(stop, int):
                 stop = stop - 1
