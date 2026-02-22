@@ -2,6 +2,8 @@ from .ast import Variable, Scope, Procedure
 from .exceptions import NumetaError
 from .settings import settings
 
+import numpy as np
+
 
 class BuilderHelper:
     current_builder = None
@@ -90,6 +92,9 @@ class BuilderHelper:
         size = dtype.get_nbytes()
         for dim in shape.dims:
             size *= dim
+
+        if isinstance(size, int):
+            size = np.intp(size)
 
         # allocate memory with the numpy allocator
         numpy_mem.numpy_allocate(variable_ptr, size)

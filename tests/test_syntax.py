@@ -70,6 +70,58 @@ def test_literal_node(backend):
     assert_render(lit, backend, fortran="5_c_int64_t\n", c="5\n")
 
 
+def test_literal_node_follows_default_integer(backend):
+    settings.set_default_from_datatype(nm.int32, iso_c=True)
+    try:
+        lit = LiteralNode(5)
+        assert lit.dtype == nm.int32
+        assert_render(lit, backend, fortran="5_c_int32_t\n", c="5\n")
+    finally:
+        settings.set_default_from_datatype(nm.int64, iso_c=True)
+
+
+def test_literal_node_follows_default_float(backend):
+    settings.set_default_from_datatype(nm.float32, iso_c=True)
+    try:
+        lit = LiteralNode(5.5)
+        assert lit.dtype == nm.float32
+        assert_render(lit, backend, fortran="5.5_c_float\n", c="5.5\n")
+    finally:
+        settings.set_default_from_datatype(nm.float64, iso_c=True)
+
+
+def test_literal_node_follows_default_complex(backend):
+    settings.set_default_from_datatype(nm.complex64, iso_c=True)
+    try:
+        lit = LiteralNode(1 + 2j)
+        assert lit.dtype == nm.complex64
+        assert_render(
+            lit,
+            backend,
+            fortran="(1.0_c_float_complex,2.0_c_float_complex)\n",
+            c="(1.0 + 2.0*I)\n",
+        )
+    finally:
+        settings.set_default_from_datatype(nm.complex128, iso_c=True)
+
+
+def test_numpy_scalar_literal_keeps_numpy_dtype(backend):
+    settings.set_default_from_datatype(nm.int32, iso_c=True)
+    settings.set_default_from_datatype(nm.float32, iso_c=True)
+    try:
+        int_lit = LiteralNode(np.int64(5))
+        float_lit = LiteralNode(np.float64(5.5))
+
+        assert int_lit.dtype == nm.int64
+        assert float_lit.dtype == nm.float64
+
+        assert_render(int_lit, backend, fortran="5_c_int64_t\n", c="5\n")
+        assert_render(float_lit, backend, fortran="5.5_c_double\n", c="5.5\n")
+    finally:
+        settings.set_default_from_datatype(nm.int64, iso_c=True)
+        settings.set_default_from_datatype(nm.float64, iso_c=True)
+
+
 def test_binary_operation_node(backend):
     x = Variable("x", syntax_settings.DEFAULT_INTEGER)
     y = Variable("y", syntax_settings.DEFAULT_INTEGER)
