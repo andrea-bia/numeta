@@ -77,8 +77,16 @@ class Return(SimpleStatement):
 
 class Print(Statement):
     def __init__(self, *children, add_to_scope=True):
+        from numeta.ast.expressions.various import ArrayConstructor
+
         super().__init__(add_to_scope=add_to_scope)
-        self.to_print = [check_node(child) for child in children]
+        normalized_children = []
+        for child in children:
+            if isinstance(child, (tuple, list)):
+                normalized_children.append(ArrayConstructor(*child))
+            else:
+                normalized_children.append(child)
+        self.to_print = [check_node(child) for child in normalized_children]
 
     @property
     def children(self):
@@ -244,7 +252,7 @@ class PointerAssignment(Statement):
         self.pointer = check_node(pointer)
         self.pointer_shape = []
         # should specify bounds for the pointer
-        for dim in pointer_shape.dims:
+        for dim in pointer_shape.iter_dims():
             if not isinstance(dim, slice):
                 self.pointer_shape.append(slice(None, dim))
             else:
@@ -295,7 +303,7 @@ class PointerAssignment(Statement):
 
             if isinstance(element, ArrayShape):
                 return ArrayShape(
-                    tuple(update_variables(dim) for dim in element.dims),
+                    tuple(update_variables(dim) for dim in element.iter_dims()),
                     fortran_order=element.fortran_order,
                 )
             from numeta.ast.nodes.base_node import Node

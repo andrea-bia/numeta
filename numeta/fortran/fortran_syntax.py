@@ -489,18 +489,18 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
 
     if stmt.variable.allocatable:
         result += [", ", "allocatable", ", ", "dimension"]
-        result += ["("] + [":", ","] * (len(stmt.variable._shape.dims) - 1) + [":", ")"]
+        result += ["("] + [":", ","] * (stmt.variable._shape.rank - 1) + [":", ")"]
     elif stmt.variable.pointer:
         result += [", ", "pointer"]
         if stmt.variable._shape is not SCALAR:
             result += [", ", "dimension"]
-            result += ["("] + [":", ","] * (len(stmt.variable._shape.dims) - 1) + [":", ")"]
+            result += ["("] + [":", ","] * (stmt.variable._shape.rank - 1) + [":", ")"]
     elif stmt.variable._shape is UNKNOWN:
         result += [", ", "dimension", "(", "1", ":", "*", ")"]
-    elif stmt.variable._shape.dims:
+    elif stmt.variable._shape.rank > 0:
         result += [", ", "dimension"]
         result += _render_shape_blocks(
-            stmt.variable._shape.dims,
+            stmt.variable._shape.as_tuple(),
             fortran_order=stmt.variable._shape.fortran_order,
             source_node=stmt.variable,
         )

@@ -60,12 +60,10 @@ class BuilderHelper:
 
     def _allocate_array(self, name, shape, **kwargs):
         from .ast import Allocate, If, Allocated, Not
-        from .array_shape import ArrayShape
 
-        alloc_shape = ArrayShape(tuple([None] * shape.rank), fortran_order=shape.fortran_order)
-        variable = Variable(name, shape=alloc_shape, allocatable=True, **kwargs)
+        variable = Variable(name, shape=shape, allocatable=True, **kwargs)
         with If(Not(Allocated(variable))):
-            Allocate(variable, *shape.dims)
+            Allocate(variable, *shape.iter_dims())
         self.allocated_arrays[name] = variable
         return variable
 
@@ -90,7 +88,7 @@ class BuilderHelper:
         dtype = kwargs["dtype"]
 
         size = dtype.get_nbytes()
-        for dim in shape.dims:
+        for dim in shape.iter_dims():
             size *= dim
 
         if isinstance(size, int):
@@ -107,8 +105,7 @@ class BuilderHelper:
         # point the fortran pointer to the allocated memory
         iso_c.c_f_pointer(variable_ptr, variable_lb1, ArrayConstructor(size))
 
-        alloc_shape = ArrayShape(tuple([None] * shape.rank), fortran_order=shape.fortran_order)
-        variable = Variable(name, shape=alloc_shape, pointer=True, **kwargs)
+        variable = Variable(name, shape=shape, pointer=True, **kwargs)
 
         # assign the fortran pointer with the proper lower bound
         PointerAssignment(variable, shape, variable_lb1)
@@ -119,6 +116,63 @@ class BuilderHelper:
         from .wrappers import numpy_mem
 
         numpy_mem.numpy_deallocate(array)
+
+    @staticmethod
+    def _is_trivial_shape_dim(dim) -> bool:
+        from .ast.expressions import LiteralNode, GetItem
+
+        if isinstance(dim, LiteralNode):
+            return True
+        if isinstance(dim, Variable):
+            return True
+        if isinstance(dim, GetItem):
+            idx = dim.sliced
+            return isinstance(dim.variable, Variable) and isinstance(idx, int)
+        return False
+
+    def _materialize_non_trivial_shape_dims(self, dims):
+        from .array_shape import ArrayShape
+        from .ast.tools import check_node
+        from .datatype import size_t
+
+        checked_dims = []
+        needs_materialization = False
+        for dim in dims:
+            if dim is None:
+                raise NotImplementedError(
+                    "Cannot materialize allocation shape with unresolved dimension None."
+                )
+            node = check_node(dim)
+            checked_dims.append(node)
+            if not self._is_trivial_shape_dim(node):
+                needs_materialization = True
+
+        if not needs_materialization:
+            return tuple(checked_dims)
+
+        rank = len(checked_dims)
+        tmp_shape = self.generate_local_variable(
+            "nm_shape", dtype=size_t, shape=ArrayShape((rank,))
+        )
+
+        for i, node in enumerate(checked_dims):
+            tmp_shape[i] = node
+
+        return tuple(tmp_shape[i] for i in range(rank))
+
+    @classmethod
+    def normalize_allocation_shape(cls, shape):
+        from .array_shape import ArrayShape
+
+        if not isinstance(shape, ArrayShape) or shape.is_unknown or shape.is_shape_vector:
+            return shape
+        try:
+            builder = cls.get_current_builder()
+        except NumetaError:
+            return shape
+
+        normalized_dims = builder._materialize_non_trivial_shape_dims(shape.iter_dims())
+        return ArrayShape(normalized_dims, fortran_order=shape.fortran_order)
 
     def build(self, *args, **kwargs):
         old_builder = self.current_builder
@@ -154,8 +208,6 @@ class BuilderHelper:
                         self.symbolic_function.add_variable(shape)
                         # add to the symbolic function
                         shape[:] = Shape(var)
-                        if self.numeta_function.backend == "fortran":
-                            shape[:] = shape[rank - 1 : 1 : -1]  # reverse the shape
 
                         ptr = self.allocated_arrays.pop(var.name)
                         ptr.intent = "out"
@@ -206,34 +258,20 @@ class BuilderHelper:
                     )
                     self.symbolic_function.add_variable(shape)
 
-                    # Cache the expression shape in a local array so we can reuse it
-                    # both for allocating the temporary buffer and to report the
-                    # extents back through the C API.
-                    tmp_shape = Variable(
-                        f"fc_out_shape_{i}_tmp",
-                        dtype=size_t,
-                        shape=ArrayShape((rank,)),
+                    normalized_dims = self._materialize_non_trivial_shape_dims(
+                        expr_shape.iter_dims()
                     )
-                    tmp_shape[:] = Shape(expr)
-
-                    alloc_dims = [tmp_shape[i] for i in range(rank)]
-                    if self.numeta_function.backend == "fortran" and not expr_shape.fortran_order:
-                        alloc_dims = alloc_dims[::-1]
+                    for j, dim in enumerate(normalized_dims):
+                        shape[j] = dim
 
                     from .wrappers import empty
 
                     tmp = empty(
-                        alloc_dims,
+                        shape,
                         dtype=expr.dtype,
                         order="F" if expr_shape.fortran_order else "C",
                     )
 
-                    shape[:] = tmp_shape
-                    if self.numeta_function.backend == "fortran":
-                        # Reverse the shape for the C interface after materializing the
-                        # temporary buffer so the allocation happens with the original
-                        # extents.
-                        shape[:] = shape[rank - 1 : 1 : -1]
                     tmp[:] = expr
 
                     ptr = self.allocated_arrays.pop(tmp.name)

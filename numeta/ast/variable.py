@@ -101,7 +101,7 @@ class Variable(NamedEntity, ExpressionNode):
 
     @property
     def shape(self):
-        return self._shape.dims
+        return self._shape.as_tuple()
 
     def __setitem__(self, key, value):
         """Does nothing, but allows to use variable[key] = value"""

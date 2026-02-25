@@ -249,7 +249,7 @@ def _get_signature_and_runtime_args_py(
                     arg.shape.rank,
                     arg.shape.fortran_order,
                     "inout",
-                    arg.shape.dims,
+                    arg.shape.as_tuple(),
                 )
         elif isinstance(arg, type) and issubclass(arg, DataType):
             to_execute = False
@@ -299,7 +299,7 @@ def _get_signature_and_runtime_args_py(
                         arg._shape.rank,
                         arg._shape.fortran_order,
                         intent,
-                        arg._shape.dims,
+                        arg._shape.as_tuple(),
                     )
                 else:
                     arg_signature = (name, dtype.get_numpy(), None, False, intent)

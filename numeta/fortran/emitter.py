@@ -26,6 +26,7 @@ from numeta.ir.nodes import (
     IRIntrinsic,
     IRLiteral,
     IRProcedure,
+    IRPrint,
     IRReturn,
     IRSlice,
     IRUnary,
@@ -60,7 +61,18 @@ _FORTRAN_INTRINSIC_MAP = {
 
 
 class FortranEmitter:
+    def __init__(self) -> None:
+        self._shape_descriptor_by_base: dict[str, Any] = {}
+
     def emit_procedure(self, proc: IRProcedure) -> str:
+        self._shape_descriptor_by_base = {}
+        args_by_name = {arg.name: arg for arg in proc.args}
+        for arg in proc.args:
+            if arg.name.startswith("shape_"):
+                base = arg.name[len("shape_") :]
+                if base in args_by_name:
+                    self._shape_descriptor_by_base[base] = arg
+
         pure = bool(proc.metadata.get("fortran_pure", False))
         elemental = bool(proc.metadata.get("fortran_elemental", False))
         bind_c = bool(proc.metadata.get("fortran_bind_c", False))
@@ -170,7 +182,7 @@ class FortranEmitter:
         if isinstance(stmt, IRAllocate):
             blocks = ["allocate", "("]
             var_blocks = self._expr_blocks(stmt.var)
-            dims = self._format_allocate_dims(stmt.var, stmt.dims)
+            dims = self._format_allocate_dims(stmt.var, getattr(stmt, "dims", []))
             blocks += var_blocks + dims + [")"]
             return [print_block(blocks, indent=indent)]
         if isinstance(stmt, IRDeallocate):
@@ -180,6 +192,10 @@ class FortranEmitter:
             if stmt.value is None:
                 return [print_block(["return"], indent=indent)]
             return [print_block(["return", " ", *self._expr_blocks(stmt.value)], indent=indent)]
+        if isinstance(stmt, IRPrint):
+            blocks = ["print", " ", "*", ",", " "]
+            blocks += self._join_args(stmt.values)
+            return [print_block(blocks, indent=indent)]
         if isinstance(stmt, IROpaqueStmt):
             if stmt.payload is not None:
                 return render_stmt_lines(stmt.payload, indent=indent)
@@ -257,8 +273,37 @@ class FortranEmitter:
             return blocks
         if isinstance(expr, IRIntrinsic):
             if expr.name == "array_constructor":
+                backing_array = self._array_constructor_backing_array_blocks(expr.args)
+                if backing_array is not None:
+                    return backing_array
                 blocks = ["["]
                 blocks += self._join_args(expr.args)
+                blocks += ["]"]
+                return blocks
+
+            if expr.name == "shape" and expr.args:
+                dims = self._shape_dims_for_expr(expr.args[0])
+                if dims is None:
+                    raise NotImplementedError(
+                        "Cannot lower shape() intrinsic in Fortran without concrete dimensions."
+                    )
+                backing_array = self._shape_backing_array_blocks(dims)
+                if backing_array is not None:
+                    return backing_array
+                blocks = ["["]
+                for i, dim in enumerate(dims):
+                    if i > 0:
+                        blocks += [",", " "]
+                    if isinstance(dim, int):
+                        blocks += [str(dim)]
+                    elif isinstance(dim, IRExpr):
+                        blocks += self._expr_blocks(dim)
+                    else:
+                        dim_rendered = render_expr_blocks(dim)
+                        if dim_rendered is None:
+                            blocks += [str(dim)]
+                        else:
+                            blocks += dim_rendered
                 blocks += ["]"]
                 return blocks
 
@@ -346,6 +391,145 @@ class FortranEmitter:
             return ["<expr>"]
         return ["<expr>"]
 
+    def _shape_dims_for_expr(self, expr: IRExpr) -> list | None:
+        shape = expr.vtype.shape if expr.vtype is not None else None
+        if shape is None:
+            return None
+
+        rank = shape.rank
+        if rank is None:
+            return None
+
+        raw_dims_attr = getattr(shape, "dims", None)
+        raw_dims = list(raw_dims_attr) if raw_dims_attr is not None else [None] * rank
+        dims = []
+        descriptor_var = None
+        if isinstance(expr, IRVarRef) and expr.var is not None:
+            descriptor_var = self._shape_descriptor_by_base.get(expr.var.name)
+
+        for i in range(rank):
+            dim = raw_dims[i] if i < len(raw_dims) else None
+            if dim is None:
+                if descriptor_var is None:
+                    raise NotImplementedError(
+                        "Cannot lower shape() in Fortran: unresolved runtime dimension without shape descriptor."
+                    )
+                dim = IRGetItem(base=IRVarRef(var=descriptor_var), indices=[IRLiteral(value=i)])
+            dims.append(dim)
+
+        return dims
+
+    def _shape_backing_array_blocks(self, dims: list[IRExpr]) -> list[str] | None:
+        if not dims:
+            return None
+
+        base_var = None
+        indices: list[int] = []
+        ir_getitem_match = True
+        for dim in dims:
+            if not isinstance(dim, IRGetItem):
+                ir_getitem_match = False
+                break
+            if len(dim.indices) != 1:
+                ir_getitem_match = False
+                break
+            idx = dim.indices[0]
+            if not isinstance(idx, IRLiteral) or not isinstance(idx.value, int):
+                ir_getitem_match = False
+                break
+            if not isinstance(dim.base, IRVarRef) or dim.base.var is None:
+                ir_getitem_match = False
+                break
+            if base_var is None:
+                base_var = dim.base.var
+            elif base_var is not dim.base.var:
+                ir_getitem_match = False
+                break
+            indices.append(int(idx.value))
+
+        if not ir_getitem_match or base_var is None:
+            parsed_base = None
+            parsed_indices: list[int] = []
+            for dim in dims:
+                rendered = "".join(self._expr_blocks(dim)).replace(" ", "")
+                if rendered.startswith("(") and rendered.endswith(")"):
+                    rendered = rendered[1:-1]
+                if "(" not in rendered or not rendered.endswith(")"):
+                    return None
+                base_name, idx_text = rendered.split("(", 1)
+                idx_text = idx_text[:-1]
+                if not base_name or not idx_text.isdigit():
+                    return None
+                if parsed_base is None:
+                    parsed_base = base_name
+                elif parsed_base != base_name:
+                    return None
+                parsed_indices.append(int(idx_text))
+
+            if parsed_base is None:
+                return None
+            if parsed_indices:
+                return [parsed_base]
+            return None
+
+        rank = len(indices)
+        if rank:
+            return [base_var.name]
+        return None
+
+    def _array_constructor_backing_array_blocks(self, args: list[IRExpr]) -> list[str] | None:
+        if not args:
+            return None
+
+        base_var = None
+        indices: list[int] = []
+        for arg in args:
+            if not isinstance(arg, IRGetItem):
+                return None
+            if len(arg.indices) != 1:
+                return None
+            idx = arg.indices[0]
+            if not isinstance(idx, IRLiteral) or not isinstance(idx.value, int):
+                return None
+            if not isinstance(arg.base, IRVarRef) or arg.base.var is None:
+                return None
+            if base_var is None:
+                base_var = arg.base.var
+            elif base_var is not arg.base.var:
+                return None
+            indices.append(int(idx.value))
+
+        if base_var is None:
+            parsed_base = None
+            parsed_indices: list[int] = []
+            for arg in args:
+                rendered = "".join(self._expr_blocks(arg)).replace(" ", "")
+                if rendered.startswith("(") and rendered.endswith(")"):
+                    rendered = rendered[1:-1]
+                if "(" not in rendered or not rendered.endswith(")"):
+                    return None
+                base_name, idx_text = rendered.split("(", 1)
+                idx_text = idx_text[:-1]
+                if not base_name or not idx_text.isdigit():
+                    return None
+                if parsed_base is None:
+                    parsed_base = base_name
+                elif parsed_base != base_name:
+                    return None
+                parsed_indices.append(int(idx_text))
+
+            if parsed_base is None:
+                return None
+            rank = len(parsed_indices)
+            if parsed_indices == list(range(rank)) or parsed_indices == list(range(1, rank + 1)):
+                return [parsed_base]
+            return None
+
+        rank = len(indices)
+        if indices == list(range(rank)) or indices == list(range(1, rank + 1)):
+            return [base_var.name]
+        return None
+
     def _join_args(self, args: list[IRExpr]) -> list[str]:
         blocks: list[str] = []
         for arg in args:
@@ -432,7 +616,7 @@ class FortranEmitter:
                 blocks += [", ", "dimension", "("]
                 blocks += [":", ","] * (shape.rank - 1)
                 blocks += [":", ")"]
-        elif shape is not None and shape.dims is None:
+        elif shape is not None and getattr(shape, "dims", None) is None:
             blocks += [
                 ", ",
                 "dimension",
@@ -484,7 +668,7 @@ class FortranEmitter:
 
     def _shape_blocks(self, shape) -> list[str]:
         lbound = 1
-        dims = list(shape.dims or [])
+        dims = list(getattr(shape, "dims", None) or [])
         if shape.order == "C" and len(dims) > 1:
             dims = list(reversed(dims))
 

@@ -41,7 +41,7 @@ def update_variables(element, variables_couples):
 
     if isinstance(element, ArrayShape):
         return ArrayShape(
-            tuple(update_variables(dim, variables_couples) for dim in element.dims),
+            tuple(update_variables(dim, variables_couples) for dim in element.iter_dims()),
             fortran_order=element.fortran_order,
         )
     from numeta.ast.nodes.base_node import Node

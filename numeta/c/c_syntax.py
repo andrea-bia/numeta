@@ -564,10 +564,10 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
         result += [" *", stmt.variable.name]
     elif shape is SCALAR:
         result += [" ", stmt.variable.name]
-    elif shape.dims:
+    elif shape.rank > 0:
         result += [" ", stmt.variable.name]
         result += _render_shape_blocks(
-            shape.dims,
+            shape.as_tuple(),
             fortran_order=shape.fortran_order,
             source_node=stmt.variable,
         )

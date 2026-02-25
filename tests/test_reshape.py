@@ -51,3 +51,18 @@ def test_reshape_fortran(dtype, backend):
         np.testing.assert_allclose(a, b, atol=0)
     else:
         np.testing.assert_allclose(a, b, rtol=10e2 * np.finfo(dtype).eps)
+
+
+def test_reshape_accepts_shape_array(backend):
+    n = 12
+    m = 9
+
+    @nm.jit(backend=backend)
+    def reshape_with_shape_array(a, b):
+        a_r = nm.reshape(a, nm.Shape(b))
+        a_r[:] = 1.0
+
+    a = np.zeros((n, m), dtype=np.float64)
+    b = np.zeros((n, m), dtype=np.float64)
+    reshape_with_shape_array(a, b)
+    np.testing.assert_allclose(a, np.ones((n, m), dtype=np.float64))

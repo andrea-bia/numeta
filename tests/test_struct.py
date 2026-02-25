@@ -53,7 +53,7 @@ def test_struct_type_helpers(backend):
     arr_t = st[2]
     assert isinstance(arr_t, nm.datatype.ArrayType)
     assert arr_t.dtype is st
-    assert arr_t.shape.dims == (2,)
+    assert arr_t.shape.as_tuple() == (2,)
 
     @nm.jit(backend=backend)
     def fill(out):

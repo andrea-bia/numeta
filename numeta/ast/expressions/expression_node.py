@@ -23,7 +23,7 @@ class ExpressionNode(Node):
     def _get_shape_descriptor(self):
         from .various import ArrayConstructor
 
-        return ArrayConstructor(*self._shape.dims)
+        return ArrayConstructor(*self._shape.as_tuple())
 
     @abstractmethod
     def extract_entities(self):

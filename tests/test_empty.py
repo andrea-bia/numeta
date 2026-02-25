@@ -90,3 +90,20 @@ def test_empty_fortran(dtype, backend):
     c[:, 0] = 0
 
     np.testing.assert_allclose(b, c)
+
+
+def test_empty_accepts_shape_array(backend):
+    n = 13
+    m = 7
+
+    @nm.jit(backend=backend)
+    def copy_with_shape_array(a, b):
+        shape_vec = nm.Shape(a)
+        tmp = nm.empty(shape_vec, np.float64)
+        tmp[:] = a
+        b[:] = tmp
+
+    a = np.random.random((n, m)).astype(np.float64)
+    b = np.zeros((n, m), dtype=np.float64)
+    copy_with_shape_array(a, b)
+    np.testing.assert_allclose(b, a)

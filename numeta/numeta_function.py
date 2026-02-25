@@ -386,7 +386,7 @@ class NumetaFunction(BaseFunction):
                     "fc_out_shape", dtype=size_t, shape=ArrayShape((rank,))
                 )
                 return_arguments.append(shape_var)
-                array_shape = ArrayShape(tuple([None] * rank))
+                array_shape = ArrayShape.from_shape_vector(shape_var, rank, fortran_order=False)
 
                 if settings.use_numpy_allocator or self.backend == "c":
                     from numeta.fortran.external_modules.iso_c_binding import iso_c
@@ -394,10 +394,6 @@ class NumetaFunction(BaseFunction):
 
                     out_ptr = builder.generate_local_variables("fc_out_ptr", dtype=c_ptr)
                     return_arguments.append(out_ptr)
-                    if self.backend == "c":
-                        array_shape = ArrayShape(
-                            tuple(shape_var[i] for i in range(rank)), fortran_order=False
-                        )
                     out_array = builder.generate_local_variables(
                         "fc_r", dtype=dtype, shape=array_shape, pointer=True
                     )
@@ -512,8 +508,9 @@ class NumetaFunction(BaseFunction):
                     )
                     sub.add_variable(dim_var)
 
-                    shape = ArrayShape(
-                        tuple([dim_var[i] for i in range(arg_spec.rank)]),
+                    shape = ArrayShape.from_shape_vector(
+                        dim_var,
+                        arg_spec.rank,
                         fortran_order=arg_spec.shape.fortran_order,
                     )
                 else:

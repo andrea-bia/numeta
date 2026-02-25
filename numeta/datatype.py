@@ -163,13 +163,16 @@ class ArrayType:
         """
         if key != "C" and key != "F":
             raise ValueError(f"Invalid order: {key}, must be 'C' or 'F'")
-        return cls(dtype=cls.dtype, shape=ArrayShape(cls.shape.dims, fortran_order=(key == "F")))
+        return cls(
+            dtype=cls.dtype, shape=ArrayShape(cls.shape.as_tuple(), fortran_order=(key == "F"))
+        )
 
     def __repr__(self):
         if self.shape is UNKNOWN:
             return f"{self.dtype._name}[*]"
         dims = ",".join(
-            ":" if isinstance(d, slice) and d == slice(None) else str(d) for d in self.shape.dims
+            ":" if isinstance(d, slice) and d == slice(None) else str(d)
+            for d in self.shape.as_tuple()
         )
         return f"{self.dtype._name}[{dims}]"
 
@@ -380,7 +383,7 @@ class StructType(DataType, metaclass=DataTypeMeta):
         for mname, dt, shape in cls._members:
             dec = f"{dt.get_cnumpy()} {mname}"
             if shape is not SCALAR and shape is not UNKNOWN:
-                dec += "".join(f"[{d}]" for d in shape.dims)
+                dec += "".join(f"[{d}]" for d in shape.as_tuple())
             members_str.append(dec)
         members_join = "; ".join(members_str)
         return f"typedef struct {{ {members_join} ;}} {cls._cnp_type};\n"

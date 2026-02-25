@@ -5,7 +5,7 @@ def test_datatype_getitem(backend):
     arr = nm.int32[2, 3]
     assert isinstance(arr, nm.datatype.ArrayType)
     assert arr.dtype is nm.int32
-    assert arr.shape.dims == (2, 3)
+    assert arr.shape.as_tuple() == (2, 3)
 
     colon_arr = nm.float64[:]
-    assert colon_arr.shape.dims == (None,)
+    assert colon_arr.shape.as_tuple() == (None,)

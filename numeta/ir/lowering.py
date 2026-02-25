@@ -25,6 +25,7 @@ from numeta.ast.statements import (
     ElseIf,
     For,
     If,
+    Print,
     Return,
     Switch,
     While,
@@ -49,6 +50,7 @@ from .nodes import (
     IRLiteral,
     IRNode,
     IRProcedure,
+    IRPrint,
     IRReturn,
     IRShape,
     IRSlice,
@@ -87,7 +89,7 @@ def _lower_value_type_from_dtype(dtype, shape) -> IRValueType:
         return IRValueType(dtype=ir_type, shape=None)
     if shape is UNKNOWN:
         return IRValueType(dtype=ir_type, shape=IRShape(rank=None, dims=None, order="C"))
-    dims = _lower_shape_dims(shape.dims, settings.syntax)
+    dims = _lower_shape_dims(shape.as_tuple(), settings.syntax)
     order = "F" if getattr(shape, "fortran_order", False) else "C"
     return IRValueType(dtype=ir_type, shape=IRShape(rank=len(dims), dims=dims, order=order))
 
@@ -312,6 +314,8 @@ def lower_procedure(procedure: Procedure, backend: str = "fortran") -> IRProcedu
             return root
         if isinstance(stmt, Return):
             return IRReturn(value=None, source=stmt)
+        if isinstance(stmt, Print):
+            return IRPrint(values=[lower_expr(value) for value in stmt.to_print], source=stmt)
         if isinstance(stmt, Allocate):
             return IRAllocate(
                 var=lower_expr(stmt.target),
@@ -359,7 +363,7 @@ def _lower_value_type(ftype, shape) -> IRValueType:
         return IRValueType(dtype=dtype, shape=None)
     if shape is UNKNOWN:
         return IRValueType(dtype=dtype, shape=IRShape(rank=None, dims=None, order="C"))
-    dims = _lower_shape_dims(shape.dims, settings.syntax)
+    dims = _lower_shape_dims(shape.as_tuple(), settings.syntax)
     order = "F" if getattr(shape, "fortran_order", False) else "C"
     return IRValueType(dtype=dtype, shape=IRShape(rank=len(dims), dims=dims, order=order))
 

@@ -174,6 +174,11 @@ class IRReturn(IRStmt):
 
 
 @dataclass
+class IRPrint(IRStmt):
+    values: list[IRExpr] = field(default_factory=list)
+
+
+@dataclass
 class IRAllocate(IRStmt):
     var: IRExpr | None = None
     dims: list[IRExpr] = field(default_factory=list)

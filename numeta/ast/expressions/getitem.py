@@ -50,7 +50,7 @@ class GetItem(ExpressionNode):
                             "Step slicing not implemented for shape extraction",
                             source_node=self,
                         )
-                    dims.append(get_slice_dim(element, self.variable._shape.dims[i]))
+                    dims.append(get_slice_dim(element, self.variable._shape.dim(i)))
         else:
             if isinstance(self.sliced, slice):
                 if self.sliced.step is not None:
@@ -59,7 +59,7 @@ class GetItem(ExpressionNode):
                         "Step slicing not implemented for shape extraction",
                         source_node=self,
                     )
-                dims.append(get_slice_dim(self.sliced, self.variable._shape.dims[0]))
+                dims.append(get_slice_dim(self.sliced, self.variable._shape.dim(0)))
             else:
                 return SCALAR
 

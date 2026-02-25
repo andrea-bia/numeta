@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, NoReturn, cast
 
 import numpy as np
@@ -26,6 +27,7 @@ from numeta.ir.nodes import (
     IRIf,
     IRIntrinsic,
     IRLiteral,
+    IRPrint,
     IRProcedure,
     IRReturn,
     IRSlice,
@@ -89,6 +91,15 @@ class CEmitter:
         )
         raise AssertionError("unreachable")
 
+    @staticmethod
+    def _shape_dims_values(shape: Any) -> tuple | None:
+        if shape is None:
+            return None
+        iter_dims = getattr(shape, "iter_dims", None)
+        if callable(iter_dims):
+            return tuple(cast(Any, iter_dims)())
+        return getattr(shape, "dims", None)
+
     def emit_procedure(self, proc: IRProcedure) -> tuple[str, bool]:
         self._array_info = {}
         self._pointer_args = {}
@@ -110,6 +121,7 @@ class CEmitter:
         lines.append("#include <numpy/arrayobject.h>\n")
         lines.append("#include <numpy/npy_math.h>\n")
         lines.append("#include <complex.h>\n")
+        lines.append("#include <stdio.h>\n")
         lines.append("#include <stdlib.h>\n")
         lines.append("#include <omp.h>\n")
         if self._requires_math:
@@ -205,13 +217,10 @@ class CEmitter:
         ctype = dtype.get_cnumpy()
         assign = var.assign
 
-        if shape is None or shape.rank == 0:
+        if shape is None or shape.is_unknown or shape.rank == 0:
             value = self._render_literal(assign)
             lines.append(f"const {ctype} {var.name} = {value};\n")
             return lines
-
-        if shape.dims is None:
-            return []
 
         fortran_order = shape.fortran_order
         values: list[str] = []
@@ -334,7 +343,7 @@ class CEmitter:
             # We also need to populate self._array_info for arrays so they can be used
             # This logic was inside the loop before.
             shape = source._shape
-            if shape is not None and shape.rank > 0 and shape.dims is not None:
+            if shape is not None and not shape.is_unknown and shape.rank > 0:
                 # We need to reconstruct what _render_global_variable did to get array info
                 # or better, have _render_global_variable populate it if asked?
                 # Or just manually populate it here since we have the source.
@@ -343,7 +352,7 @@ class CEmitter:
                 if dtype is None:
                     continue
                 ctype = dtype.get_cnumpy()
-                dims_exprs = [self._render_dim(dim) for dim in shape.dims]
+                dims_exprs = [self._render_dim(dim) for dim in shape.iter_dims()]
                 self._array_info[name] = {
                     "name": name,
                     "ctype": ctype,
@@ -450,8 +459,9 @@ class CEmitter:
             rank = shape.rank or 1
             fortran_order = shape.order == "F"
             dims_name = None
+            shape_dims = self._shape_dims_values(shape) or ()
             has_shape_descriptor = nm_settings.add_shape_descriptors and any(
-                not isinstance(dim, int) for dim in (shape.dims or [])
+                not isinstance(dim, int) for dim in shape_dims
             )
             dims_exprs: list[str] = []
             if has_shape_descriptor or f"shape_{var.name}" in self._shape_arg_map:
@@ -459,7 +469,7 @@ class CEmitter:
                 arg_specs.append(f"npy_intp* {dims_name}")
                 dims_exprs = [f"{dims_name}[{i}]" for i in range(rank)]
             else:
-                dims_exprs = [self._render_dim(dim) for dim in (shape.dims or [])]
+                dims_exprs = [self._render_dim(dim) for dim in shape_dims]
             if not dims_exprs:
                 dims_exprs = ["1"] * rank
 
@@ -495,7 +505,8 @@ class CEmitter:
             rank = shape.rank or 1
             fortran_order = shape.order == "F"
             dims_name = f"{var.name}_dims"
-            dims_exprs = [self._render_dim(dim) for dim in (shape.dims or [])]
+            shape_dims = self._shape_dims_values(shape) or ()
+            dims_exprs = [self._render_dim(dim) for dim in shape_dims]
             self._array_info[var.name] = {
                 "name": var.name,
                 "ctype": ctype,
@@ -504,7 +515,7 @@ class CEmitter:
                 "dims_exprs": dims_exprs,
                 "dims_name": dims_name,
             }
-            if var.allocatable or var.pointer or shape.dims is None:
+            if var.allocatable or var.pointer or self._shape_dims_values(shape) is None:
                 lines.append(f"{'    ' * indent}{ctype} *{var.name} = NULL;\n")
                 continue
 
@@ -649,7 +660,7 @@ class CEmitter:
             info = self._array_info.get(name)
             if info is None:
                 return []
-            dims = [self._render_expr(dim) for dim in stmt.dims]
+            dims = [self._render_expr(dim) for dim in getattr(stmt, "dims", [])]
             size = self._render_product(dims)
             lines = []
             if info.get("dims_name"):
@@ -666,6 +677,8 @@ class CEmitter:
             if stmt.value is None:
                 return [f"{'    ' * indent}return;\n"]
             return [f"{'    ' * indent}return {self._render_expr(stmt.value)};\n"]
+        if isinstance(stmt, IRPrint):
+            return self._render_print(stmt.values, indent)
         if isinstance(stmt, IROpaqueStmt):
             payload = stmt.payload
             if payload is not None and payload.__class__.__name__ == "PointerAssignment":
@@ -696,6 +709,68 @@ class CEmitter:
                 return []
             return [f"{'    ' * indent}/* unsupported statement */\n"]
         return [f"{'    ' * indent}/* unsupported statement */\n"]
+
+    def _render_print(self, values: list[IRExpr], indent: int) -> list[str]:
+        fmt_parts: list[str] = []
+        args: list[str] = []
+
+        def append_separator():
+            if fmt_parts:
+                fmt_parts.append(" ")
+
+        for value in values:
+            if isinstance(value, IRIntrinsic) and value.name == "array_constructor":
+                for element in value.args:
+                    append_separator()
+                    element_dtype = element.vtype.dtype.name if element.vtype is not None else None
+                    if (
+                        element_dtype in {"integer", "size_t"}
+                        or self._is_integer_expr(element)
+                        or self._is_shape_dim_expr(element)
+                    ):
+                        fmt_parts.append("%lld")
+                        args.append(f"(long long)({self._render_expr(element)})")
+                    else:
+                        fmt_parts.append("%g")
+                        args.append(f"(double)({self._render_expr(element)})")
+                continue
+
+            if isinstance(value, IRIntrinsic) and value.name == "shape" and value.args:
+                dims = self._shape_dims_for_expr(value.args[0])
+                if not dims:
+                    self._raise_with_source(
+                        NotImplementedError,
+                        "Cannot print shape() in C without concrete dimensions.",
+                        origin=value,
+                    )
+                for dim in dims:
+                    append_separator()
+                    fmt_parts.append("%lld")
+                    args.append(f"(long long)({dim})")
+                continue
+
+            append_separator()
+            if isinstance(value, IRLiteral) and isinstance(value.value, str):
+                fmt_parts.append("%s")
+                args.append(self._render_expr(value))
+                continue
+
+            dtype_name = value.vtype.dtype.name if value.vtype is not None else None
+            if (
+                dtype_name in {"integer", "size_t"}
+                or self._is_integer_expr(value)
+                or self._is_shape_dim_expr(value)
+            ):
+                fmt_parts.append("%lld")
+                args.append(f"(long long)({self._render_expr(value)})")
+            else:
+                fmt_parts.append("%g")
+                args.append(f"(double)({self._render_expr(value)})")
+
+        fmt_literal = '"' + "".join(fmt_parts) + '\\n"'
+        if args:
+            return [f"{'    ' * indent}printf({fmt_literal}, {', '.join(args)});\n"]
+        return [f"{'    ' * indent}printf(\"\\n\");\n"]
 
     def _render_numpy_allocate(self, stmt: IRCall, indent: int) -> list[str]:
         if len(stmt.args) < 2:
@@ -774,7 +849,7 @@ class CEmitter:
         def needs_implicit_shape_descriptor(arg: IRExpr) -> bool:
             if arg.vtype is None or arg.vtype.shape is None:
                 return False
-            dims = arg.vtype.shape.dims or []
+            dims = self._shape_dims_values(arg.vtype.shape) or []
             for dim in dims:
                 if isinstance(dim, int):
                     continue
@@ -965,14 +1040,14 @@ class CEmitter:
                 "C backend matmul requires 2D result",
                 origin=expr,
             )
-        if shape.dims is None:
+        if self._shape_dims_values(shape) is None:
             self._raise_with_source(
                 NotImplementedError,
                 "C backend matmul requires known dims",
                 origin=expr,
             )
 
-        dims = [self._render_dim(dim) for dim in shape.dims]
+        dims = [self._render_dim(dim) for dim in (self._shape_dims_values(shape) or ())]
         if len(dims) != 2:
             self._raise_with_source(
                 NotImplementedError,
@@ -1557,8 +1632,10 @@ class CEmitter:
         if info is None:
             if isinstance(expr.base, IRVarRef) and expr.base.var is not None:
                 shape = expr.base.var.vtype.shape if expr.base.var.vtype is not None else None
-                if shape is not None and shape.dims is not None:
-                    dims_exprs = [self._render_dim(dim) for dim in shape.dims]
+                if shape is not None and self._shape_dims_values(shape) is not None:
+                    dims_exprs = [
+                        self._render_dim(dim) for dim in (self._shape_dims_values(shape) or ())
+                    ]
                     indices: list[str] = []
                     for idx in expr.indices:
                         if isinstance(idx, IRSlice):
@@ -1573,8 +1650,10 @@ class CEmitter:
                     return f"({base_name})[{linear}]"
             if isinstance(expr.base, IRGetAttr):
                 shape = expr.base.vtype.shape if expr.base.vtype is not None else None
-                if shape is not None and shape.dims is not None:
-                    dims_exprs = [self._render_dim(dim) for dim in shape.dims]
+                if shape is not None and self._shape_dims_values(shape) is not None:
+                    dims_exprs = [
+                        self._render_dim(dim) for dim in (self._shape_dims_values(shape) or ())
+                    ]
                     indices = []
                     for idx in expr.indices:
                         if isinstance(idx, IRSlice):
@@ -1634,13 +1713,14 @@ class CEmitter:
     def _shape_dims_for_expr(self, expr: IRExpr | None) -> list[str]:
         if isinstance(expr, IRExpr) and expr.vtype is not None and expr.vtype.shape is not None:
             shape = expr.vtype.shape
-            if shape.dims is not None:
-                if any(dim is None for dim in shape.dims):
+            shape_dims = self._shape_dims_values(shape)
+            if shape_dims is not None:
+                if any(dim is None for dim in shape_dims):
                     if isinstance(expr, IRVarRef) and expr.var is not None:
                         info = self._array_info.get(expr.var.name)
                         if info is not None:
                             return list(info["dims_exprs"])
-                rendered = [self._render_dim(dim) for dim in shape.dims]
+                rendered = [self._render_dim(dim) for dim in shape_dims]
                 if any(not dim for dim in rendered):
                     if isinstance(expr, IRVarRef) and expr.var is not None:
                         info = self._array_info.get(expr.var.name)
@@ -1688,7 +1768,7 @@ class CEmitter:
         shape = target.vtype.shape if target.vtype else None
         if shape is None or shape.rank is None:
             return []
-        dims = [self._render_dim(dim) for dim in shape.dims or []]
+        dims = [self._render_dim(dim) for dim in (self._shape_dims_values(shape) or ())]
         if not dims:
             return [
                 f"{'    ' * indent}{self._render_attr_access(target)} = {self._render_expr(value)};\n"
@@ -1786,16 +1866,49 @@ class CEmitter:
     def _is_integer_expr(self, expr: IRExpr) -> bool:
         if isinstance(expr, IRLiteral) and isinstance(expr.value, int):
             return True
-        if expr.vtype and expr.vtype.dtype.name == "integer":
+        if expr.vtype and expr.vtype.dtype.name in {"integer", "size_t"}:
             return True
         if (
             isinstance(expr, IRVarRef)
             and expr.var
             and self._dtype_from_irvar(expr.var)
-            and self._dtype_from_irvar(expr.var).name == "integer"
+            and self._dtype_from_irvar(expr.var).name in {"integer", "size_t"}
         ):
             return True
         return False
+
+    def _is_shape_dim_expr(self, expr: IRExpr) -> bool:
+        if isinstance(expr, IRGetItem):
+            base = expr.base
+            if isinstance(base, IRVarRef) and base.var is not None:
+                base_name = base.var.name
+                if base_name.startswith("shape_") or base_name.startswith("nm_shape"):
+                    return True
+                if base_name.endswith("_dims"):
+                    return True
+        if isinstance(expr, IRVarRef) and expr.var is not None:
+            var_name = expr.var.name
+            if var_name.startswith("shape_") or var_name.startswith("nm_shape"):
+                return True
+            if var_name.endswith("_dims"):
+                return True
+        return False
+
+    @staticmethod
+    def _dims_backing_array_name(dims: list[str]) -> str | None:
+        if not dims:
+            return None
+        base_name = None
+        for dim in dims:
+            match = re.fullmatch(r"\(?([A-Za-z_][A-Za-z0-9_]*)\)?\[(\d+)\]", dim)
+            if match is None:
+                return None
+            current_base = match.group(1)
+            if base_name is None:
+                base_name = current_base
+            elif base_name != current_base:
+                return None
+        return base_name
 
     def _render_intrinsic(self, expr: IRIntrinsic) -> str:
         name = expr.name
@@ -1804,14 +1917,17 @@ class CEmitter:
             return f"(npy_intp[]){{{', '.join(args)}}}"
         if name == "shape":
             if not expr.args:
-                return "(npy_intp[]){0}"
+                raise NotImplementedError("Cannot lower shape() in C without target expression.")
             dims = self._shape_dims_for_expr(expr.args[0])
             if dims:
+                backing_array = self._dims_backing_array_name(dims)
+                if backing_array is not None:
+                    return backing_array
                 return f"(npy_intp[]){{{', '.join(dims)}}}"
-            return "(npy_intp[]){0}"
+            raise NotImplementedError("Cannot lower shape() in C without concrete dimensions.")
         if name == "size":
             if not expr.args:
-                return "0"
+                raise NotImplementedError("Cannot lower size() in C without target expression.")
             base = expr.args[0]
             dim_index = None
             if len(expr.args) > 1 and isinstance(expr.args[1], IRLiteral):
@@ -1825,7 +1941,9 @@ class CEmitter:
                     if dim_index is not None and 1 <= dim_index <= len(info["dims_exprs"]):
                         return info["dims_exprs"][dim_index - 1]
                     return self._render_product(info["dims_exprs"])
-            return "0"
+            raise NotImplementedError(
+                "Cannot lower size() in C without concrete dimension metadata."
+            )
         if name == "rank":
             if not expr.args:
                 return "0"

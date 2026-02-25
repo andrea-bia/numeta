@@ -152,7 +152,7 @@ class Shape(UnaryIntrinsicFunction):
                 "The shape intrinsic function can only be applied to variables with a defined shape.",
                 source_node=self.arguments[0],
             )
-        return ArrayShape((len(var_shape.dims),))
+        return ArrayShape((var_shape.rank,))
 
 
 class Real(UnaryIntrinsicFunction):
@@ -228,13 +228,15 @@ class Transpose(UnaryIntrinsicFunction):
                 "Cannot transpose a variable with unknown shape.",
                 source_node=self.arguments[0],
             )
-        if len(arg_shape.dims) != 2:
+        if arg_shape.rank != 2:
             raise_with_source(
                 ValueError,
                 "Transpose can only be applied to 2-D arrays.",
                 source_node=self.arguments[0],
             )
-        return ArrayShape(arg_shape.dims[::-1], fortran_order=arg_shape.fortran_order)
+        return ArrayShape(
+            tuple(reversed(arg_shape.as_tuple())), fortran_order=arg_shape.fortran_order
+        )
 
     @property
     def shape(self):
@@ -250,13 +252,13 @@ class Transpose(UnaryIntrinsicFunction):
                 "Cannot transpose a variable with unknown shape.",
                 source_node=self.arguments[0],
             )
-        elif len(self.arguments[0]._shape.dims) != 2:
+        elif self.arguments[0]._shape.rank != 2:
             raise_with_source(
                 ValueError,
                 "Transpose can only be applied to 2-D arrays.",
                 source_node=self.arguments[0],
             )
-        return ArrayShape(self.arguments[0]._shape.dims[::-1])
+        return ArrayShape(tuple(reversed(self.arguments[0]._shape.as_tuple())))
 
 
 class Exp(UnaryMathIntrinsic):
@@ -506,11 +508,11 @@ class Matmul(BinaryIntrinsicFunction):
     def _shape(self):
         a_shape = self.arguments[0]._shape
         b_shape = self.arguments[1]._shape
-        if len(a_shape.dims) == 1:
-            return ArrayShape((b_shape.dims[1],))
-        if len(b_shape.dims) == 1:
-            return ArrayShape((a_shape.dims[0],))
-        return ArrayShape((a_shape.dims[0], b_shape.dims[1]))
+        if a_shape.rank == 1:
+            return ArrayShape((b_shape.dim(1),))
+        if b_shape.rank == 1:
+            return ArrayShape((a_shape.dim(0),))
+        return ArrayShape((a_shape.dim(0), b_shape.dim(1)))
 
 
 # Aliases to match numpy conventions

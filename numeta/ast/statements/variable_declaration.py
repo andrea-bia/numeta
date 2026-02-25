@@ -22,6 +22,6 @@ class VariableDeclaration(Statement):
                 pass
 
         if self.variable._shape is not UNKNOWN:
-            for element in self.variable._shape.dims:
+            for element in self.variable._shape.iter_dims():
                 if isinstance(element, Node):
                     yield from element.extract_entities()
