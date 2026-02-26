@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import numeta as nm
 
 from numeta.signature import (
     convert_signature_to_argument_specs,
@@ -10,6 +11,8 @@ from numeta.signature import (
     _c_signature_backend_available,
 )
 from numeta.settings import settings
+from numeta.ast import Variable
+from numeta.array_shape import ArrayShape
 from numeta.types_hint import comptime
 
 
@@ -603,3 +606,211 @@ def test_disable_c_signature_parser_setting(backend):
     assert parsed[0] == expected[0]
     assert parsed[1] == expected[1]
     assert parsed[2] == expected[2]
+
+
+def test_nested_expression_intent_resolution_parity(backend):
+    def sample(a):
+        return a
+
+    (
+        params,
+        fixed_param_indices,
+        n_positional_or_default_args,
+        catch_var_positional_name,
+    ) = parse_function_parameters(sample)
+
+    dtype = np.dtype([("x", np.int32), ("y", np.float64, (2,))], align=True)
+    struct_dtype = nm.get_datatype(dtype)
+    expression = Variable("arr", dtype=struct_dtype, shape=ArrayShape((1,)), intent="inout")[0]["y"]
+
+    py_result = get_signature_and_runtime_args_py(
+        (expression,),
+        {},
+        params=params,
+        fixed_param_indices=fixed_param_indices,
+        n_positional_or_default_args=n_positional_or_default_args,
+        catch_var_positional_name=catch_var_positional_name,
+    )
+
+    original = settings.use_c_signature_parser
+    settings.use_c_signature_parser = True
+    try:
+        c_result = get_signature_and_runtime_args(
+            (expression,),
+            {},
+            params=params,
+            fixed_param_indices=fixed_param_indices,
+            n_positional_or_default_args=n_positional_or_default_args,
+            catch_var_positional_name=catch_var_positional_name,
+        )
+    finally:
+        settings.use_c_signature_parser = original
+
+    assert py_result[1] == c_result[1]
+    assert py_result[1][0][4] == "inout"
+
+
+def test_default_intent_variable_parity(backend):
+    def sample(a):
+        return a
+
+    (
+        params,
+        fixed_param_indices,
+        n_positional_or_default_args,
+        catch_var_positional_name,
+    ) = parse_function_parameters(sample)
+
+    expression = Variable("arr", dtype=nm.float64, shape=ArrayShape((4,)))[1:3]
+
+    py_result = get_signature_and_runtime_args_py(
+        (expression,),
+        {},
+        params=params,
+        fixed_param_indices=fixed_param_indices,
+        n_positional_or_default_args=n_positional_or_default_args,
+        catch_var_positional_name=catch_var_positional_name,
+    )
+
+    original = settings.use_c_signature_parser
+    settings.use_c_signature_parser = True
+    try:
+        c_result = get_signature_and_runtime_args(
+            (expression,),
+            {},
+            params=params,
+            fixed_param_indices=fixed_param_indices,
+            n_positional_or_default_args=n_positional_or_default_args,
+            catch_var_positional_name=catch_var_positional_name,
+        )
+    finally:
+        settings.use_c_signature_parser = original
+
+    assert py_result[1] == c_result[1]
+    assert py_result[1][0][4] == "inout"
+
+
+def _assert_signature_parity(sample, args, kwargs=None):
+    if kwargs is None:
+        kwargs = {}
+
+    (
+        params,
+        fixed_param_indices,
+        n_positional_or_default_args,
+        catch_var_positional_name,
+    ) = parse_function_parameters(sample)
+
+    py_result = get_signature_and_runtime_args_py(
+        args,
+        kwargs,
+        params=params,
+        fixed_param_indices=fixed_param_indices,
+        n_positional_or_default_args=n_positional_or_default_args,
+        catch_var_positional_name=catch_var_positional_name,
+    )
+
+    original = settings.use_c_signature_parser
+    settings.use_c_signature_parser = True
+    try:
+        c_result = get_signature_and_runtime_args(
+            args,
+            kwargs,
+            params=params,
+            fixed_param_indices=fixed_param_indices,
+            n_positional_or_default_args=n_positional_or_default_args,
+            catch_var_positional_name=catch_var_positional_name,
+        )
+    finally:
+        settings.use_c_signature_parser = original
+
+    assert c_result == py_result
+    return py_result
+
+
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
+@pytest.mark.parametrize(
+    "factory, expected_intent",
+    [
+        (lambda: Variable("arr", dtype=nm.float64, shape=ArrayShape((4,)), intent="in")[1:3], "in"),
+        (
+            lambda: Variable("arr", dtype=nm.float64, shape=ArrayShape((4,)), intent="inout")[1:3],
+            "inout",
+        ),
+        (lambda: Variable("arr", dtype=nm.float64, shape=ArrayShape((4,)))[1:3], "inout"),
+        (
+            lambda: Variable(
+                "arr",
+                dtype=nm.get_datatype(
+                    np.dtype([("x", np.int32), ("y", np.float64, (2,))], align=True)
+                ),
+                shape=ArrayShape((1,)),
+                intent="inout",
+            )[0]["y"],
+            "inout",
+        ),
+        (
+            lambda: Variable(
+                "arr",
+                dtype=nm.get_datatype(
+                    np.dtype([("x", np.int32), ("y", np.float64, (2,))], align=True)
+                ),
+                shape=ArrayShape((1,)),
+                intent="in",
+            )[0]["y"],
+            "in",
+        ),
+    ],
+)
+def test_c_python_parity_nested_expression_intents(backend, factory, expected_intent):
+    def sample(a):
+        return a
+
+    result = _assert_signature_parity(sample, (factory(),), {})
+    assert result[1][0][4] == expected_intent
+
+
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
+def test_fast_dispatch_matches_python_signature_for_nested_expression(backend):
+    def sample(a, b=1):
+        return a, b
+
+    (
+        params,
+        fixed_param_indices,
+        n_positional_or_default_args,
+        catch_var_positional_name,
+    ) = parse_function_parameters(sample)
+
+    expression = Variable("arr", dtype=nm.float64, shape=ArrayShape((5,)))[1:4]
+
+    expected_to_execute, expected_signature, expected_runtime_args = (
+        get_signature_and_runtime_args_py(
+            (expression,),
+            {},
+            params=params,
+            fixed_param_indices=fixed_param_indices,
+            n_positional_or_default_args=n_positional_or_default_args,
+            catch_var_positional_name=catch_var_positional_name,
+        )
+    )
+
+    original = settings.use_c_signature_parser
+    settings.use_c_signature_parser = True
+    try:
+        hit, to_execute, signature, runtime_args = fast_dispatch(
+            (expression,),
+            {},
+            params=params,
+            fixed_param_indices=fixed_param_indices,
+            n_positional_or_default_args=n_positional_or_default_args,
+            catch_var_positional_name=catch_var_positional_name,
+            fast_call_dict={},
+        )
+    finally:
+        settings.use_c_signature_parser = original
+
+    assert hit is False
+    assert to_execute == expected_to_execute
+    assert signature == expected_signature
+    assert runtime_args == expected_runtime_args

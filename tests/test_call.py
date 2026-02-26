@@ -1,5 +1,6 @@
 import numpy as np
 import numeta as nm
+from numeta.settings import settings
 
 
 def test_call_array_scalar(backend):
@@ -268,3 +269,34 @@ def test_nested_calls_arithmetic(backend):
         return inner(a, b) * c
 
     np.testing.assert_equal(outer(2, 4, 3), 18)
+
+
+def test_nested_struct_field_call_with_c_signature_intent_regression():
+    dtype = np.dtype([("x", np.int32), ("y", np.float64, (2,))], align=True)
+
+    original_use_c_dispatch = settings.use_c_dispatch
+    original_use_c_signature_parser = settings.use_c_signature_parser
+
+    try:
+        for use_c_dispatch in (True, False):
+            settings.use_c_dispatch = use_c_dispatch
+            for use_c_signature_parser in (True, False):
+                settings.use_c_signature_parser = use_c_signature_parser
+
+                @nm.jit(backend="fortran")
+                def inner(v):
+                    v[0] = 3.5
+
+                @nm.jit(backend="fortran")
+                def outer(arr):
+                    inner(arr[0]["y"])
+
+                arr = np.zeros(1, dtype=dtype)
+                outer(arr)
+
+                expected = np.zeros(1, dtype=dtype)
+                expected[0]["y"][0] = 3.5
+                np.testing.assert_equal(arr, expected)
+    finally:
+        settings.use_c_dispatch = original_use_c_dispatch
+        settings.use_c_signature_parser = original_use_c_signature_parser

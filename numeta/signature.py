@@ -16,13 +16,13 @@ from .ast.expressions import ExpressionNode, GetAttr, GetItem
 from .types_hint import comptime
 
 
-def _compile_signature_extension():
+def _compile_signature_extension(force=False):
     """Compile the C signature extension if needed."""
     import importlib.util
 
     # Check if already compiled
     spec = importlib.util.find_spec("numeta._signature")
-    if spec is not None:
+    if spec is not None and not force:
         return True
 
     # Check if source exists
@@ -82,6 +82,19 @@ def _compile_signature_extension():
         return False
 
 
+def _signature_extension_stale():
+    import importlib.util
+
+    c_file = Path(__file__).parent / "_signature.c"
+    spec = importlib.util.find_spec("numeta._signature")
+    if spec is None or spec.origin is None:
+        return False
+    so_file = Path(spec.origin)
+    if not so_file.exists() or not c_file.exists():
+        return False
+    return c_file.stat().st_mtime > so_file.stat().st_mtime
+
+
 def _init_signature_module():
     """Initialize the signature module, compiling if necessary."""
     import importlib
@@ -89,6 +102,12 @@ def _init_signature_module():
     try:
         # Try importing first
         _signature = importlib.import_module("numeta._signature")
+        if _signature_extension_stale():
+            if not _compile_signature_extension(force=True):
+                return None, False
+            if "numeta._signature" in sys.modules:
+                del sys.modules["numeta._signature"]
+            _signature = importlib.import_module("numeta._signature")
     except ImportError:
         # Try compiling and importing again
         if not _compile_signature_extension():
@@ -138,6 +157,16 @@ def _use_c_signature_parser_backend():
         and _c_signature_backend is not None
         and settings.use_c_signature_parser
     )
+
+
+def _resolve_effective_intent(arg):
+    target = arg
+    while isinstance(target, (GetAttr, GetItem)):
+        target = target.variable
+
+    if isinstance(target, Variable) and target.intent != "in":
+        return "inout"
+    return "in"
 
 
 @dataclass(frozen=True)
@@ -272,16 +301,7 @@ def _get_signature_and_runtime_args_py(
         elif isinstance(arg, ExpressionNode):
             to_execute = False
             dtype = arg.dtype
-            # Let's stay safe, let's assume is an expression so intent is in
-            intent = "in"
-            # These are the cases where we can assume it is an inout argument
-            # becase the intent can be only "in" or "inout"
-            if isinstance(arg, Variable) and arg.intent != "in":
-                intent = "inout"
-            if isinstance(arg, GetAttr) and arg.variable.intent != "in":
-                intent = "inout"
-            if isinstance(arg, GetItem) and arg.variable.intent != "in":
-                intent = "inout"
+            intent = _resolve_effective_intent(arg)
 
             if arg._shape is SCALAR:
                 if intent == "inout":

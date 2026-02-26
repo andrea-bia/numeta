@@ -228,37 +228,38 @@ static inline PyObject* sig_from_numpy_scalar(PyObject *arg, PyObject *name) {
 
 // Fast path for intent checking - cache the check
 static inline PyObject* get_intent_str(PyObject *arg) {
-    if (!is_instance_fast(arg, Variable) && 
-        !is_instance_fast(arg, GetAttr) && 
-        !is_instance_fast(arg, GetItem)) {
-        return str_in;
-    }
-    
     PyObject *target = arg;
-    if (is_instance_fast(arg, GetAttr) || is_instance_fast(arg, GetItem)) {
-        target = PyObject_GetAttr(arg, str_variable);
-        if (!target) {
-            PyErr_Clear();  // Clear exception before returning default
+    Py_INCREF(target);
+
+    while (is_instance_fast(target, GetAttr) || is_instance_fast(target, GetItem)) {
+        PyObject *next_target = PyObject_GetAttr(target, str_variable);
+        Py_DECREF(target);
+        if (!next_target) {
+            PyErr_Clear();
             return str_in;
         }
-    } else {
-        Py_INCREF(target);
+        target = next_target;
     }
-    
-    PyObject *intent_obj = PyObject_GetAttr(target, str_intent);
-    Py_DECREF(target);
-    
-    if (!intent_obj) {
-        PyErr_Clear();  // Clear exception before returning default
+
+    if (!is_instance_fast(target, Variable)) {
+        Py_DECREF(target);
         return str_in;
     }
-    
-    PyObject *result = str_in;
-    int cmp_result = PyUnicode_Compare(intent_obj, str_in);
-    if (cmp_result == -1 && PyErr_Occurred()) {
+
+    PyObject *intent_obj = PyObject_GetAttr(target, str_intent);
+    Py_DECREF(target);
+
+    if (!intent_obj) {
         PyErr_Clear();
-    } else if (cmp_result != 0) {
-        result = str_inout;
+        return str_inout;
+    }
+
+    PyObject *result = str_inout;
+    int is_in = PyObject_RichCompareBool(intent_obj, str_in, Py_EQ);
+    if (is_in == 1) {
+        result = str_in;
+    } else if (is_in < 0) {
+        PyErr_Clear();
     }
     Py_DECREF(intent_obj);
     return result;
