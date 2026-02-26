@@ -168,6 +168,7 @@ class Settings:
         default_do_checks=True,
         default_compile_flags="-O3 -march=native",
         use_c_dispatch=True,
+        use_c_signature_parser=True,
     ):
         """Initialize the settings.
         Parameters
@@ -193,6 +194,9 @@ class Settings:
         use_c_dispatch : bool
             If True (default), use the optimized C extension for argument parsing and dispatch
             if available. If False, force the use of the pure Python implementation.
+        use_c_signature_parser : bool
+            If True (default), use the C implementation in ``numeta.signature`` when available.
+            If False, force ``numeta.signature`` helpers to use pure Python parsing logic.
         """
         self.iso_C = iso_C
 
@@ -215,6 +219,7 @@ class Settings:
         self.set_default_do_checks(default_do_checks)
         self.set_default_compile_flags(default_compile_flags)
         self.use_c_dispatch = use_c_dispatch
+        self.use_c_signature_parser = use_c_signature_parser
 
     @staticmethod
     def _normalize_compile_flags(compile_flags):
@@ -327,6 +332,16 @@ class Settings:
         if not isinstance(value, bool):
             raise TypeError("use_c_dispatch must be a bool")
         self.__use_c_dispatch = value
+
+    @property
+    def use_c_signature_parser(self):
+        return self.__use_c_signature_parser
+
+    @use_c_signature_parser.setter
+    def use_c_signature_parser(self, value):
+        if not isinstance(value, bool):
+            raise TypeError("use_c_signature_parser must be a bool")
+        self.__use_c_signature_parser = value
 
     def _setup_iso_c_defaults(self):
         """Set ISO C default datatypes."""

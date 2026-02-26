@@ -1,12 +1,12 @@
 import pytest
 import sys
 from numeta.settings import settings
-from numeta.numeta_function import NumetaFunction, _use_c_dispatch
+from numeta.numeta_function import NumetaFunction, _c_dispatch_base_available
 
 
 def test_use_c_dispatch_setting():
     # Only run this test if C extension is available, otherwise uses_c_dispatch is always False
-    if not _use_c_dispatch:
+    if not _c_dispatch_base_available:
         pytest.skip("C extension not available, cannot test toggling")
 
     # Store original value
@@ -37,7 +37,7 @@ def test_use_c_dispatch_setting():
 
         # Verify call works (via Python dispatch)
         # This exercises the _python_call path (delegated from C or aliased)
-        # Since _use_c_dispatch is True, NumetaFunction inherits C BaseFunction.
+        # Since _c_dispatch_base_available is True, NumetaFunction inherits C BaseFunction.
         # But uses_c_dispatch is False, so custom parser is skipped.
         # And C BaseFunction_call checks settings.use_c_dispatch (which is False),
         # so it delegates to _python_call.

@@ -7,8 +7,9 @@ from numeta.signature import (
     get_signature_and_runtime_args,
     get_signature_and_runtime_args_py,
     parse_function_parameters,
-    _signature_c_available,
+    _c_signature_backend_available,
 )
+from numeta.settings import settings
 from numeta.types_hint import comptime
 
 
@@ -105,7 +106,7 @@ def test_signature_parsing_with_varargs(backend):
     assert argument_specs[1].is_keyword is False
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_c_python_parity_basic_types(backend):
     """Test that C and Python implementations return identical results for basic types."""
 
@@ -155,7 +156,7 @@ def test_c_python_parity_basic_types(backend):
     assert c_result[2] == py_result[2]
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_c_python_parity_numpy_types(backend):
     """Test parity for numpy scalar types."""
 
@@ -203,7 +204,7 @@ def test_c_python_parity_numpy_types(backend):
         assert c_sig == py_sig
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_c_python_parity_ndarrays(backend):
     """Test parity for numpy arrays with different shapes and dtypes."""
 
@@ -249,7 +250,7 @@ def test_c_python_parity_ndarrays(backend):
         assert c_sig == py_sig
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_c_python_parity_kwargs(backend):
     """Test parity for keyword arguments."""
 
@@ -290,7 +291,7 @@ def test_c_python_parity_kwargs(backend):
         assert c_sig == py_sig
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_c_python_parity_varargs(backend):
     """Test parity for *args."""
 
@@ -334,7 +335,7 @@ def test_c_python_parity_varargs(backend):
         assert c_sig == py_sig
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_c_python_parity_comptime(backend):
     """Test parity with comptime arguments."""
 
@@ -380,7 +381,7 @@ def test_c_python_parity_comptime(backend):
 # ============================================================================
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_fast_dispatch_cache_hit(backend):
     """Test fast_dispatch returns the function result on cache hit."""
 
@@ -429,7 +430,7 @@ def test_fast_dispatch_cache_hit(backend):
     assert runtime_args is None
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_fast_dispatch_cache_miss(backend):
     """Test fast_dispatch returns signature tuple on cache miss."""
 
@@ -465,12 +466,13 @@ def test_fast_dispatch_cache_miss(backend):
     assert isinstance(payload, tuple)
     assert len(payload) == 2  # Two params
     # runtime_args should be a list with the actual args
+    assert runtime_args is not None
     assert len(runtime_args) == 2
     assert np.array_equal(runtime_args[0], a)
     assert np.array_equal(runtime_args[1], b)
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_fast_dispatch_cache_hit_scalars(backend):
     """Test fast_dispatch with scalar args and cache hit."""
 
@@ -518,7 +520,7 @@ def test_fast_dispatch_cache_hit_scalars(backend):
     assert call_count == 1
 
 
-@pytest.mark.skipif(not _signature_c_available, reason="C extension not available")
+@pytest.mark.skipif(not _c_signature_backend_available, reason="C extension not available")
 def test_fast_dispatch_signature_matches_get_signature(backend):
     """Verify fast_dispatch cache miss returns the same signature as get_signature_and_runtime_args."""
 
@@ -557,4 +559,47 @@ def test_fast_dispatch_signature_matches_get_signature(backend):
     assert hit is False
     assert to_execute is True
     assert sig == expected_sig
+    assert runtime_args is not None
     assert len(runtime_args) == len(expected_args)
+
+
+def test_disable_c_signature_parser_setting(backend):
+    def sample(a, b):
+        return a, b
+
+    (
+        params,
+        fixed_param_indices,
+        n_positional_or_default_args,
+        catch_var_positional_name,
+    ) = parse_function_parameters(sample)
+
+    args = (np.array([1, 2], dtype=np.float64), np.int64(3))
+    kwargs = {}
+
+    original = settings.use_c_signature_parser
+    settings.use_c_signature_parser = False
+    try:
+        parsed = get_signature_and_runtime_args(
+            args,
+            kwargs,
+            params=params,
+            fixed_param_indices=fixed_param_indices,
+            n_positional_or_default_args=n_positional_or_default_args,
+            catch_var_positional_name=catch_var_positional_name,
+        )
+    finally:
+        settings.use_c_signature_parser = original
+
+    expected = get_signature_and_runtime_args_py(
+        args,
+        kwargs,
+        params=params,
+        fixed_param_indices=fixed_param_indices,
+        n_positional_or_default_args=n_positional_or_default_args,
+        catch_var_positional_name=catch_var_positional_name,
+    )
+
+    assert parsed[0] == expected[0]
+    assert parsed[1] == expected[1]
+    assert parsed[2] == expected[2]

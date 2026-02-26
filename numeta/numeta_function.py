@@ -219,7 +219,7 @@ class NumetaCompiledFunction(ExternalLibrary):
 try:
     from ._signature import BaseFunction
 
-    _use_c_dispatch = True
+    _c_dispatch_base_available = True
 except ImportError:
 
     class BaseFunction:
@@ -229,7 +229,11 @@ except ImportError:
         def _set_custom_parser(self, *args):
             pass
 
-    _use_c_dispatch = False
+    _c_dispatch_base_available = False
+
+
+# Backward-compatible alias kept for external imports/tests.
+_use_c_dispatch = _c_dispatch_base_available
 
 
 class NumetaFunction(BaseFunction):
@@ -241,7 +245,7 @@ class NumetaFunction(BaseFunction):
 
     @property
     def uses_c_dispatch(self):
-        return _use_c_dispatch and self._use_c_dispatch_instance
+        return _c_dispatch_base_available and self._use_c_dispatch_instance
 
     def __init__(
         self,
@@ -464,7 +468,7 @@ class NumetaFunction(BaseFunction):
 
         return self._handle_cache_miss(signature, runtime_args)
 
-    if not _use_c_dispatch:
+    if not _c_dispatch_base_available:
         __call__ = _python_call
 
     def get_symbolic_function(self, name, signature):

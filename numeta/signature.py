@@ -88,7 +88,7 @@ def _init_signature_module():
 
     try:
         # Try importing first
-        from . import _signature
+        _signature = importlib.import_module("numeta._signature")
     except ImportError:
         # Try compiling and importing again
         if not _compile_signature_extension():
@@ -96,7 +96,7 @@ def _init_signature_module():
         # Clear import cache and try again
         if "numeta._signature" in sys.modules:
             del sys.modules["numeta._signature"]
-        from . import _signature
+        _signature = importlib.import_module("numeta._signature")
 
     types_dict = {
         "ArrayType": ArrayType,
@@ -123,9 +123,21 @@ def _init_signature_module():
     return _signature, True
 
 
-_signature, _signature_c_available = _init_signature_module()
-if _signature is None:
-    _signature_c_available = False
+_c_signature_backend, _c_signature_backend_available = _init_signature_module()
+if _c_signature_backend is None:
+    _c_signature_backend_available = False
+
+# Backward-compatible aliases kept for external imports/tests.
+_signature = _c_signature_backend
+_signature_c_available = _c_signature_backend_available
+
+
+def _use_c_signature_parser_backend():
+    return (
+        _c_signature_backend_available
+        and _c_signature_backend is not None
+        and settings.use_c_signature_parser
+    )
 
 
 @dataclass(frozen=True)
@@ -463,8 +475,10 @@ def get_signature_and_runtime_args(
     n_positional_or_default_args,
     catch_var_positional_name,
 ):
-    if _signature_c_available:
-        return _signature.get_signature_and_runtime_args(
+    if _use_c_signature_parser_backend():
+        backend = _c_signature_backend
+        assert backend is not None
+        return backend.get_signature_and_runtime_args(
             args,
             kwargs,
             params,
@@ -503,8 +517,10 @@ def fast_dispatch(
       hit=False, to_execute=True  => payload is signature (cache miss, caller must load+call)
       hit=False, to_execute=False => payload is signature (symbolic, caller handles)
     """
-    if _signature_c_available:
-        return _signature.fast_dispatch(
+    if _use_c_signature_parser_backend():
+        backend = _c_signature_backend
+        assert backend is not None
+        return backend.fast_dispatch(
             args,
             kwargs,
             params,
