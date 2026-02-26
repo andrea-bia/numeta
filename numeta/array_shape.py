@@ -93,7 +93,7 @@ class ArrayShape:
         """
         Returns the indices of the dimensions that are undefined at compile time.
         """
-        return [i for i, dim in enumerate(self.iter_dims()) if not isinstance(dim, int)]
+        return [i for i, dim in enumerate(self.iter_dims()) if not self._is_comptime_dim(dim)]
 
     def has_comptime_undefined_dims(self):
         """
@@ -105,8 +105,24 @@ class ArrayShape:
         if self.is_shape_vector:
             return True
         for dim in self.iter_dims():
-            if not isinstance(dim, int):
+            if not self._is_comptime_dim(dim):
                 return True
+        return False
+
+    @staticmethod
+    def _is_comptime_dim(dim):
+        if isinstance(dim, int):
+            return True
+
+        # Shape dimensions are often normalized to LiteralNode instances.
+        try:
+            from numeta.ast.expressions import LiteralNode
+
+            if isinstance(dim, LiteralNode):
+                return isinstance(dim.value, int)
+        except Exception:
+            pass
+
         return False
 
 

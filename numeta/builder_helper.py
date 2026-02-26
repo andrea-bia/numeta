@@ -121,6 +121,10 @@ class BuilderHelper:
     def _is_trivial_shape_dim(dim) -> bool:
         from .ast.expressions import LiteralNode, GetItem
 
+        if isinstance(dim, int):
+            return True
+        if isinstance(dim, np.integer):
+            return True
         if isinstance(dim, LiteralNode):
             return True
         if isinstance(dim, Variable):
@@ -142,7 +146,12 @@ class BuilderHelper:
                 raise NotImplementedError(
                     "Cannot materialize allocation shape with unresolved dimension None."
                 )
-            node = check_node(dim)
+            if isinstance(dim, int):
+                node = dim
+            elif isinstance(dim, np.integer):
+                node = int(dim)
+            else:
+                node = check_node(dim)
             checked_dims.append(node)
             if not self._is_trivial_shape_dim(node):
                 needs_materialization = True
