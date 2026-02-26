@@ -146,6 +146,7 @@ def lower_procedure(procedure: Procedure, backend: str = "fortran") -> IRProcedu
             parameter=getattr(var, "parameter", False),
             bind_c=getattr(var, "bind_c", False),
             assign=getattr(var, "assign", None),
+            pass_by_value=var.pass_by_value,
             source=var,
         )
         var_cache[key] = ir_var

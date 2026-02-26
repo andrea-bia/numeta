@@ -633,9 +633,8 @@ class FortranEmitter:
         if var.intent is not None:
             blocks += [", ", "intent", "(", var.intent, ")"]
 
-        if syntax_settings.force_value:
-            if (shape is None or shape.rank == 0) and var.intent == "in":
-                blocks += [", ", "value"]
+        if var.pass_by_value:
+            blocks += [", ", "value"]
 
         if var.parameter:
             blocks += [", ", "parameter"]

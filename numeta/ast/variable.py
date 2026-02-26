@@ -1,6 +1,7 @@
 from .nodes import NamedEntity
 from .expressions import ExpressionNode
 from numeta.array_shape import ArrayShape, SCALAR
+from numeta.settings import settings
 
 
 class Variable(NamedEntity, ExpressionNode):
@@ -18,6 +19,7 @@ class Variable(NamedEntity, ExpressionNode):
         parent=None,
         bind_c=False,
         use_c_types=False,
+        pass_by_value=None,
     ):
         # Note: NamedEntity.__init__ calls Node.__init__ which captures source location
         super().__init__(name, parent=parent)
@@ -42,6 +44,7 @@ class Variable(NamedEntity, ExpressionNode):
         self.target = target
         # Note that bind c make the variable global
         self.bind_c = bind_c
+        self.pass_by_value = pass_by_value
 
         from .namespace import Namespace
 
@@ -148,4 +151,28 @@ class Variable(NamedEntity, ExpressionNode):
             assign=self.assign,
             parent=self.parent,
             use_c_types=self.use_c_types,
+            pass_by_value=self.pass_by_value,
         )
+
+    @property
+    def pass_by_value(self):
+        if self.__pass_by_value is not None:
+            return self.__pass_by_value
+        is_scalar = self._shape is SCALAR or (
+            not self._shape.is_unknown and not self._shape.is_shape_vector and self._shape.rank == 0
+        )
+        return settings.syntax.force_value and is_scalar and self.intent == "in"
+
+    @pass_by_value.setter
+    def pass_by_value(self, value):
+        if value is not None and not isinstance(value, bool):
+            raise TypeError("pass_by_value must be a bool or None")
+        if value is True:
+            is_scalar = self._shape is SCALAR or (
+                not self._shape.is_unknown
+                and not self._shape.is_shape_vector
+                and self._shape.rank == 0
+            )
+            if not is_scalar:
+                raise ValueError("pass_by_value=True is only valid for scalar variables")
+        self.__pass_by_value = value

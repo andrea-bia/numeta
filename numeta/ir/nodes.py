@@ -46,6 +46,7 @@ class IRVar(IRNode):
     parameter: bool = False
     bind_c: bool = False
     assign: object | None = None
+    pass_by_value: bool = False
 
 
 @dataclass

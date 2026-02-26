@@ -1126,12 +1126,10 @@ class CEmitter:
                 return f"{self._shape_arg_map[name]}_dims"
             if self._pointer_args.get(name, False):
                 return name
-            if arg.var.intent in {"out", "inout"} and (
-                arg.var.vtype is None or arg.var.vtype.shape is None
-            ):
-                return f"&{name}"
-            if name.startswith("fc_") and (arg.var.vtype is None or arg.var.vtype.shape is None):
-                return f"&{name}"
+            is_scalar = arg.var.vtype is None or arg.var.vtype.shape is None
+            if not is_scalar or arg.var.pass_by_value:
+                return name
+            return f"&{name}"
         return self._render_expr(arg)
 
     def _render_c_f_pointer(self, stmt: IRCall, indent: int) -> list[str]:

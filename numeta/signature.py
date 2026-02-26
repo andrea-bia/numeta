@@ -86,10 +86,22 @@ def _signature_extension_stale():
     import importlib.util
 
     c_file = Path(__file__).parent / "_signature.c"
-    spec = importlib.util.find_spec("numeta._signature")
-    if spec is None or spec.origin is None:
+    so_file = None
+    try:
+        spec = importlib.util.find_spec("numeta._signature")
+    except ValueError:
+        spec = None
+
+    if spec is not None and spec.origin is not None:
+        so_file = Path(spec.origin)
+    else:
+        module = sys.modules.get("numeta._signature")
+        module_file = getattr(module, "__file__", None)
+        if module_file is not None:
+            so_file = Path(module_file)
+
+    if so_file is None:
         return False
-    so_file = Path(spec.origin)
     if not so_file.exists() or not c_file.exists():
         return False
     return c_file.stat().st_mtime > so_file.stat().st_mtime
