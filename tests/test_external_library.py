@@ -77,3 +77,22 @@ def test_blas(backend):
     matmul(a, b, c)
 
     np.testing.assert_allclose(c, np.dot(a, b))
+
+
+def test_external_library_arg_pass_by_value_metadata():
+    lib = nm.ExternalLibraryWrapper("foo")
+    lib.add_method(
+        "bar",
+        [nm.Arg(nm.i8, pass_by_value=True), nm.Arg(nm.i8, pass_by_value=False)],
+        None,
+    )
+
+    args = list(lib.methods.procedures["bar"].arguments.values())
+    assert args[0].pass_by_value is True
+    assert args[1].pass_by_value is False
+
+
+def test_external_library_arg_pass_by_value_rejects_non_scalar():
+    lib = nm.ExternalLibraryWrapper("foo")
+    with pytest.raises(ValueError, match="scalar variables"):
+        lib.add_method("bar", [nm.Arg(nm.f8[None], pass_by_value=True)], None)

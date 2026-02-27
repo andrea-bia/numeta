@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 from numeta.ast import Variable, ExternalNamespace
@@ -35,13 +36,23 @@ class ExternalLibraryWrapper(ExternalLibrary):
     def add_method(
         self,
         name: str,
-        argtypes: Sequence[DataType | ArrayType | FortranType | type],
+        argtypes: Sequence[Arg | DataType | ArrayType | FortranType | type],
         restype: DataType | ArrayType | FortranType | type | None,
         bind_c: bool = True,
     ) -> None:
-        symbolic_arguments = [
-            convert_argument(f"a{i}", arg, bind_c=bind_c) for i, arg in enumerate(argtypes)
-        ]
+        symbolic_arguments = []
+        for i, arg in enumerate(argtypes):
+            if isinstance(arg, Arg):
+                symbolic_arguments.append(
+                    convert_argument(
+                        f"a{i}",
+                        arg.hint,
+                        bind_c=bind_c,
+                        pass_by_value=arg.pass_by_value,
+                    )
+                )
+            else:
+                symbolic_arguments.append(convert_argument(f"a{i}", arg, bind_c=bind_c))
         return_type = None
         if restype is not None:
             return_type = convert_argument("res0", restype, bind_c=bind_c).dtype
@@ -63,7 +74,10 @@ class ExternalLibraryWrapper(ExternalLibrary):
 
 
 def convert_argument(
-    name: str, hint: DataType | ArrayType | FortranType | type, bind_c: bool = True
+    name: str,
+    hint: DataType | ArrayType | FortranType | type,
+    bind_c: bool = True,
+    pass_by_value: bool | None = None,
 ) -> Variable:
     if isinstance(hint, ArrayType):
         dtype = hint.dtype
@@ -80,4 +94,16 @@ def convert_argument(
     else:
         raise TypeError(f"Expected a numpy or numeta dtype got {type(hint).__name__}")
 
-    return Variable(name, dtype=dtype, use_c_types=bind_c, shape=shape)
+    return Variable(
+        name,
+        dtype=dtype,
+        use_c_types=bind_c,
+        shape=shape,
+        pass_by_value=pass_by_value,
+    )
+
+
+@dataclass(frozen=True)
+class Arg:
+    hint: DataType | ArrayType | FortranType | type
+    pass_by_value: bool | None = None
