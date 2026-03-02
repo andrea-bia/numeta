@@ -58,6 +58,34 @@ def test_library_write_code(tmp_path, backend):
             raise ValueError(f"Unsupported backend: {backend}")
 
 
+def test_library_write_code_with_global_constant(tmp_path, backend):
+    lib = nm.NumetaLibrary(f"write_code_global_{backend}")
+    global_name = f"global_constant_var_write_code_{backend}"
+
+    nm.declare_global_constant(
+        (2, 1),
+        np.float64,
+        value=np.array([2.0, -1.0]),
+        name=global_name,
+        backend=backend,
+        library=lib,
+    )
+
+    lib.write_code(tmp_path)
+
+    namespace_name = f"{global_name}_namespace"
+    if backend == "fortran":
+        src = Path(tmp_path) / f"{namespace_name}_src.f90"
+    elif backend == "c":
+        src = Path(tmp_path) / f"{namespace_name}_src.c"
+    else:
+        raise ValueError(f"Unsupported backend: {backend}")
+
+    assert src.exists()
+    code = src.read_text().lower()
+    assert global_name in code
+
+
 def test_library_save_and_load_with_dep(tmp_path, backend):
     lib = nm.NumetaLibrary(f"save_and_load_with_dep_{backend}")
 
