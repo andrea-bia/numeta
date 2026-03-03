@@ -14,7 +14,7 @@ from .settings import settings
 
 
 class NumetaLibrary:
-    __slots__ = "name", "_entries"
+    __slots__ = "name", "_entries", "_global_entries"
     loaded = set()
     _reserved_names = {
         "name",
@@ -38,6 +38,7 @@ class NumetaLibrary:
             self._nm_validate_name(name)
         self.name = name
         self._entries: dict = {}
+        self._global_entries: dict = {}
 
     @classmethod
     def _nm_validate_name(cls, name: str) -> None:
@@ -103,6 +104,14 @@ class NumetaLibrary:
     def _nm_add(self, function: NumetaFunction) -> None:
         self.register(function)
 
+    def _nm_add_global(self, global_target: NumetaCompiledFunction) -> None:
+        if not isinstance(global_target, NumetaCompiledFunction):
+            raise TypeError("global registration expects a NumetaCompiledFunction")
+        existing = self._global_entries.get(global_target.name)
+        if existing is not None and existing is not global_target:
+            raise ValueError(f"Global namespace '{global_target.name}' already registered")
+        self._global_entries[global_target.name] = global_target
+
     def _nm_get(self, name) -> NumetaFunction | None:
         return self._entries.get(name)
 
@@ -129,6 +138,31 @@ class NumetaLibrary:
                     c_src.write_text(c_code)
                 else:
                     raise ValueError(f"Unsupported backend: {compiled_target.backend}")
+
+        for global_target in self._global_entries.values():
+            if global_target.backend == "fortran":
+                fortran_src = directory / f"{global_target.name}_src.f90"
+                from .ast.namespace import Namespace
+                from .fortran.fortran_syntax import render_stmt_lines
+
+                if not isinstance(global_target.symbolic_function, Namespace):
+                    raise ValueError("Global target must be backed by a namespace")
+                lines = render_stmt_lines(
+                    global_target.symbolic_function.get_declaration(), indent=0
+                )
+                fortran_src.write_text("".join(lines))
+            elif global_target.backend == "c":
+                from .ast.namespace import Namespace
+                from numeta.c.emitter import CEmitter
+
+                c_src = directory / f"{global_target.name}_src.c"
+                if not isinstance(global_target.symbolic_function, Namespace):
+                    raise ValueError("Global target must be backed by a namespace")
+                emitter = CEmitter()
+                c_code, _requires_math = emitter.emit_namespace(global_target.symbolic_function)
+                c_src.write_text(c_code)
+            else:
+                raise ValueError(f"Unsupported backend: {global_target.backend}")
 
     def save(
         self,
@@ -166,8 +200,7 @@ class NumetaLibrary:
 
         class RewritingPickler(pickle.Pickler):
 
-            @staticmethod
-            def reducer_override(obj):
+            def reducer_override(self, obj):  # type: ignore[override]
                 nonlocal dependencies
                 nonlocal obj_files
                 if isinstance(obj, NumetaFunction):

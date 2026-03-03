@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 from numeta.ast import Variable as AstVariable, Namespace
@@ -7,6 +7,9 @@ from numeta.datatype import DataType, float64, get_datatype
 from numeta.array_shape import ArrayShape, SCALAR, UNKNOWN
 from numeta.numeta_function import NumetaCompiledFunction
 from numeta.settings import settings
+
+if TYPE_CHECKING:
+    from numeta.numeta_library import NumetaLibrary
 
 _n_global_constant: int = 0
 
@@ -19,6 +22,7 @@ def declare_global_constant(
     value: Any = None,
     directory: str | None = None,
     backend: str | None = None,
+    library: NumetaLibrary | None = None,
 ) -> AstVariable:
     if backend is None:
         backend = settings.default_backend
@@ -96,4 +100,8 @@ def declare_global_constant(
         backend=backend,
     )
     global_constant_namespace.parent = namespace_library
+
+    if library is not None:
+        library._nm_add_global(namespace_library)
+
     return var
