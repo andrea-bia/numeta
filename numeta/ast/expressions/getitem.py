@@ -10,6 +10,7 @@ class GetItem(ExpressionNode):
         self.variable = variable
         # define if only a slice [begin : end : step] of the Variable is asked
         self.sliced = slice_
+        self._shape_cache = None
 
     @property
     def target(self):
@@ -25,6 +26,10 @@ class GetItem(ExpressionNode):
 
     @property
     def _shape(self):
+        cached_shape = self._shape_cache
+        if cached_shape is not None:
+            return cached_shape
+
         dims = []
         if self.variable._shape is UNKNOWN:
             if isinstance(self.sliced, slice):
@@ -36,11 +41,14 @@ class GetItem(ExpressionNode):
                     )
                 dims.append(get_slice_dim(self.sliced, None))
             else:
+                self._shape_cache = SCALAR
                 return SCALAR
         elif self.variable._shape is SCALAR:
+            self._shape_cache = SCALAR
             return SCALAR
         elif isinstance(self.sliced, tuple):
             if all(not isinstance(element, slice) for element in self.sliced):
+                self._shape_cache = SCALAR
                 return SCALAR
             for i, element in enumerate(self.sliced):
                 if isinstance(element, slice):
@@ -61,14 +69,17 @@ class GetItem(ExpressionNode):
                     )
                 dims.append(get_slice_dim(self.sliced, self.variable._shape.dim(0)))
             else:
+                self._shape_cache = SCALAR
                 return SCALAR
 
-        return ArrayShape(tuple(dims))
+        shape = ArrayShape(tuple(dims))
+        self._shape_cache = shape
+        return shape
 
     def extract_entities(self):
-        yield from self.variable.extract_entities()
         from numeta.ast.tools import extract_entities
 
+        yield from self.variable.extract_entities()
         yield from extract_entities(self.sliced)
 
     def __setitem__(self, key, value):

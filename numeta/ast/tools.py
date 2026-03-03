@@ -1,5 +1,17 @@
 import numpy as np
-import numbers
+
+
+_SCALAR_LITERAL_TYPES = (bool, int, float, complex, str)
+_LiteralNode = None
+
+
+def _get_literal_node_class():
+    global _LiteralNode
+    if _LiteralNode is None:
+        from .expressions import LiteralNode
+
+        _LiteralNode = LiteralNode
+    return _LiteralNode
 
 
 def extract_entities(element):
@@ -17,10 +29,9 @@ def extract_entities(element):
 
 def check_node(node):
     """Return a LiteralNode for scalars, otherwise pass through existing nodes."""
-    if isinstance(node, (numbers.Number, np.generic, bool, str)):
-        from .expressions import LiteralNode
-
-        return LiteralNode(node)
+    node_type = type(node)
+    if node_type in _SCALAR_LITERAL_TYPES or isinstance(node, np.generic):
+        return _get_literal_node_class()(node)
     else:
         return node
 

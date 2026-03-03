@@ -12,7 +12,7 @@ class ProcedureDeclaration(StatementWithScope):
         self.procedure = procedure
 
         # First check the arguments dependencies
-        entities = list(self.procedure.arguments.values())
+        entities = self.procedure.arguments
         dependencies, declarations = get_nested_dependencies_or_declarations(
             entities, self.procedure.parent
         )
@@ -24,11 +24,12 @@ class ProcedureDeclaration(StatementWithScope):
         self.interfaces = {dec.procedure.name: dec.procedure for dec in procedure_decs.values()}
 
         # Then check the dependencies in the body
-        entities = []
+        entities = {}
         for statement in self.procedure.scope.get_statements():
             for var in statement.extract_entities():
-                if var not in entities:
-                    entities.append(var)
+                # order is important
+                if var.name not in entities:
+                    entities[var.name] = var
         body_dependencies, body_declarations = get_nested_dependencies_or_declarations(
             entities, self.procedure.parent
         )
@@ -116,7 +117,7 @@ class ProcedureInterfaceDeclaration(StatementWithScope):
                 yield Comment(line, add_to_scope=False)
 
         # First check the arguments dependencies
-        entities = list(self.procedure.arguments.values())
+        entities = self.procedure.arguments
         dependencies, declarations = get_nested_dependencies_or_declarations(
             entities, self.procedure.parent
         )

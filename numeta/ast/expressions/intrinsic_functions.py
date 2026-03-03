@@ -10,6 +10,7 @@ class IntrinsicFunction(ExpressionNode):
     def __init__(self, *arguments):
         super().__init__()
         self.arguments = [check_node(arg) for arg in arguments]
+        self._shape_cache = None
 
     def extract_entities(self):
         for arg in self.arguments:
@@ -27,7 +28,12 @@ class IntrinsicFunction(ExpressionNode):
     @property
     def _shape(self):
         # default behavior for a lot of intrinsic functions
-        return self.arguments[0]._shape
+        cached_shape = self._shape_cache
+        if cached_shape is not None:
+            return cached_shape
+        shape = self.arguments[0]._shape
+        self._shape_cache = shape
+        return shape
 
 
 class UnaryIntrinsicFunction(IntrinsicFunction):

@@ -1,32 +1,44 @@
 from abc import ABC, abstractmethod
-import inspect
+import sys
+
+
+_TRACK_SOURCE_LOCATION = True
+_INTERNAL_AST = "numeta/ast/"
+_INTERNAL_WRAPPERS = "numeta/wrappers/"
+_INTERNAL_BUILDER = "numeta/builder_helper.py"
+_INTERNAL_FUNCTION = "numeta/numeta_function.py"
+_INTERNAL_IR = "numeta/ir/"
+_INTERNAL_C = "numeta/c/"
+_INTERNAL_FORTRAN = "numeta/fortran/"
+
+
+def set_source_location_tracking(enabled: bool) -> None:
+    global _TRACK_SOURCE_LOCATION
+    _TRACK_SOURCE_LOCATION = enabled
 
 
 class Node(ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Capture source location from where this node was created
-        self._source_location = self._capture_source_location()
+        if _TRACK_SOURCE_LOCATION:
+            self._source_location = self._capture_source_location()
+        else:
+            self._source_location = None
 
     def _capture_source_location(self):
         """Capture the source location (filename, line) where this node was created."""
-        import os
-
         try:
-            frame = inspect.currentframe()
-            # Go up the stack to find the user's code (skip numeta internal frames)
+            frame = sys._getframe(1)
             while frame:
                 filename = frame.f_code.co_filename
-                # Skip numeta's internal files - check if it's in the numeta package
-                # by looking for numeta/ast/, numeta/wrappers/, etc.
                 is_numeta_internal = (
-                    "numeta/ast/" in filename
-                    or "numeta/wrappers/" in filename
-                    or "numeta/builder_helper.py" in filename
-                    or "numeta/numeta_function.py" in filename
-                    or "numeta/ir/" in filename
-                    or "numeta/c/" in filename
-                    or "numeta/fortran/" in filename
+                    _INTERNAL_AST in filename
+                    or _INTERNAL_WRAPPERS in filename
+                    or _INTERNAL_BUILDER in filename
+                    or _INTERNAL_FUNCTION in filename
+                    or _INTERNAL_IR in filename
+                    or _INTERNAL_C in filename
+                    or _INTERNAL_FORTRAN in filename
                 )
                 if not is_numeta_internal:
                     return {

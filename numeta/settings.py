@@ -166,6 +166,7 @@ class Settings:
         ignore_fixed_shape_in_nested_calls=False,
         default_backend="fortran",
         default_do_checks=True,
+        track_source_location=True,
         default_compile_flags="-O3 -march=native",
         use_c_dispatch=True,
         use_c_signature_parser=True,
@@ -217,6 +218,7 @@ class Settings:
         self.__defaults_initialized = False
         self.set_default_backend(default_backend)
         self.set_default_do_checks(default_do_checks)
+        self.set_track_source_location(track_source_location)
         self.set_default_compile_flags(default_compile_flags)
         self.use_c_dispatch = use_c_dispatch
         self.use_c_signature_parser = use_c_signature_parser
@@ -312,6 +314,24 @@ class Settings:
         if not isinstance(value, bool):
             raise TypeError("default_do_checks must be a bool")
         self.__default_do_checks = value
+
+    @property
+    def track_source_location(self):
+        return self.__track_source_location
+
+    def set_track_source_location(self, value: bool):
+        if not isinstance(value, bool):
+            raise TypeError("track_source_location must be a bool")
+        self.__track_source_location = value
+        from numeta.ast.nodes.base_node import set_source_location_tracking
+
+        set_source_location_tracking(value)
+
+    def set_source_location_tracking(self):
+        self.set_track_source_location(True)
+
+    def unset_source_location_tracking(self):
+        self.set_track_source_location(False)
 
     @property
     def default_compile_flags(self):

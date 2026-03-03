@@ -1,4 +1,3 @@
-from .expression_node import ExpressionNode
 from numeta.ast.tools import check_node
 from .expression_node import ExpressionNode
 
@@ -10,10 +9,6 @@ class FunctionCall(ExpressionNode):
         super().__init__()
         self.function = function
         self.arguments = [check_node(arg) for arg in arguments]
-
-    @property
-    def dtype(self):
-        return getattr(self.function, "dtype", None)
 
     @property
     def dtype(self):

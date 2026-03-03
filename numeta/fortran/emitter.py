@@ -118,15 +118,16 @@ class FortranEmitter:
         return "".join(lines)
 
     def _emit_stmt(self, stmt, *, indent: int) -> list[str]:
-        if isinstance(stmt, IRAssign):
+        stmt_type = type(stmt)
+        if stmt_type is IRAssign:
             blocks = self._expr_blocks(stmt.target) + ["="] + self._expr_blocks(stmt.value)
             return [print_block(blocks, indent=indent)]
-        if isinstance(stmt, IRCall):
+        if stmt_type is IRCall:
             blocks = ["call", " "] + self._expr_blocks(stmt.func) + ["("]
             blocks += self._join_args(stmt.args)
             blocks += [")"]
             return [print_block(blocks, indent=indent)]
-        if isinstance(stmt, IRIf):
+        if stmt_type is IRIf:
             lines = [
                 print_block(["if", "(", *self._expr_blocks(stmt.cond), ")", "then"], indent=indent)
             ]
@@ -136,7 +137,7 @@ class FortranEmitter:
             if stmt.else_:
                 for idx, branch in enumerate(stmt.else_):
                     if (
-                        isinstance(branch, IRIf)
+                        type(branch) is IRIf
                         and getattr(branch.source, "__class__", None) is not None
                     ):
                         if branch.source.__class__.__name__ == "ElseIf":
@@ -157,7 +158,7 @@ class FortranEmitter:
 
             lines.append(print_block(["end", " ", "if"], indent=indent))
             return lines
-        if isinstance(stmt, IRFor):
+        if stmt_type is IRFor:
             var = stmt.var
             var_name = var.name if var is not None else "<var>"
             blocks = ["do", " ", var_name, " ", "=", " "]
@@ -172,31 +173,31 @@ class FortranEmitter:
                 lines.extend(self._emit_stmt(child, indent=indent + 1))
             lines.append(print_block(["end", " ", "do"], indent=indent))
             return lines
-        if isinstance(stmt, IRWhile):
+        if stmt_type is IRWhile:
             blocks = ["do while", " ", "("] + self._expr_blocks(stmt.cond) + [")"]
             lines = [print_block(blocks, indent=indent)]
             for child in stmt.body:
                 lines.extend(self._emit_stmt(child, indent=indent + 1))
             lines.append(print_block(["end", " ", "do"], indent=indent))
             return lines
-        if isinstance(stmt, IRAllocate):
+        if stmt_type is IRAllocate:
             blocks = ["allocate", "("]
             var_blocks = self._expr_blocks(stmt.var)
             dims = self._format_allocate_dims(stmt.var, getattr(stmt, "dims", []))
             blocks += var_blocks + dims + [")"]
             return [print_block(blocks, indent=indent)]
-        if isinstance(stmt, IRDeallocate):
+        if stmt_type is IRDeallocate:
             blocks = ["deallocate", "("] + self._expr_blocks(stmt.var) + [")"]
             return [print_block(blocks, indent=indent)]
-        if isinstance(stmt, IRReturn):
+        if stmt_type is IRReturn:
             if stmt.value is None:
                 return [print_block(["return"], indent=indent)]
             return [print_block(["return", " ", *self._expr_blocks(stmt.value)], indent=indent)]
-        if isinstance(stmt, IRPrint):
+        if stmt_type is IRPrint:
             blocks = ["print", " ", "*", ",", " "]
             blocks += self._join_args(stmt.values)
             return [print_block(blocks, indent=indent)]
-        if isinstance(stmt, IROpaqueStmt):
+        if stmt_type is IROpaqueStmt:
             if stmt.payload is not None:
                 return render_stmt_lines(stmt.payload, indent=indent)
         return [print_block(["! unsupported statement"], indent=indent)]
@@ -218,7 +219,8 @@ class FortranEmitter:
     def _expr_blocks(self, expr: IRExpr | None) -> list[str]:
         if expr is None:
             return [""]
-        if isinstance(expr, IRLiteral):
+        expr_type = type(expr)
+        if expr_type is IRLiteral:
             source: Any = expr.source
             if source is not None:
                 return render_expr_blocks(source)
@@ -227,28 +229,28 @@ class FortranEmitter:
             if isinstance(expr.value, bool):
                 return [".true." if expr.value else ".false."]
             return [str(expr.value)]
-        if isinstance(expr, IRVarRef):
+        if expr_type is IRVarRef:
             var = expr.var
             if var is not None:
                 return [var.name]
             return ["<var>"]
-        if isinstance(expr, IRBinary):
+        if expr_type is IRBinary:
             op = _FORTRAN_BINARY_OPS.get(expr.op, expr.op)
             return ["(", *self._expr_blocks(expr.left), op, *self._expr_blocks(expr.right), ")"]
-        if isinstance(expr, IRUnary):
+        if expr_type is IRUnary:
             if expr.op == "neg":
                 return ["-", "(", *self._expr_blocks(expr.operand), ")"]
             if expr.op == "not":
                 return [".not.", "(", *self._expr_blocks(expr.operand), ")"]
             return [expr.op, "(", *self._expr_blocks(expr.operand), ")"]
-        if isinstance(expr, IRCallExpr):
+        if expr_type is IRCallExpr:
             blocks = self._expr_blocks(expr.callee) + ["("]
             blocks += self._join_args(expr.args)
             blocks += [")"]
             return blocks
-        if isinstance(expr, IRGetAttr):
+        if expr_type is IRGetAttr:
             return [*self._expr_blocks(expr.base), "%", expr.name]
-        if isinstance(expr, IRGetItem):
+        if expr_type is IRGetItem:
             base_blocks = self._expr_blocks(expr.base)
             indices = list(expr.indices)
             order = None
@@ -271,7 +273,7 @@ class FortranEmitter:
                     blocks += [",", " "] + dim
             blocks += [")"]
             return blocks
-        if isinstance(expr, IRIntrinsic):
+        if expr_type is IRIntrinsic:
             if expr.name == "array_constructor":
                 backing_array = self._array_constructor_backing_array_blocks(expr.args)
                 if backing_array is not None:
@@ -317,7 +319,7 @@ class FortranEmitter:
                 if arg0.vtype and arg0.vtype.dtype.name == "complex":
                     is_complex = True
                 elif (
-                    isinstance(arg0, IRVarRef)
+                    type(arg0) is IRVarRef
                     and arg0.var
                     and arg0.var.vtype
                     and arg0.var.vtype.dtype.name == "complex"
@@ -385,7 +387,7 @@ class FortranEmitter:
             blocks += self._join_args(expr.args)
             blocks += [")"]
             return blocks
-        if isinstance(expr, IROpaqueExpr):
+        if expr_type is IROpaqueExpr:
             if expr.payload is not None:
                 return render_expr_blocks(expr.payload)
             return ["<expr>"]

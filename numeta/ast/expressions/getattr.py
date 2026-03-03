@@ -7,13 +7,20 @@ class GetAttr(ExpressionNode):
         super().__init__()
         self.variable = variable
         self.attr = attr
+        self._dtype_cache = None
+        self._shape_cache = None
 
     @property
     def dtype(self):
+        cached_dtype = self._dtype_cache
+        if cached_dtype is not None:
+            return cached_dtype
+
         struct_dtype = self.variable.dtype
         if hasattr(struct_dtype, "_members"):
             for name, dtype, _ in struct_dtype._members:
                 if name == self.attr:
+                    self._dtype_cache = dtype
                     return dtype
         raise_with_source(
             ValueError,
@@ -23,10 +30,15 @@ class GetAttr(ExpressionNode):
 
     @property
     def _shape(self):
+        cached_shape = self._shape_cache
+        if cached_shape is not None:
+            return cached_shape
+
         struct_dtype = self.variable.dtype
         if hasattr(struct_dtype, "_members"):
             for name, _, shape in struct_dtype._members:
                 if name == self.attr:
+                    self._shape_cache = shape
                     return shape
         raise_with_source(
             ValueError,

@@ -1,26 +1,24 @@
 def print_block(blocks, indent=0, prefix=""):
     indentation = "    " * indent
     prefix_indentation = prefix + indentation
-    prefix_indent_length = len(prefix_indentation)
+    max_line_len = 120 - len(prefix_indentation) - 2
 
-    lines_to_print = [""]
-    lines_lengths = [0]
+    lines_to_print = []
+    current_line = ""
+    current_len = 0
 
     for string in blocks:
-        current_line_length = lines_lengths[-1]
-        new_length = current_line_length + len(string)
-        total_length = prefix_indent_length + new_length + len(" &")
-
-        if total_length < 120:
-            lines_to_print[-1] += string
-            lines_lengths[-1] = new_length
+        string_len = len(string)
+        if current_len + string_len < max_line_len:
+            current_line += string
+            current_len += string_len
         else:
-            lines_to_print[-1] += " &"
-            lines_to_print.append(string)
-            lines_lengths.append(len(string))
+            lines_to_print.append(current_line + " &")
+            current_line = string
+            current_len = string_len
 
-    result = "\n".join(prefix_indentation + line for line in lines_to_print) + "\n"
-    return result
+    lines_to_print.append(current_line)
+    return "\n".join(prefix_indentation + line for line in lines_to_print) + "\n"
 
 
 # def get_variables(element):
@@ -46,19 +44,25 @@ def print_block(blocks, indent=0, prefix=""):
 #        return []
 
 
-def get_nested_dependencies_or_declarations(entities, curr_namespace, for_namespace=False):
+def get_nested_dependencies_or_declarations(entities_by_name, curr_namespace, for_namespace=False):
     """
     This function takes a set of entities and returns the dependencies and declarations of the entities.
     If for_namespace is True, it will return the declarations of the entities that are in the same namespace as curr_namespace.
     Important: Reverse the order of the declarations to make sure that the dependencies are declared before the entities.
     """
+
     from numeta.ast.namespace import builtins_namespace
+
+    if isinstance(entities_by_name, dict):
+        entities_by_name = dict(entities_by_name)
+    else:
+        entities_by_name = {entity.name: entity for entity in entities_by_name}
 
     dependencies = set()
     declarations = {}
 
-    # revese to preserve the order of the entities
-    for entity in entities[::-1]:
+    # reverse to preserve the input order semantics
+    for entity in reversed(list(entities_by_name.values())):
         if entity.parent is builtins_namespace:
             # No need to declare
             continue
@@ -79,17 +83,18 @@ def get_nested_dependencies_or_declarations(entities, curr_namespace, for_namesp
 
     new_declarations = declarations.copy()
     while new_declarations:
-        new_entities = []
+        new_entities = {}
         for declaration in new_declarations.values():
             for variable in declaration.extract_entities():
-                if variable not in new_entities and variable not in entities:
-                    new_entities.append(variable)
+                variable_name = variable.name
+                if variable_name not in new_entities and variable_name not in entities_by_name:
+                    new_entities[variable_name] = variable
 
-        entities.extend(new_entities)
+        entities_by_name.update(new_entities)
 
         # Now we can add the dependencies or define the local variables
         new_declarations = {}
-        for entity in new_entities:
+        for entity in new_entities.values():
             if entity.parent is builtins_namespace:
                 continue
             if not for_namespace:

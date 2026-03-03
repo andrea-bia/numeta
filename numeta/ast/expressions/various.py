@@ -52,9 +52,15 @@ class ArrayConstructor(ExpressionNode):
     def __init__(self, *elements):
         super().__init__()
         self.elements = [check_node(e) for e in elements]
+        self._dtype_cache = None
+        self._shape_cache = None
 
     @property
     def dtype(self):
+        cached_dtype = self._dtype_cache
+        if cached_dtype is not None:
+            return cached_dtype
+
         if not self.elements:
             raise_with_source(
                 ValueError,
@@ -65,7 +71,8 @@ class ArrayConstructor(ExpressionNode):
             if element is None:
                 continue
             if hasattr(element, "dtype"):
-                return element.dtype
+                self._dtype_cache = element.dtype
+                return self._dtype_cache
         raise_with_source(
             ValueError,
             "ArrayConstructor must have at least one typed element",
@@ -74,7 +81,12 @@ class ArrayConstructor(ExpressionNode):
 
     @property
     def _shape(self):
-        return ArrayShape((len(self.elements),))
+        cached_shape = self._shape_cache
+        if cached_shape is not None:
+            return cached_shape
+        shape = ArrayShape((len(self.elements),))
+        self._shape_cache = shape
+        return shape
 
     def extract_entities(self):
         for e in self.elements:

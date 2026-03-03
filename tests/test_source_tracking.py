@@ -4,6 +4,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
+from numeta.settings import settings
 from numeta import jit
 from numeta.c.emitter import CEmitter
 from numeta.c.c_syntax import render_stmt_lines as render_c_stmt_lines
@@ -53,6 +54,17 @@ def test_node_captures_source_location():
     # Should point to this test file
     assert "test_source_tracking.py" in node.source_location["filename"]
     assert node.source_location["function"] == "test_node_captures_source_location"
+
+
+def test_node_source_location_can_be_disabled():
+    """Source tracking can be disabled globally for performance-sensitive generation."""
+    previous = settings.track_source_location
+    try:
+        settings.unset_source_location_tracking()
+        node = MockNode()
+        assert node.source_location is None
+    finally:
+        settings.set_track_source_location(previous)
 
 
 def test_source_location_skips_numeta_internal_frames():

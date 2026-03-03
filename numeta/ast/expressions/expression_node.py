@@ -1,7 +1,20 @@
-from numeta.ast.nodes import Node
 from abc import abstractmethod
 
+from numeta.ast.nodes import Node
 from numeta.exceptions import NumetaTypeError, raise_with_source
+
+
+BinaryOperationNode = None
+EqBinaryNode = None
+NeBinaryNode = None
+GetItem = None
+GetAttr = None
+Neg = None
+Abs = None
+Transpose = None
+Re = None
+Im = None
+Assignment = None
 
 
 class ExpressionNode(Node):
@@ -40,148 +53,109 @@ class ExpressionNode(Node):
         )
 
     def __rshift__(self, other):
-        from numeta.ast.statements import Assignment
-
         if isinstance(other, (int, float, complex, bool, str)):
             from .literal_node import LiteralNode
 
             other = LiteralNode(other)
+        from numeta.ast.statements import Assignment
+
         return Assignment(self, other)
 
     def __neg__(self):
-        from .intrinsic_functions import Neg
-
         return Neg(self)
 
     def __abs__(self):
-        from .intrinsic_functions import Abs
-
         return Abs(self)
 
     def __add__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, "+", other)
 
     def __radd__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(other, "+", self)
 
     def __sub__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, "-", other)
 
     def __rsub__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(other, "-", self)
 
     def __mul__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, "*", other)
 
     def __rmul__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(other, "*", self)
 
     def __truediv__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, "/", other)
 
     def __rtruediv__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(other, "/", self)
 
     def __floordiv__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, "/", other)
 
     def __rfloordiv__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(other, "/", self)
 
     def __pow__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, "**", other)
 
     def __rpow__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(other, "**", self)
 
     def __and__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, ".and.", other)
 
     def __or__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, ".or.", other)
 
     def __ne__(self, other):
-        from .binary_operation_node import NeBinaryNode
-
         return NeBinaryNode(self, other)
 
     def __eq__(self, other):
-        from .binary_operation_node import EqBinaryNode
-
         return EqBinaryNode(self, other)
 
     def __ge__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, ".ge.", other)
 
     def __gt__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, ".gt.", other)
 
     def __le__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, ".le.", other)
 
     def __lt__(self, other):
-        from .binary_operation_node import BinaryOperationNode
-
         return BinaryOperationNode(self, ".lt.", other)
 
     @property
     def real(self):
-        from .various import Re
-
         return Re(self)
 
     @property
     def imag(self):
-        from .various import Im
-
         return Im(self)
 
     @property
     def T(self):
-        from .intrinsic_functions import Transpose
-
         return Transpose(self)
 
     def __getitem__(self, key):
         if isinstance(key, slice) and key.start is None and key.stop is None and key.step is None:
             return self
-        from .getitem import GetItem
-        from .getattr import GetAttr
-
         if isinstance(key, str):
             return GetAttr(self, key)
         return GetItem(self, key)
+
+
+def _bind_expression_classes():
+    global BinaryOperationNode, EqBinaryNode, NeBinaryNode
+    global GetItem, GetAttr, Neg, Abs, Transpose, Re, Im
+
+    from .binary_operation_node import BinaryOperationNode, EqBinaryNode, NeBinaryNode
+    from .getattr import GetAttr
+    from .getitem import GetItem
+    from .intrinsic_functions import Abs, Neg, Transpose
+    from .various import Im, Re
+
+
+_bind_expression_classes()
