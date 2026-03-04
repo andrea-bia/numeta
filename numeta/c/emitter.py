@@ -5,6 +5,8 @@ from typing import Any, NoReturn, cast
 
 import numpy as np
 
+NP_COMPLEX256 = getattr(np, "complex256", np.clongdouble)
+
 from numeta.datatype import DataType
 from numeta.exceptions import raise_with_source
 from numeta.settings import settings as nm_settings
@@ -1856,9 +1858,16 @@ class CEmitter:
         if isinstance(expr, IRVarRef) and expr.var is not None:
             dtype = self._dtype_from_irvar(expr.var)
             if dtype is not None:
-                return dtype.get_numpy() in (np.complex64, np.complex128)
+                return dtype.get_numpy() in (np.complex64, np.complex128, NP_COMPLEX256)
         if expr.vtype is not None and expr.vtype.dtype is not None:
             return expr.vtype.dtype.name == "complex"
+        return False
+
+    def _is_longdouble_complex_expr(self, expr: IRExpr) -> bool:
+        if isinstance(expr, IRVarRef) and expr.var is not None:
+            dtype = self._dtype_from_irvar(expr.var)
+            if dtype is not None:
+                return dtype.get_numpy() == NP_COMPLEX256
         return False
 
     def _is_integer_expr(self, expr: IRExpr) -> bool:
@@ -1968,6 +1977,8 @@ class CEmitter:
                 return "abs()"
             arg0 = expr.args[0]
             if self._is_complex_expr(arg0):
+                if self._is_longdouble_complex_expr(arg0):
+                    return f"cabsl({args[0]})"
                 return f"cabs({args[0]})"
 
             is_int = False
@@ -1987,6 +1998,7 @@ class CEmitter:
         if name == "log10":
             self._requires_math = True
             is_complex = any(self._is_complex_expr(arg) for arg in expr.args)
+            is_longdouble_complex = any(self._is_longdouble_complex_expr(arg) for arg in expr.args)
 
             arg0_str = args[0]
             if self._is_integer_expr(expr.args[0]):
@@ -1998,6 +2010,8 @@ class CEmitter:
 
             if is_complex:
                 # Workaround for missing clog10 in C99: log10(z) = log(z)/log(10)
+                if is_longdouble_complex:
+                    return f"(clogl({arg0_str})/logl(10.0L))"
                 return f"(clog({arg0_str})/log(10.0))"
             return f"log10({arg0_str})"
 
@@ -2021,6 +2035,8 @@ class CEmitter:
             self._requires_math = True
             is_complex = any(self._is_complex_expr(arg) for arg in expr.args)
             if is_complex:
+                if any(self._is_longdouble_complex_expr(arg) for arg in expr.args):
+                    return f"c{name}l({', '.join(args)})"
                 return f"c{name}({', '.join(args)})"
 
             # Cast integer arguments to DEFAULT_FLOAT (e.g. float64) to ensure consistency
@@ -2052,14 +2068,20 @@ class CEmitter:
             return f"{name}({', '.join(new_args)})"
         if name == "real":
             if expr.args and self._is_complex_expr(expr.args[0]):
+                if self._is_longdouble_complex_expr(expr.args[0]):
+                    return f"creall({args[0]})"
                 return f"creal({args[0]})"
             return args[0]
         if name == "aimag":
             if expr.args and self._is_complex_expr(expr.args[0]):
+                if self._is_longdouble_complex_expr(expr.args[0]):
+                    return f"cimagl({args[0]})"
                 return f"cimag({args[0]})"
             return args[0]
         if name == "conjg":
             self._requires_math = True
+            if expr.args and self._is_longdouble_complex_expr(expr.args[0]):
+                return f"conjl({args[0]})"
             return f"conj({args[0]})"
         if name in {"iand", "ior", "xor"}:
             op = "&" if name == "iand" else ("|" if name == "ior" else "^")

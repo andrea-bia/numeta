@@ -3,9 +3,12 @@ import numpy as np
 import pytest
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
+NUMERIC_DTYPES = [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+if hasattr(np, "float128"):
+    NUMERIC_DTYPES.append(np.float128)
+
+
+@pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
 def test_cast(dtype, backend):
 
     @nm.jit(backend=backend)
@@ -25,9 +28,7 @@ def test_cast(dtype, backend):
         )
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
+@pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
 def test_cast_getitem(dtype, backend):
 
     @nm.jit(backend=backend)

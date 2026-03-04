@@ -78,8 +78,10 @@ def _literal_blocks_from_dtype(
         int64,
         float32,
         float64,
+        float128,
         complex64,
         complex128,
+        complex256,
         bool8,
         char,
     )
@@ -96,9 +98,9 @@ def _literal_blocks_from_dtype(
         return ["1" if value is True else "0"]
     if dtype in (int32, int64):
         return [str(int(value))]
-    if dtype in (float32, float64):
+    if dtype in (float32, float64, float128):
         return [str(float(value))]
-    if dtype in (complex64, complex128):
+    if dtype in (complex64, complex128, complex256):
         return ["(", str(value.real), " + ", str(value.imag), "*I", ")"]
     if dtype == char:
         return [f'"{value}"']

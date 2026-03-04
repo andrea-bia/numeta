@@ -6,9 +6,14 @@ from numeta.ast.variable import Variable
 from numeta.builder_helper import BuilderHelper
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
+NUMERIC_DTYPES = [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+if hasattr(np, "float128"):
+    NUMERIC_DTYPES.append(np.float128)
+if hasattr(np, "complex256"):
+    NUMERIC_DTYPES.append(np.complex256)
+
+
+@pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
 def test_empty(dtype, backend):
     n = 50
     m = 20
@@ -33,9 +38,7 @@ def test_empty(dtype, backend):
     np.testing.assert_allclose(b, c)
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
+@pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
 def test_empty_runtime_shape(dtype, backend):
     n = 50
     m = 20
@@ -60,9 +63,7 @@ def test_empty_runtime_shape(dtype, backend):
     np.testing.assert_allclose(b, c)
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
+@pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
 def test_empty_fortran(dtype, backend):
     n = 50
     m = 20

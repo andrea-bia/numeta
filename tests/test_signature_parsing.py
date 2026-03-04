@@ -174,13 +174,16 @@ def test_c_python_parity_numpy_types(backend):
     ) = parse_function_parameters(sample)
 
     # Test various numpy scalar types
+    complex_scalar = np.complex128(3 + 4j)
+    if hasattr(np, "complex256"):
+        complex_scalar = np.complex256(3 + 4j)
     args = (
         np.int32(1),
         np.int64(2),
         np.float32(3.0),
         np.float64(4.0),
         np.complex64(1 + 2j),
-        np.complex128(3 + 4j),
+        complex_scalar,
     )
 
     c_result = get_signature_and_runtime_args(

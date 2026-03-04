@@ -1,5 +1,7 @@
 import numpy as np
 
+NP_COMPLEX256 = getattr(np, "complex256", np.clongdouble)
+
 import importlib.util
 import sys
 import sysconfig
@@ -302,7 +304,7 @@ static PyObject* ${procedure_name}(PyObject *self, PyObject *const *args, Py_ssi
         """
 
         if variable.to_pass_by_value:
-            if variable.datatype.get_numpy() in (np.complex64, np.complex128):
+            if variable.datatype.get_numpy() in (np.complex64, np.complex128, NP_COMPLEX256):
                 cast = variable.datatype.get_capi_cast(f"args[{i}]")
                 result = f"{variable.datatype.get_cnumpy()} {variable.name};\n"
                 result += f"    if (PyArray_IsScalar(args[{i}], ComplexFloating)) {{\n"

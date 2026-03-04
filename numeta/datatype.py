@@ -291,6 +291,23 @@ class float64(DataType):
         return cls._fortran_bind_c_type
 
 
+class float128(DataType):
+    _np_type = np.longdouble
+    _fortran_type = FortranType("real", 16)
+    _fortran_bind_c_type = None  # Set lazily
+    _cnp_type = "npy_longdouble"
+    _capi_cast = staticmethod(lambda x: f"PyFloat_AsDouble({x})")
+    _name = "float128"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("real", iso_c.c_long_double)
+        return cls._fortran_bind_c_type
+
+
 class complex64(DataType):
     _np_type = np.complex64
     _fortran_type = FortranType("complex", 4)
@@ -326,6 +343,25 @@ class complex128(DataType):
             from .fortran.external_modules.iso_c_binding import iso_c
 
             cls._fortran_bind_c_type = FortranType("complex", iso_c.c_double_complex)
+        return cls._fortran_bind_c_type
+
+
+class complex256(DataType):
+    _np_type = np.clongdouble
+    _fortran_type = FortranType("complex", 16)
+    _fortran_bind_c_type = None  # Set lazily
+    _cnp_type = "npy_clongdouble"
+    _capi_cast = staticmethod(
+        lambda x: f"CMPLXL(PyComplex_RealAsDouble({x}), PyComplex_ImagAsDouble({x}))"
+    )
+    _name = "complex256"
+
+    @classmethod
+    def _get_bind_c_type(cls):
+        if cls._fortran_bind_c_type is None:
+            from .fortran.external_modules.iso_c_binding import iso_c
+
+            cls._fortran_bind_c_type = FortranType("complex", iso_c.c_long_double_complex)
         return cls._fortran_bind_c_type
 
 

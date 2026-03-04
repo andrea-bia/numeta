@@ -83,7 +83,7 @@ class Abs(UnaryIntrinsicFunction):
 
     @property
     def dtype(self):
-        from numeta.datatype import float32, float64, complex64, complex128
+        from numeta.datatype import float32, float64, float128, complex64, complex128, complex256
 
         arg_dtype = self.arguments[0].dtype
 
@@ -91,6 +91,8 @@ class Abs(UnaryIntrinsicFunction):
             return float32
         elif arg_dtype == complex128:
             return float64
+        elif arg_dtype == complex256:
+            return float128
 
         return arg_dtype
 

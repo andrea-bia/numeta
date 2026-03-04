@@ -78,8 +78,10 @@ class SyntaxSettings:
             int64,
             float32,
             float64,
+            float128,
             complex64,
             complex128,
+            complex256,
             bool8,
             char,
         )
@@ -90,10 +92,10 @@ class SyntaxSettings:
         if dtype in (int32, int64):
             self.DEFAULT_INT = dtype
             self.DEFAULT_INTEGER = self.DEFAULT_INT
-        elif dtype in (float32, float64):
+        elif dtype in (float32, float64, float128):
             self.DEFAULT_FLOAT = dtype
             self.DEFAULT_REAL = self.DEFAULT_FLOAT
-        elif dtype in (complex64, complex128):
+        elif dtype in (complex64, complex128, complex256):
             self.DEFAULT_COMPLEX = dtype
         elif dtype == bool8:
             self.DEFAULT_BOOL = dtype

@@ -3,9 +3,14 @@ import numpy as np
 import pytest
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
+NUMERIC_DTYPES = [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+if hasattr(np, "float128"):
+    NUMERIC_DTYPES.append(np.float128)
+if hasattr(np, "complex256"):
+    NUMERIC_DTYPES.append(np.complex256)
+
+
+@pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
 def test_reshape(dtype, backend):
     n = 100
     m = 20
@@ -28,9 +33,7 @@ def test_reshape(dtype, backend):
         np.testing.assert_allclose(a, b, rtol=10e2 * np.finfo(dtype).eps)
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
+@pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
 def test_reshape_fortran(dtype, backend):
     n = 100
     m = 20

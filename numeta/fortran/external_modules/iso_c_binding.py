@@ -24,8 +24,10 @@ class IsoCBinding(ExternalNamespace):
             size_t,
             float32,
             float64,
+            float128,
             complex64,
             complex128,
+            complex256,
             bool8,
             char,
             c_ptr,
@@ -37,8 +39,10 @@ class IsoCBinding(ExternalNamespace):
         self.c_size_t = Variable("c_size_t", dtype=size_t)
         self.c_float = Variable("c_float", dtype=float32)
         self.c_double = Variable("c_double", dtype=float64)
+        self.c_long_double = Variable("c_long_double", dtype=float128)
         self.c_float_complex = Variable("c_float_complex", dtype=complex64)
         self.c_double_complex = Variable("c_double_complex", dtype=complex128)
+        self.c_long_double_complex = Variable("c_long_double_complex", dtype=complex256)
         self.c_bool = Variable("c_bool", dtype=bool8)
         self.c_char = Variable("c_char", dtype=char)
         self.c_ptr = Variable("c_ptr", dtype=c_ptr)
@@ -49,8 +53,10 @@ class IsoCBinding(ExternalNamespace):
             self.c_size_t,
             self.c_float,
             self.c_double,
+            self.c_long_double,
             self.c_float_complex,
             self.c_double_complex,
+            self.c_long_double_complex,
             self.c_bool,
             self.c_char,
             self.c_ptr,
