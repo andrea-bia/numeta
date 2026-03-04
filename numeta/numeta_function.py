@@ -354,6 +354,12 @@ class NumetaFunction(BaseFunction):
         if signature not in self._compiled_functions:
             self.construct_compiled_target(signature)
         symbolic_fun = self._compiled_functions[signature].symbolic_function
+
+        # Code-generation-only path: materialize symbolic IR but do not compile.
+        if builder is None:
+            return symbolic_fun
+        assert builder is not None
+
         return_specs = self.return_signatures.get(signature, [])
 
         # first check the runtime arguments
@@ -451,7 +457,7 @@ class NumetaFunction(BaseFunction):
         Fallback implementation of __call__ when C dispatch is unavailable.
         """
         builder = BuilderHelper.current_builder
-        _, signature, runtime_args = get_signature_and_runtime_args(
+        to_execute, signature, runtime_args = get_signature_and_runtime_args(
             args,
             kwargs,
             params=self.params,
@@ -462,6 +468,11 @@ class NumetaFunction(BaseFunction):
 
         if builder is not None:
             return self._handle_symbolic_call(signature, runtime_args)
+
+        if not to_execute:
+            if signature not in self._compiled_functions:
+                self.construct_compiled_target(signature)
+            return self._compiled_functions[signature].symbolic_function
 
         if signature in self._fast_call:
             return self._fast_call[signature](*runtime_args)

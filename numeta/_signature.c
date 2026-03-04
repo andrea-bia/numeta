@@ -107,102 +107,79 @@ static inline PyObject* sig_from_scalar(PyObject *arg, PyObject *name) {
     return PyTuple_Pack(2, name, type);
 }
 
-// Batch fetch all shape-related attributes at once for ArrayType
-// Returns: 0 on success, -1 on error
-static int fetch_shape_attrs(PyObject *shape, 
-                              PyObject **rank_out, PyObject **fortran_out, 
-                              PyObject **dims_out, int *has_comptime_out,
-                              int *shape_is_unknown_out, Settings *settings) {
-    *shape_is_unknown_out = (shape == UNKNOWN);
-    
-    // Check for comptime dims
-    PyObject *res = PyObject_CallMethodObjArgs(shape, str_has_comptime_undefined_dims, NULL);
-    if (res) {
-        *has_comptime_out = PyObject_IsTrue(res);
-        Py_DECREF(res);
-    } else {
-        PyErr_Clear();
-        *has_comptime_out = 0;
-    }
-    
-    // Fetch all attributes at once
-    *rank_out = PyObject_GetAttr(shape, str_rank);
-    *fortran_out = PyObject_GetAttr(shape, str_fortran_order);
-    *dims_out = PyObject_GetAttr(shape, str_dims);
-    
-    return 0;
-}
-
-// Optimized ArrayType handler with batched attribute lookups
-static PyObject* sig_from_arraytype(PyObject *arg, PyObject *name, 
+// ArrayType handler with Python-parity signature construction
+static PyObject* sig_from_arraytype(PyObject *arg, PyObject *name,
                                      int *to_execute, Settings *settings) {
     *to_execute = 0;
-    
-    // Get shape and dtype
+
     PyObject *shape = PyObject_GetAttr(arg, str_shape);
     if (!shape) return NULL;
+
     PyObject *dtype = PyObject_GetAttr(arg, str_dtype);
-    if (!dtype) { Py_DECREF(shape); return NULL; }
-    
-    PyObject *numpy_dtype = PyObject_CallMethodObjArgs(dtype, str_get_numpy, NULL);
-    if (!numpy_dtype) { Py_DECREF(shape); Py_DECREF(dtype); return NULL; }
-    
-    // Batch fetch all shape attributes
-    PyObject *rank, *fortran_order, *dims;
-    int has_comptime, shape_is_unknown;
-    fetch_shape_attrs(shape, &rank, &fortran_order, &dims, 
-                      &has_comptime, &shape_is_unknown, settings);
-    
-    PyObject *sig;
-    
-    // Flattened conditionals for better branch prediction
-    if (shape_is_unknown || (!settings->add_shape_descriptors && has_comptime)) {
-        // Shape unknown or comptime dims without descriptors
-        sig = PyTuple_New(4);
-        if (!sig) goto cleanup;
-        Py_INCREF(name);
-        PyTuple_SET_ITEM(sig, 0, name);
-        PyTuple_SET_ITEM(sig, 1, numpy_dtype);
-        Py_INCREF(Py_None);
-        PyTuple_SET_ITEM(sig, 2, Py_None);
-        if (fortran_order) PyTuple_SET_ITEM(sig, 3, fortran_order);
-        else { Py_INCREF(Py_False); PyTuple_SET_ITEM(sig, 3, Py_False); }
-    } 
-    else if (has_comptime) {
-        // Has comptime dims with descriptors
-        sig = PyTuple_New(4);
-        if (!sig) goto cleanup;
-        Py_INCREF(name);
-        PyTuple_SET_ITEM(sig, 0, name);
-        PyTuple_SET_ITEM(sig, 1, numpy_dtype);
-        if (rank) PyTuple_SET_ITEM(sig, 2, rank);
-        else { Py_INCREF(Py_None); PyTuple_SET_ITEM(sig, 2, Py_None); }
-        if (fortran_order) PyTuple_SET_ITEM(sig, 3, fortran_order);
-        else { Py_INCREF(Py_False); PyTuple_SET_ITEM(sig, 3, Py_False); }
-    } 
-    else {
-        // Full shape info available
-        sig = PyTuple_New(6);
-        if (!sig) goto cleanup;
-        Py_INCREF(name);
-        PyTuple_SET_ITEM(sig, 0, name);
-        PyTuple_SET_ITEM(sig, 1, numpy_dtype);
-        if (rank) PyTuple_SET_ITEM(sig, 2, rank);
-        else { Py_INCREF(Py_None); PyTuple_SET_ITEM(sig, 2, Py_None); }
-        if (fortran_order) PyTuple_SET_ITEM(sig, 3, fortran_order);
-        else { Py_INCREF(Py_False); PyTuple_SET_ITEM(sig, 3, Py_False); }
-        Py_INCREF(str_inout);
-        PyTuple_SET_ITEM(sig, 4, str_inout);
-        if (dims) PyTuple_SET_ITEM(sig, 5, dims);
-        else { Py_INCREF(Py_None); PyTuple_SET_ITEM(sig, 5, Py_None); }
+    if (!dtype) {
+        Py_DECREF(shape);
+        return NULL;
     }
-    
-cleanup:
+
+    PyObject *numpy_dtype = PyObject_CallMethodObjArgs(dtype, str_get_numpy, NULL);
+    if (!numpy_dtype) {
+        Py_DECREF(shape);
+        Py_DECREF(dtype);
+        return NULL;
+    }
+
+    int shape_is_unknown = (shape == UNKNOWN);
+    int has_comptime = 0;
+    PyObject *has_res = PyObject_CallMethodObjArgs(shape, str_has_comptime_undefined_dims, NULL);
+    if (has_res) {
+        has_comptime = PyObject_IsTrue(has_res);
+        Py_DECREF(has_res);
+    } else {
+        PyErr_Clear();
+    }
+
+    PyObject *fortran_order = PyObject_GetAttr(shape, str_fortran_order);
+    if (!fortran_order) {
+        PyErr_Clear();
+        Py_INCREF(Py_False);
+        fortran_order = Py_False;
+    }
+
+    PyObject *sig = NULL;
+    if (shape_is_unknown || (!settings->add_shape_descriptors && has_comptime)) {
+        sig = PyTuple_Pack(4, name, numpy_dtype, Py_None, fortran_order);
+    } else if (has_comptime) {
+        PyObject *rank = PyObject_GetAttr(shape, str_rank);
+        if (!rank) {
+            Py_DECREF(shape);
+            Py_DECREF(dtype);
+            Py_DECREF(numpy_dtype);
+            Py_DECREF(fortran_order);
+            return NULL;
+        }
+        sig = PyTuple_Pack(4, name, numpy_dtype, rank, fortran_order);
+        Py_DECREF(rank);
+    } else {
+        PyObject *rank = PyObject_GetAttr(shape, str_rank);
+        PyObject *dims = PyObject_GetAttr(shape, str_dims);
+        if (!rank || !dims) {
+            Py_XDECREF(rank);
+            Py_XDECREF(dims);
+            Py_DECREF(shape);
+            Py_DECREF(dtype);
+            Py_DECREF(numpy_dtype);
+            Py_DECREF(fortran_order);
+            return NULL;
+        }
+        sig = PyTuple_Pack(6, name, numpy_dtype, rank, fortran_order, str_inout, dims);
+        Py_DECREF(rank);
+        Py_DECREF(dims);
+    }
+
     Py_DECREF(shape);
     Py_DECREF(dtype);
-    Py_XDECREF(rank);
-    Py_XDECREF(fortran_order);
-    Py_XDECREF(dims);
+    Py_DECREF(numpy_dtype);
+    Py_DECREF(fortran_order);
     return sig;
 }
 
@@ -384,15 +361,14 @@ static PyObject* get_signature_from_arg(PyObject *arg, PyObject *name,
         return sig_from_expression_node(arg, name, to_execute, settings);
     }
     
-    // DataType handling
-    if (is_instance_fast(arg, DataType) && PyObject_IsSubclass((PyObject*)Py_TYPE(arg), DataType)) {
-        if (PyType_Check(arg) && PyObject_IsSubclass(arg, DataType)) {
-            *to_execute = 0;
-            PyObject *numpy_dtype = PyObject_CallMethodObjArgs(arg, str_get_numpy, NULL);
-            if (!numpy_dtype) return NULL;
-            PyObject *sig = PyTuple_Pack(2, name, numpy_dtype);
-            return sig;
-        }
+    // DataType class handling (e.g. nm.float64)
+    if (PyType_Check(arg) && PyObject_IsSubclass(arg, DataType)) {
+        *to_execute = 0;
+        PyObject *numpy_dtype = PyObject_CallMethodObjArgs(arg, str_get_numpy, NULL);
+        if (!numpy_dtype) return NULL;
+        PyObject *sig = PyTuple_Pack(2, name, numpy_dtype);
+        Py_DECREF(numpy_dtype);
+        return sig;
     }
     
     PyErr_Format(PyExc_ValueError, "Argument %R type not supported", name);

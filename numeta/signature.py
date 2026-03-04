@@ -675,7 +675,9 @@ def compile_custom_signature_parser(name, params, directory):
     }}"""
         else:
             # Runtime argument: extract type signature and add to runtime_args
-            code += f"""        
+            # Unsupported argument kinds return -1 so BaseFunction can
+            # fall back to the generic parser.
+            code += f"""
         // Check if it's a numpy array using NumPy C API (fast!)
         if (PyArray_Check(arg_{i})) {{
             PyArrayObject *arr = (PyArrayObject*)arg_{i};
@@ -702,12 +704,13 @@ def compile_custom_signature_parser(name, params, directory):
                 sig[{i}] = PyTuple_Pack(2, str_{param_name}, dtype);
             }}
             Py_DECREF(dtype);
-        }} else {{
-            // Not a numpy array - use Python type
+        }} else if (PyLong_Check(arg_{i}) || PyFloat_Check(arg_{i}) || PyComplex_Check(arg_{i})) {{
             PyObject *t = (PyObject*)Py_TYPE(arg_{i});
             Py_INCREF(t);
             sig[{i}] = PyTuple_Pack(2, str_{param_name}, t);
             Py_DECREF(t);
+        }} else {{
+            return -1;
         }}
         if (!sig[{i}]) return -1;
         runtime_args[{runtime_idx}] = arg_{i};
