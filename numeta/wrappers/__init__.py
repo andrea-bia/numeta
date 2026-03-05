@@ -11,3 +11,4 @@ from .external_library import ExternalLibraryWrapper, Arg
 from .declare_global_constant import declare_global_constant
 from .constant import constant
 from .cast import cast
+from .time import time

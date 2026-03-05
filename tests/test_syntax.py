@@ -204,6 +204,11 @@ def test_complex_function(backend):
     assert_render(expr, backend, fortran="cmplx(a, b, 8_c_int64_t)\n", c="cmplx(a, b, 8)\n")
 
 
+def test_time_function_call(backend):
+    expr = nm.time()
+    assert_render(expr, backend, fortran="omp_get_wtime()\n", c="omp_get_wtime()\n")
+
+
 @pytest.mark.parametrize(
     "func,nargs,token",
     [

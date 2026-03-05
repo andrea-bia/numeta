@@ -7,11 +7,13 @@ syntax_settings = settings.syntax
 class OmpNamespace(ExternalNamespace):
     def __init__(self):
         super().__init__("omp_lib", None)
-        from numeta.datatype import int64
+        from numeta.datatype import float64, int64
 
         default_int = syntax_settings.DEFAULT_INT or int64
+        default_float = syntax_settings.DEFAULT_FLOAT or float64
         self.add_method("omp_get_thread_num", arguments=[], result_=default_int)
         self.add_method("omp_get_max_threads", arguments=[], result_=default_int)
+        self.add_method("omp_get_wtime", arguments=[], result_=default_float)
 
     def parallel_for(self, *args, **kwargs):
         from numeta.ast import For, Comment
