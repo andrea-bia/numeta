@@ -3,9 +3,22 @@ import numpy as np
 import pytest
 
 
-NUMERIC_DTYPES = [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+NUMERIC_DTYPES = [
+    np.float64,
+    np.float32,
+    np.int64,
+    np.int32,
+    np.complex64,
+    np.complex128,
+    nm.float64,
+    nm.float32,
+    nm.int64,
+    nm.int32,
+    nm.complex64,
+    nm.complex128,
+]
 if hasattr(np, "float128"):
-    NUMERIC_DTYPES.append(np.float128)
+    NUMERIC_DTYPES.extend([np.float128, nm.float128])
 
 
 @pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
@@ -20,11 +33,12 @@ def test_cast(dtype, backend):
     a = np.ones(16, dtype=np.bool_)
     set_nine(a)
 
-    if np.issubdtype(dtype, np.integer):
-        np.testing.assert_allclose(a.view(dtype)[0], np.array(9, dtype=dtype), atol=0)
+    np_dtype = nm.get_datatype(dtype).get_numpy()
+    if np.issubdtype(np_dtype, np.integer):
+        np.testing.assert_allclose(a.view(np_dtype)[0], np.array(9, dtype=np_dtype), atol=0)
     else:
         np.testing.assert_allclose(
-            a.view(dtype)[0], np.array(9, dtype=dtype), rtol=10e2 * np.finfo(dtype).eps
+            a.view(np_dtype)[0], np.array(9, dtype=np_dtype), rtol=10e2 * np.finfo(np_dtype).eps
         )
 
 
@@ -40,11 +54,12 @@ def test_cast_getitem(dtype, backend):
     a = np.ones(16, dtype=np.bool_)
     set_nine(a)
 
-    if np.issubdtype(dtype, np.integer):
-        np.testing.assert_allclose(a.view(dtype)[0], np.array(9, dtype=dtype), atol=0)
+    np_dtype = nm.get_datatype(dtype).get_numpy()
+    if np.issubdtype(np_dtype, np.integer):
+        np.testing.assert_allclose(a.view(np_dtype)[0], np.array(9, dtype=np_dtype), atol=0)
     else:
         np.testing.assert_allclose(
-            a.view(dtype)[0], np.array(9, dtype=dtype), rtol=10e2 * np.finfo(dtype).eps
+            a.view(np_dtype)[0], np.array(9, dtype=np_dtype), rtol=10e2 * np.finfo(np_dtype).eps
         )
 
 

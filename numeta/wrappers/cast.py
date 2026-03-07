@@ -97,7 +97,9 @@ def _infer_default_array_shape(variable: Any, src_dtype: Any, dst_dtype: Any) ->
         total_elements = total_elements * dim
 
     total_bytes = total_elements * src_bytes
-    return ArrayShape((total_bytes / dst_bytes,), fortran_order=False)
+    if not isinstance(total_bytes, int):
+        return None
+    return ArrayShape((total_bytes // dst_bytes,), fortran_order=False)
 
 
 def cast(variable: Any, dtype: Any, shape: Any = None) -> Variable:

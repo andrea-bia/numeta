@@ -6,11 +6,24 @@ from numeta.ast.variable import Variable
 from numeta.builder_helper import BuilderHelper
 
 
-NUMERIC_DTYPES = [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
+NUMERIC_DTYPES = [
+    np.float64,
+    np.float32,
+    np.int64,
+    np.int32,
+    np.complex64,
+    np.complex128,
+    nm.float64,
+    nm.float32,
+    nm.int64,
+    nm.int32,
+    nm.complex64,
+    nm.complex128,
+]
 if hasattr(np, "float128"):
-    NUMERIC_DTYPES.append(np.float128)
+    NUMERIC_DTYPES.extend([np.float128, nm.float128])
 if hasattr(np, "complex256"):
-    NUMERIC_DTYPES.append(np.complex256)
+    NUMERIC_DTYPES.extend([np.complex256, nm.complex256])
 
 
 @pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
@@ -28,8 +41,9 @@ def test_empty(dtype, backend):
             for j in nm.range(m):
                 b[i, j] = tmp[i, j]
 
-    a = np.ones((n, m)).astype(dtype)
-    b = np.zeros((n, m)).astype(dtype)
+    np_dtype = nm.get_datatype(dtype).get_numpy()
+    a = np.ones((n, m)).astype(np_dtype)
+    b = np.zeros((n, m)).astype(np_dtype)
     copy_and_set_zero_first_col_with_empty(a, b)
 
     c = a.copy()
@@ -53,8 +67,9 @@ def test_empty_runtime_shape(dtype, backend):
             for j in nm.range(m):
                 b[i, j] = tmp[i, j]
 
-    a = np.ones((n, m)).astype(dtype)
-    b = np.zeros((n, m)).astype(dtype)
+    np_dtype = nm.get_datatype(dtype).get_numpy()
+    a = np.ones((n, m)).astype(np_dtype)
+    b = np.zeros((n, m)).astype(np_dtype)
     copy_and_set_zero_first_col_with_empty(a, b, n, m)
 
     c = a.copy()
@@ -83,8 +98,9 @@ def test_empty_fortran(dtype, backend):
             for j in nm.range(m):
                 b[i, j] = tmp[i, j]
 
-    a = np.ones((n, m)).astype(dtype)
-    b = np.zeros((n, m)).astype(dtype)
+    np_dtype = nm.get_datatype(dtype).get_numpy()
+    a = np.ones((n, m)).astype(np_dtype)
+    b = np.zeros((n, m)).astype(np_dtype)
     copy_and_set_zero_first_col_with_empty(a, b)
 
     c = np.asfortranarray(a.copy())

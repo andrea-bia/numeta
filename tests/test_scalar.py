@@ -23,9 +23,25 @@ COMPLEX_SCALAR_CASTERS = [
 ]
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float64, np.float32, np.int64, np.int32, np.complex64, np.complex128]
-)
+NUMERIC_DTYPES = [
+    np.float64,
+    np.float32,
+    np.int64,
+    np.int32,
+    np.complex64,
+    np.complex128,
+    nm.float64,
+    nm.float32,
+    nm.int64,
+    nm.int32,
+    nm.complex64,
+    nm.complex128,
+]
+if hasattr(np, "float128"):
+    NUMERIC_DTYPES.extend([np.float128, nm.float128])
+
+
+@pytest.mark.parametrize("dtype", NUMERIC_DTYPES)
 def test_scalar(dtype, backend):
     @nm.jit(backend=backend)
     def fill(a):
@@ -35,7 +51,8 @@ def test_scalar(dtype, backend):
         tmp2 = nm.scalar(dtype, 100)
         a[1] = tmp2
 
-    a = np.empty(2).astype(dtype)
+    np_dtype = nm.get_datatype(dtype).get_numpy()
+    a = np.empty(2).astype(np_dtype)
     fill(a)
 
     np.testing.assert_allclose(a, [50, 100])
