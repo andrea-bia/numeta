@@ -1,10 +1,12 @@
 import numpy as np
 import sys
 from pathlib import Path
+import pickle
 
 import pytest
 import numeta as nm
 
+from numeta.compiler import Compiler
 from numeta.pyc_extension import PyCExtension
 
 
@@ -359,6 +361,99 @@ def test_library_load_collision_warns(tmp_path, backend):
     finally:
         NumetaFunction.used_compiled_names.clear()
         NumetaFunction.used_compiled_names.update(original_names)
+
+
+def test_library_load_can_extend_existing_function(tmp_path, backend):
+    lib = nm.NumetaLibrary(f"extend_existing_{backend}")
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+
+    add.clear()
+    lib_loaded = nm.NumetaLibrary.load(f"extend_existing_{backend}", tmp_path)
+
+    with pytest.raises(ValueError, match="reattach=True"):
+
+        @nm.jit(backend=backend, library=lib_loaded)
+        def add(a):
+            a[:] += 1
+
+    @nm.jit(backend=backend, library=lib_loaded, reattach=True)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+
+    matrix = np.zeros((2, 2), dtype=np.int64)
+    lib_loaded.add(matrix)
+    np.testing.assert_array_equal(matrix, np.ones((2, 2), dtype=np.int64))
+    assert len(lib_loaded.add._compiled_functions) == 2
+
+
+def test_library_save_is_atomic_on_failure(tmp_path, backend, monkeypatch):
+    lib = nm.NumetaLibrary(f"atomic_save_{backend}")
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+
+    pickle_path = Path(tmp_path) / f"atomic_save_{backend}.pkl"
+    original_bytes = pickle_path.read_bytes()
+
+    def fail_compile_to_library(self, *args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(Compiler, "compile_to_library", fail_compile_to_library)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        lib.save(tmp_path, "")
+
+    assert pickle_path.read_bytes() == original_bytes
+    assert not list(Path(tmp_path).glob(f".atomic_save_{backend}.*.pkl.tmp"))
+
+
+def test_library_save_skips_extra_runtime_attributes(tmp_path, backend):
+    lib = nm.NumetaLibrary(f"stable_state_{backend}")
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    add.extra_runtime_state = {"temporary": True}
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+    add.clear()
+
+    lib_loaded = nm.NumetaLibrary.load(f"stable_state_{backend}", tmp_path)
+    assert not hasattr(lib_loaded.add, "extra_runtime_state")
+
+
+def test_library_safe_load_treats_corrupt_pickle_as_cache_miss(tmp_path, backend):
+    name = f"corrupt_cache_{backend}"
+    pickle_path = Path(tmp_path) / f"{name}.pkl"
+    pickle_path.write_bytes(b"not a pickle")
+
+    with pytest.raises(pickle.UnpicklingError):
+        nm.NumetaLibrary.load(name, tmp_path)
+
+    with pytest.warns(RuntimeWarning, match="cache miss"):
+        lib = nm.NumetaLibrary.load(name, tmp_path, safe=True)
+
+    assert isinstance(lib, nm.NumetaLibrary)
+    assert len(lib) == 0
 
 
 def test_library_reserved_suffix_rejected(tmp_path, backend):
