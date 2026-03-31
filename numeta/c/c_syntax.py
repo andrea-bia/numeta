@@ -69,6 +69,24 @@ _C_BINARY_OPS = {
 }
 
 
+def _cast_scalar_to_dtype(value: Any, dtype: Any) -> Any:
+    np_type = dtype.get_numpy()
+    if np_type is None:
+        return value
+    try:
+        return np_type(value)
+    except Exception:
+        return value
+
+
+def _render_real_literal(value: Any) -> str:
+    if isinstance(value, np.generic):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    return str(value)
+
+
 def _literal_blocks_from_dtype(
     value: Any, dtype: Any, source_node: object | None = None
 ) -> list[str]:
@@ -94,16 +112,31 @@ def _literal_blocks_from_dtype(
         )
         raise AssertionError("unreachable")
 
+    casted_value = _cast_scalar_to_dtype(value, dtype)
+
     if dtype == bool8:
-        return ["1" if value is True else "0"]
+        return ["1" if bool(casted_value) else "0"]
     if dtype in (int32, int64):
-        return [str(int(value))]
+        return [str(int(casted_value))]
     if dtype in (float32, float64, float128):
-        return [str(float(value))]
+        return [_render_real_literal(casted_value)]
     if dtype in (complex64, complex128, complex256):
-        return ["(", str(value.real), " + ", str(value.imag), "*I", ")"]
+        real_part = getattr(casted_value, "real", None)
+        imag_part = getattr(casted_value, "imag", None)
+        if real_part is None or imag_part is None:
+            complex_value = complex(casted_value)
+            real_part = complex_value.real
+            imag_part = complex_value.imag
+        return [
+            "(",
+            _render_real_literal(real_part),
+            " + ",
+            _render_real_literal(imag_part),
+            "*I",
+            ")",
+        ]
     if dtype == char:
-        return [f'"{value}"']
+        return [f'"{casted_value}"']
 
     raise_with_source(ValueError, f"Unknown dtype: {dtype}", source_node=source_node)
     raise AssertionError("unreachable")

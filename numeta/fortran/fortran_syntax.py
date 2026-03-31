@@ -57,6 +57,24 @@ from numeta.ast.statements.variable_declaration import VariableDeclaration
 from numeta.ast.statements.various import Comment, PointerAssignment, Print, SimpleStatement
 
 
+def _cast_scalar_to_dtype(value: Any, dtype: Any) -> Any:
+    np_type = dtype.get_numpy()
+    if np_type is None:
+        return value
+    try:
+        return np_type(value)
+    except Exception:
+        return value
+
+
+def _render_real_literal(value: Any) -> str:
+    if isinstance(value, np.generic):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    return str(value)
+
+
 def _literal_blocks_from_dtype(
     value: Any, dtype: Any, source_node: object | None = None
 ) -> list[str]:
@@ -70,23 +88,42 @@ def _literal_blocks_from_dtype(
         )
         raise AssertionError("unreachable")
 
+    casted_value = _cast_scalar_to_dtype(value, dtype)
     ftype = dtype.get_fortran()
     kind = ftype.get_kind_str()
     if ftype.type == "type":
-        return [f"{value}"]
+        return [f"{casted_value}"]
     if ftype.type == "integer":
-        return [f"{int(value)}_{kind}"]
+        return [f"{int(casted_value)}_{kind}"]
     if ftype.type == "real":
-        return [f"{float(value)}_{kind}"]
+        return [f"{_render_real_literal(casted_value)}_{kind}"]
     if ftype.type == "complex":
-        return ["(", f"{value.real}_{kind}", ",", f"{value.imag}_{kind}", ")"]
+        real_part = getattr(casted_value, "real", None)
+        imag_part = getattr(casted_value, "imag", None)
+        if real_part is None or imag_part is None:
+            complex_value = complex(casted_value)
+            real_part = complex_value.real
+            imag_part = complex_value.imag
+        return [
+            "(",
+            f"{_render_real_literal(real_part)}_{kind}",
+            ",",
+            f"{_render_real_literal(imag_part)}_{kind}",
+            ")",
+        ]
     if ftype.type == "logical":
-        return [f".true._{kind}" if value is True else f".false._{kind}"]
+        return [f".true._{kind}" if bool(casted_value) else f".false._{kind}"]
     if ftype.type == "character":
-        return [f'"{value}"']
+        return [f'"{casted_value}"']
 
     raise_with_source(ValueError, f"Unknown type: {ftype.type}", source_node=source_node)
     raise AssertionError("unreachable")
+
+
+def render_literal_blocks_from_dtype(
+    value: Any, dtype: Any, source_node: object | None = None
+) -> list[str]:
+    return _literal_blocks_from_dtype(value, dtype, source_node=source_node)
 
 
 def render_expr_blocks(expr: Any) -> list[str]:
@@ -524,7 +561,7 @@ def _render_variable_declaration_blocks(stmt: VariableDeclaration) -> list[str]:
     result += [" :: ", stmt.variable.name]
 
     if stmt.variable.assign is not None:
-        if isinstance(stmt.variable.assign, (int, float, complex, bool, str)):
+        if isinstance(stmt.variable.assign, (int, float, complex, bool, str, np.generic)):
             values = _literal_blocks_from_dtype(
                 stmt.variable.assign,
                 stmt.variable.dtype,

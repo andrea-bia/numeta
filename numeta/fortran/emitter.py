@@ -9,7 +9,11 @@ from numeta.ast.statements.tools import print_block
 
 syntax_settings = settings.syntax
 
-from .fortran_syntax import render_expr_blocks, render_stmt_lines
+from .fortran_syntax import (
+    render_expr_blocks,
+    render_stmt_lines,
+    render_literal_blocks_from_dtype,
+)
 
 from numeta.ir.nodes import (
     IRAllocate,
@@ -654,14 +658,25 @@ class FortranEmitter:
 
         if var.assign is not None:
             values = []
-            if isinstance(var.assign, (int, float, complex, bool, str)):
-                values = self._literal_blocks(var.assign)
-            elif isinstance(var.assign, np.ndarray):
-                for v in var.assign.ravel():
-                    values += self._literal_blocks(v)
-                    values.append(", ")
-                if values:
-                    values.pop()
+            source_dtype = getattr(var.source, "dtype", None)
+            if source_dtype is not None:
+                if isinstance(var.assign, (int, float, complex, bool, str, np.generic)):
+                    values = render_literal_blocks_from_dtype(var.assign, source_dtype)
+                elif isinstance(var.assign, np.ndarray):
+                    for v in var.assign.ravel():
+                        values += render_literal_blocks_from_dtype(v, source_dtype)
+                        values.append(", ")
+                    if values:
+                        values.pop()
+            else:
+                if isinstance(var.assign, (int, float, complex, bool, str, np.generic)):
+                    values = self._literal_blocks(var.assign)
+                elif isinstance(var.assign, np.ndarray):
+                    for v in var.assign.ravel():
+                        values += self._literal_blocks(v)
+                        values.append(", ")
+                    if values:
+                        values.pop()
             if values:
                 blocks += [";", " data ", var.name, " / ", *values, " /"]
 
