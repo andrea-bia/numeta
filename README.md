@@ -164,6 +164,18 @@ Loop Example section for shared variables and scheduling options.
 
 ### Cache Compiled Code
 
+Assignment materialization in `@nm.jit` follows Python's indexed assignment flow:
+
+- Numeta materializes writes only when Python executes `target[...] = value`
+  or an augmented form such as `target[...] += value`, `target[...] -= value`,
+  `target[...] *= value`, or `target[...] /= value`.
+- Bare rebinding such as `a = b`, `a += value`, `a -= value`, `a *= value`, or
+  `a /= value` only updates the Python local name and does not emit a generated
+  assignment by itself.
+
+Use explicit indexed or sliced targets when you want the operation to appear in
+the generated code.
+
 Use `NumetaLibrary` to group multiple jitted functions and save or load them as a
 unit. It keeps compiled code, dependencies, and wrappers together. Functions can be
 accessed as attributes or via indexing if the function name might conflict with a
@@ -233,6 +245,17 @@ def do_loop(n, array) -> None:
 ```
 
 This approach uses `nm.do` to emulate the Fortran `do` loop style.
+
+For mutable scalar state inside `@nm.jit`, prefer explicit indexed assignment:
+
+```python
+acc = nm.scalar(nm.f8, 0.0)
+acc[:] += 1.0
+acc[:] *= 2.0
+```
+
+The `[:]` is what materializes the write. Bare `acc += 1.0` only rebinds the
+Python local name.
 
 ### Conditional Statements
 
