@@ -28,6 +28,7 @@ def jit(
     namer: Optional[Callable[..., str]] = None,
     inline: bool | int = False,
     library: NumetaLibrary | None = None,
+    reattach: bool = False,
     backend: str | None = None,
 ):
     """@jit(...) used with arguments."""
@@ -43,6 +44,7 @@ def jit(
     namer: Optional[Callable[..., str]] = None,
     inline: bool | int = False,
     library: NumetaLibrary | None = None,
+    reattach: bool = False,
     backend: str | None = None,
 ):
     """
@@ -71,6 +73,9 @@ def jit(
         Controls inlining behavior (bool or max-stmts int).
     library
         Optional library container used to group jitted functions.
+    reattach
+        Allow rebinding source code onto a loaded library entry so it can compile
+        new signatures in the current process.
     backend
         Backend to use for code generation ("fortran" or "c"). If None, uses settings default.
 
@@ -94,6 +99,14 @@ def jit(
                 raise ValueError("Cannot create functions that startwith '_nm'")
             if library is not None and name in library:
                 nm_func = library[name]
+                if nm_func._func is None:
+                    if not reattach:
+                        raise ValueError(
+                            f"Function '{name}' was loaded from a NumetaLibrary without source code. "
+                            "Pass reattach=True to @nm.jit(...) to rebind the Python body "
+                            "and allow compiling new signatures."
+                        )
+                    nm_func._func = f
                 if nm_func.do_checks != do_checks:
                     warnings.warn(
                         f"function {name} has been loaded with different do_checks value: {nm_func.do_checks}",

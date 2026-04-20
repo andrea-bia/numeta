@@ -522,7 +522,14 @@ class CEmitter:
                 continue
 
             total = self._render_product(dims_exprs)
-            lines.append(f"{'    ' * indent}{ctype} {var.name}[{total}];\n")
+            init = ""
+            if isinstance(var.assign, np.ndarray) and all(
+                isinstance(dim, (int, np.integer)) for dim in shape_dims
+            ):
+                flat = var.assign.ravel(order="F" if fortran_order else "C")
+                values = ", ".join(self._render_literal(v) for v in flat)
+                init = f" = {{{values}}}"
+            lines.append(f"{'    ' * indent}{ctype} {var.name}[{total}]{init};\n")
 
         if lines:
             lines.append("\n")

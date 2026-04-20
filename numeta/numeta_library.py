@@ -1,5 +1,7 @@
 import numpy as np
+import os
 import sys
+import tempfile
 
 from pathlib import Path
 import pickle
@@ -195,6 +197,63 @@ class NumetaLibrary:
 
         obj_files: set[Path] = set()
         dependencies = {}
+        pickle_path = directory / f"{self.name}.pkl"
+        temp_pickle_path: Path | None = None
+
+        def build_function_state(obj: NumetaFunction) -> dict:
+            return {
+                "name": obj.name,
+                "hidden": obj.hidden,
+                "external": obj.external,
+                "_path": obj._path,
+                "_rpath": obj._rpath,
+                "_include": obj._include,
+                "_obj_files": obj._obj_files,
+                "additional_flags": obj.additional_flags,
+                "to_link": obj.to_link,
+                "namespaces": obj.namespaces,
+                "procedures": obj.procedures,
+                "variables": obj.variables,
+                "directory": obj.directory,
+                "do_checks": obj.do_checks,
+                "compile_flags": obj.compile_flags,
+                "backend": obj.backend,
+                "namer": obj.namer,
+                "inline": obj.inline,
+                "_func": None,
+                "params": obj.params,
+                "fixed_param_indices": obj.fixed_param_indices,
+                "n_positional_or_default_args": obj.n_positional_or_default_args,
+                "catch_var_positional_name": obj.catch_var_positional_name,
+                "return_signatures": obj.return_signatures,
+                "_compiled_functions": obj._compiled_functions,
+                "_pyc_extensions": obj._pyc_extensions,
+                "_fast_call": {},
+                "_use_c_dispatch_instance": obj._use_c_dispatch_instance,
+            }
+
+        def build_compiled_function_state(obj: NumetaCompiledFunction) -> dict:
+            return {
+                "name": name,
+                "hidden": obj.hidden,
+                "external": obj.external,
+                "_path": directory,
+                "_rpath": directory,
+                "_include": directory,
+                "_obj_files": None,
+                "additional_flags": obj.additional_flags,
+                "to_link": obj.to_link,
+                "namespaces": obj.namespaces,
+                "procedures": obj.procedures,
+                "variables": obj.variables,
+                "symbolic_function": obj.symbolic_function,
+                "func_name": obj.func_name,
+                "do_checks": obj.do_checks,
+                "compile_flags": obj.compile_flags,
+                "backend": obj.backend,
+                "_requires_math": obj._requires_math,
+                "compiled": True,
+            }
 
         # We need to compiled ALL the NumetaFunctions not only the one directly owned by the library
 
@@ -204,69 +263,74 @@ class NumetaLibrary:
                 nonlocal dependencies
                 nonlocal obj_files
                 if isinstance(obj, NumetaFunction):
-                    state = obj.__dict__.copy()
-                    state["_func"] = None  # It is not pickable
-                    state["_fast_call"] = {}
+                    state = build_function_state(obj)
                     state["_pyc_extensions"] = {sig: pyc_extension for sig in obj._pyc_extensions}
                     return (NumetaFunction.__new__, (NumetaFunction,), state)
 
                 if isinstance(obj, NumetaCompiledFunction):
-                    state = obj.__dict__.copy()
+                    state = build_compiled_function_state(obj)
                     obj_files.update([obj for obj in obj.obj_files])
                     dependencies |= obj.symbolic_function.get_dependencies()
-
-                    state["name"] = name
-                    state["_path"] = directory
-                    state["_rpath"] = directory
-                    state["_include"] = directory
-                    state["_obj_files"] = None
-                    state["compiled"] = True
                     return (NumetaCompiledFunction.__new__, (NumetaCompiledFunction,), state)
                 return NotImplemented
 
-        with open(directory / f"{self.name}.pkl", "wb") as f:
-            RewritingPickler(f).dump(list(self._entries.values()))
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=directory,
+                prefix=f".{self.name}.",
+                suffix=".pkl.tmp",
+                delete=False,
+            ) as f:
+                temp_pickle_path = Path(f.name)
+                RewritingPickler(f).dump(list(self._entries.values()))
 
-        libraries = set()
-        libraries_dirs = set()
-        rpath_dirs = set()
-        include_dirs = set()
-        additional_flags = set()
+            libraries = set()
+            libraries_dirs = set()
+            rpath_dirs = set()
+            include_dirs = set()
+            additional_flags = set()
 
-        for lib in dependencies.values():
+            for lib in dependencies.values():
 
-            if isinstance(lib, NumetaCompiledFunction):
-                continue
+                if isinstance(lib, NumetaCompiledFunction):
+                    continue
 
-            if lib.include is not None:
-                if isinstance(lib.include, (list, tuple, set)):
-                    include_dirs |= set(lib.include)
-                else:
-                    include_dirs.add(lib.include)
+                if lib.include is not None:
+                    if isinstance(lib.include, (list, tuple, set)):
+                        include_dirs |= set(lib.include)
+                    else:
+                        include_dirs.add(lib.include)
 
-            if lib.to_link:
-                libraries.add(lib.name)
-                if lib.path is not None:
-                    libraries_dirs.add(str(lib.path))
-                if lib.rpath is not None:
-                    rpath_dirs.add(str(lib.rpath))
+                if lib.to_link:
+                    libraries.add(lib.name)
+                    if lib.path is not None:
+                        libraries_dirs.add(str(lib.path))
+                    if lib.rpath is not None:
+                        rpath_dirs.add(str(lib.rpath))
 
-            if lib.additional_flags is not None:
-                if isinstance(lib.additional_flags, str):
-                    additional_flags.add(tuple(lib.additional_flags.split()))
-                else:
-                    additional_flags.add(tuple(lib.additional_flags))
+                if lib.additional_flags is not None:
+                    if isinstance(lib.additional_flags, str):
+                        additional_flags.add(tuple(lib.additional_flags.split()))
+                    else:
+                        additional_flags.add(tuple(lib.additional_flags))
 
-        lib = compiler.compile_to_library(
-            name,
-            obj_files,
-            directory,
-            libraries=libraries,
-            include_dirs=include_dirs,
-            libraries_dirs=libraries_dirs,
-            rpath_dirs=rpath_dirs,
-            additional_flags=additional_flags,
-        )
+            lib = compiler.compile_to_library(
+                name,
+                obj_files,
+                directory,
+                libraries=libraries,
+                include_dirs=include_dirs,
+                libraries_dirs=libraries_dirs,
+                rpath_dirs=rpath_dirs,
+                additional_flags=additional_flags,
+            )
+
+            os.replace(temp_pickle_path, pickle_path)
+        except Exception:
+            if temp_pickle_path is not None:
+                temp_pickle_path.unlink(missing_ok=True)
+            raise
 
         return lib
 
@@ -275,14 +339,25 @@ class NumetaLibrary:
         cls,
         name: str,
         directory: str | Path,
+        *,
+        safe: bool = False,
     ) -> "NumetaLibrary":
         cls._nm_validate_name(name)
 
         result = NumetaLibrary(name)
 
-        with open(Path(directory) / f"{name}.pkl", "rb") as handle:
-            for func in pickle.load(handle):
-                result._entries[func.name] = func
+        try:
+            with open(Path(directory) / f"{name}.pkl", "rb") as handle:
+                for func in pickle.load(handle):
+                    result._entries[func.name] = func
+        except (EOFError, pickle.UnpicklingError) as exc:
+            if not safe:
+                raise
+            warnings.warn(
+                f"Failed to load NumetaLibrary '{name}' cache from {Path(directory) / f'{name}.pkl'}: {exc}. "
+                "Treating it as a cache miss.",
+                RuntimeWarning,
+            )
 
         #
         #   Check collisions with already compiled function

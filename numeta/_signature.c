@@ -265,10 +265,9 @@ static PyObject* sig_from_expression_node(PyObject *arg, PyObject *name,
         return NULL; 
     }
     
-    PyObject *intent_str = get_intent_str(arg);
-    
     int shape_is_scalar = (shape == SCALAR);
     int shape_is_unknown = (shape == UNKNOWN);
+    PyObject *intent_str = get_intent_str(arg);
     
     int has_comptime_dims = 0;
     // Only check for comptime dims if not scalar or unknown

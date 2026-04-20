@@ -45,18 +45,13 @@ def constant(value: Any, dtype: Any = None, order: str = "C", name: str | None =
         name = "fc_c"
 
     if shape is None or shape == ():
-        if isinstance(assign_value, (int, float, complex)):
-            assign_final = str(assign_value)
-        else:
-            assign_final = assign_value
-
         return builder.generate_local_variables(
             name,
             dtype=dtype,
             # TODO
             # parameter=True, # parameter is not supported yet, so not really constant.
             # parameter=True,
-            assign=assign_final,
+            assign=assign_value,
         )
 
     array_shape = ArrayShape(shape, fortran_order=fortran_order)
