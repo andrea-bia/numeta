@@ -126,7 +126,7 @@ def test_positional_and_variable_positional_and_keyword_arguments(n_args, n_kwar
             a[:] += int(i)
         for i, arg in kwargs.items():
             arg[:] = int(i[3])
-            a += int(i[3])
+            a[:] += int(i[3])
 
     args = [np.empty(()) for _ in range(n_args)]
     kwargs = {f"in_{i}": np.empty(()) for i in range(n_kwargs)}
@@ -157,7 +157,7 @@ def test_positional_and_variable_positional_and_optional_and_keyword_arguments(
             a[:] += int(i)
         for i, arg in kwargs.items():
             arg[:] = int(i[3]) + b
-            a += int(i[3])
+            a[:] += int(i[3])
         a[:] -= b
 
     args = [np.empty(()) for _ in range(n_args)]

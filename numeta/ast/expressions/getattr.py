@@ -53,7 +53,12 @@ class GetAttr(ExpressionNode):
         return GetAttr(self.variable.get_with_updated_variables(variables_couples), self.attr)
 
     def __setitem__(self, key, value):
-        """Does nothing, but allows to use variable[key] = value"""
+        """Materialize assignment only through indexed or sliced writes.
+
+        Numeta records generated assignments when Python executes ``expr[...] = value``
+        or augmented forms such as ``expr[...] += value`` that lower to ``__setitem__``.
+        Bare rebinding like ``expr += value`` does not materialize an assignment.
+        """
         from numeta.ast.statements import Assignment
 
         if isinstance(key, slice) and key.start is None and key.stop is None and key.step is None:

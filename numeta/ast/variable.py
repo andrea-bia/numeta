@@ -107,7 +107,12 @@ class Variable(NamedEntity, ExpressionNode):
         return self._shape.as_tuple()
 
     def __setitem__(self, key, value):
-        """Does nothing, but allows to use variable[key] = value"""
+        """Materialize assignment only through indexed or sliced writes.
+
+        Numeta records generated assignments when Python executes ``variable[...] = value``
+        or augmented forms such as ``variable[...] += value`` that lower to ``__setitem__``.
+        Bare rebinding like ``variable += value`` does not materialize an assignment.
+        """
         from .statements import Assignment
 
         if isinstance(key, slice) and key.start is None and key.stop is None and key.step is None:
@@ -117,26 +122,6 @@ class Variable(NamedEntity, ExpressionNode):
             Assignment(self, value)
         else:
             Assignment(self[key], value)
-
-    def __ilshift__(self, other):
-        from .statements import Assignment
-
-        Assignment(self, other)
-        return self
-
-    def __iadd__(self, other):
-        from .statements import Assignment
-
-        Assignment(self, self + other)
-        # need to return same, no real assignment
-        return self
-
-    def __isub__(self, other):
-        from .statements import Assignment
-
-        Assignment(self, self - other)
-        # need to return same, no real assignment
-        return self
 
     def copy(self):
         return Variable(
