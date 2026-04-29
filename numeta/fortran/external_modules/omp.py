@@ -1,7 +1,55 @@
 from numeta.ast import ExternalNamespace
+from numeta.ast import For, Comment
 from numeta.settings import settings
 
 syntax_settings = settings.syntax
+
+
+class OmpComment(Comment):
+    """
+    Hack to handle OpenMP statements.
+    """
+
+    def __init__(self, comment, add_to_scope=False):
+        super().__init__(comment, add_to_scope=add_to_scope)
+        self.prefix = "!$omp "
+
+
+class OmpFor(For):
+    def __init__(
+        self,
+        *args,
+        default="private",
+        schedule="dynamic",
+        private=None,
+        shared=None,
+        **kwargs,
+    ):
+        from numeta.fortran.fortran_syntax import render_expr_blocks
+
+        omp_code = ["parallel do", " "]
+        omp_code += [f"default({default})", " "]
+        omp_code += [f"schedule({schedule})", " "]
+        if private is not None:
+            # TODO: Should we add automatically variables declared inside the loop?
+            omp_code += ["private("]
+            for var in private:
+                omp_code += render_expr_blocks(var)
+                omp_code += [", "]
+            omp_code[-1] = ")"
+        if shared is not None:
+            # TODO: Should we automatically array shapes if explicitly declared as variables?
+            omp_code += ["shared("]
+            for var in shared:
+                omp_code += render_expr_blocks(var)
+                omp_code += [", "]
+            omp_code[-1] = ")"
+        OmpComment(omp_code, add_to_scope=True)
+        super().__init__(*args, **kwargs)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        super().__exit__(exc_type, exc_value, traceback)
+        OmpComment("end parallel do", add_to_scope=True)
 
 
 class OmpNamespace(ExternalNamespace):
@@ -16,52 +64,6 @@ class OmpNamespace(ExternalNamespace):
         self.add_method("omp_get_wtime", arguments=[], result_=default_float)
 
     def parallel_for(self, *args, **kwargs):
-        from numeta.ast import For, Comment
-        from numeta.fortran.fortran_syntax import render_expr_blocks
-
-        class OmpComment(Comment):
-            """
-            Hack to handle OpenMP statements
-            """
-
-            def __init__(self, comment, add_to_scope=False):
-                super().__init__(comment, add_to_scope=add_to_scope)
-                self.prefix = "!$omp "
-
-        class OmpFor(For):
-            def __init__(
-                self,
-                *args,
-                default="private",
-                schedule="dynamic",
-                private=None,
-                shared=None,
-                **kwargs,
-            ):
-                omp_code = ["parallel do", " "]
-                omp_code += [f"default({default})", " "]
-                omp_code += [f"schedule({schedule})", " "]
-                if private is not None:
-                    # TODO: Should we add automatically variables declared inside the loop?
-                    omp_code += ["private("]
-                    for var in private:
-                        omp_code += render_expr_blocks(var)
-                        omp_code += [", "]
-                    omp_code[-1] = ")"
-                if shared is not None:
-                    # TODO: Should we automatically array shapes if explicitly declared as variables?
-                    omp_code += ["shared("]
-                    for var in shared:
-                        omp_code += render_expr_blocks(var)
-                        omp_code += [", "]
-                    omp_code[-1] = ")"
-                OmpComment(omp_code, add_to_scope=True)
-                super().__init__(*args, **kwargs)
-
-            def __exit__(self, exc_type, exc_value, traceback):
-                super().__exit__(exc_type, exc_value, traceback)
-                OmpComment("end parallel do", add_to_scope=True)
-
         return OmpFor(*args, **kwargs)
 
     def atomic_update_op(self, variable, to_assign, op):

@@ -397,6 +397,32 @@ def test_library_load_can_extend_existing_function(tmp_path, backend):
     assert len(lib_loaded.add._compiled_functions) == 2
 
 
+def test_library_save_and_load_openmp_prange(tmp_path):
+    lib = nm.NumetaLibrary("openmp_prange_cache")
+
+    @nm.jit(
+        backend="fortran",
+        library=lib,
+        compile_flags="-O3 -fopenmp",
+    )
+    def add_one(out, x):
+        for i in nm.prange(x.shape[0], shared=[out, x, x.shape[0].variable]):
+            out[i] = x[i] + 1.0
+
+    x = np.asfortranarray(np.array([1.0, 2.0, 3.0]))
+    out = np.zeros_like(x, order="F")
+    lib.add_one(out, x)
+    np.testing.assert_array_equal(out, np.array([2.0, 3.0, 4.0]))
+
+    lib.save(tmp_path, "-O3 -fopenmp")
+    add_one.clear()
+    lib_loaded = nm.NumetaLibrary.load("openmp_prange_cache", tmp_path)
+
+    out = np.zeros_like(x, order="F")
+    lib_loaded.add_one(out, x)
+    np.testing.assert_array_equal(out, np.array([2.0, 3.0, 4.0]))
+
+
 def test_library_save_is_atomic_on_failure(tmp_path, backend, monkeypatch):
     lib = nm.NumetaLibrary(f"atomic_save_{backend}")
 
