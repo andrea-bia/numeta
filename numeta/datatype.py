@@ -452,7 +452,7 @@ def make_struct_type(np_dtype, members, name=None):
         "type",
         AstStructType(
             name,
-            [(mname, dt.get_fortran(), dim) for mname, dt, dim in members],
+            members,
         ),
     )
 

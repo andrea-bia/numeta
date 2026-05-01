@@ -1,4 +1,6 @@
 import numpy as np
+import os
+import subprocess
 import sys
 from pathlib import Path
 import pickle
@@ -421,6 +423,47 @@ def test_library_save_and_load_openmp_prange(tmp_path):
     out = np.zeros_like(x, order="F")
     lib_loaded.add_one(out, x)
     np.testing.assert_array_equal(out, np.array([2.0, 3.0, 4.0]))
+
+
+def test_library_load_openmp_prange_in_fresh_process(tmp_path):
+    lib = nm.NumetaLibrary("openmp_fresh_process_cache")
+
+    @nm.jit(
+        backend="fortran",
+        library=lib,
+        compile_flags="-O3 -fopenmp",
+    )
+    def add_one(out, x):
+        for i in nm.prange(x.shape[0], shared=[out, x, x.shape[0].variable]):
+            out[i] = x[i] + 1.0
+
+    x = np.asfortranarray(np.array([1.0, 2.0, 3.0]))
+    out = np.zeros_like(x, order="F")
+    lib.add_one(out, x)
+    lib.save(tmp_path, "-O3 -fopenmp")
+
+    script = f"""
+import numpy as np
+import numeta as nm
+lib = nm.NumetaLibrary.load('openmp_fresh_process_cache', {str(tmp_path)!r})
+x = np.asfortranarray(np.array([1.0, 2.0, 3.0]))
+out = np.zeros_like(x, order='F')
+lib.add_one(out, x)
+np.testing.assert_array_equal(out, np.array([2.0, 3.0, 4.0]))
+"""
+    env = os.environ.copy()
+    root = Path(__file__).resolve().parents[1]
+    env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_library_save_is_atomic_on_failure(tmp_path, backend, monkeypatch):
