@@ -184,8 +184,8 @@ class NumetaLibrary:
 
         procedures_infos = []
         for function in self._entries.values():
-            for wrapper in function._pyc_extensions.values():
-                procedures_infos.extend(wrapper.functions)
+            procedures_infos.extend(function._wrapper_specs.values())
+        procedures_infos = NumetaFunction._deduplicate_wrapper_specs(procedures_infos)
 
         pyc_extension = PyCExtension(
             name=self.name,
@@ -227,7 +227,9 @@ class NumetaLibrary:
                 "catch_var_positional_name": obj.catch_var_positional_name,
                 "return_signatures": obj.return_signatures,
                 "_compiled_functions": obj._compiled_functions,
+                "_wrapper_specs": obj._wrapper_specs,
                 "_pyc_extensions": obj._pyc_extensions,
+                "_library_pyc_extension": obj._library_pyc_extension,
                 "_fast_call": {},
                 "_use_c_dispatch_instance": obj._use_c_dispatch_instance,
             }
@@ -264,7 +266,8 @@ class NumetaLibrary:
                 nonlocal obj_files
                 if isinstance(obj, NumetaFunction):
                     state = build_function_state(obj)
-                    state["_pyc_extensions"] = {sig: pyc_extension for sig in obj._pyc_extensions}
+                    state["_pyc_extensions"] = {}
+                    state["_library_pyc_extension"] = pyc_extension
                     return (NumetaFunction.__new__, (NumetaFunction,), state)
 
                 if isinstance(obj, NumetaCompiledFunction):
@@ -384,6 +387,7 @@ class NumetaLibrary:
                         signatures_to_drop.append(signature)
                 for signature in signatures_to_drop:
                     func._compiled_functions.pop(signature, None)
+                    func._wrapper_specs.pop(signature, None)
                     func._pyc_extensions.pop(signature, None)
                     func._fast_call.pop(signature, None)
 

@@ -243,6 +243,21 @@ class NumetaFunction(BaseFunction):
 
     used_compiled_names: set[str] = set()
 
+    @staticmethod
+    def _deduplicate_wrapper_specs(wrapper_specs):
+        wrapper_specs_by_name = {}
+        deduplicated = []
+        for wrapper_spec in wrapper_specs:
+            existing = wrapper_specs_by_name.get(wrapper_spec[0])
+            if existing is None:
+                wrapper_specs_by_name[wrapper_spec[0]] = wrapper_spec
+                deduplicated.append(wrapper_spec)
+            elif existing != wrapper_spec:
+                raise ValueError(
+                    f"Conflicting wrapper definition for compiled procedure {wrapper_spec[0]!r}"
+                )
+        return deduplicated
+
     @property
     def uses_c_dispatch(self):
         return _c_dispatch_base_available and self._use_c_dispatch_instance
@@ -287,7 +302,9 @@ class NumetaFunction(BaseFunction):
         # Variables to populate
         self.return_signatures = {}  # Only needed if i create symbolic and after compile
         self._compiled_functions = {}
+        self._wrapper_specs = {}
         self._pyc_extensions = {}
+        self._library_pyc_extension = None
         self._fast_call = {}
 
         self._use_c_dispatch_instance = settings.use_c_dispatch
@@ -319,7 +336,9 @@ class NumetaFunction(BaseFunction):
             NumetaFunction.used_compiled_names.remove(compiled.func_name)
         self.return_signatures = {}
         self._compiled_functions = {}
+        self._wrapper_specs = {}
         self._pyc_extensions = {}
+        self._library_pyc_extension = None
         self._fast_call = {}
         self._fast_call.clear()
 
@@ -437,6 +456,32 @@ class NumetaFunction(BaseFunction):
     def __setstate__(self, state):
         """Restore state from pickle."""
         self.__dict__.update(state)
+        if not hasattr(self, "_wrapper_specs"):
+            self._wrapper_specs = {}
+            for signature, compiled in self._compiled_functions.items():
+                wrapper = self._pyc_extensions.get(signature)
+                if wrapper is not None:
+                    for wrapper_spec in wrapper.functions:
+                        if wrapper_spec[0] == compiled.func_name:
+                            self._wrapper_specs[signature] = wrapper_spec
+                            break
+                if signature not in self._wrapper_specs:
+                    self._wrapper_specs[signature] = self.build_wrapper_spec(signature)
+
+        if not hasattr(self, "_library_pyc_extension"):
+            self._library_pyc_extension = None
+            wrappers = list(self._pyc_extensions.values())
+            if wrappers:
+                first_wrapper = wrappers[0]
+                if len(first_wrapper.functions) > 1 or all(
+                    wrapper is first_wrapper for wrapper in wrappers
+                ):
+                    first_wrapper.functions = self._deduplicate_wrapper_specs(
+                        first_wrapper.functions
+                    )
+                    self._library_pyc_extension = first_wrapper
+                    self._pyc_extensions = {}
+
         # Re-configure C dispatch from restored attributes
         # Note: _fast_call is cleared during pickle but that's fine
         self._configure_dispatch(
@@ -614,35 +659,52 @@ class NumetaFunction(BaseFunction):
 
         symbolic_fun.parent = self._compiled_functions[signature]
 
-    def construct_wrapper(self, signature):
-        name = self._compiled_functions[signature].name
+    def build_wrapper_spec(self, signature):
+        return (
+            self._compiled_functions[signature].func_name,
+            convert_signature_to_argument_specs(
+                signature,
+                params=self.params,
+                fixed_param_indices=self.fixed_param_indices,
+                n_positional_or_default_args=self.n_positional_or_default_args,
+            ),
+            self.return_signatures[signature],
+        )
 
-        procedures_infos = [
-            (
-                name,
-                convert_signature_to_argument_specs(
-                    signature,
-                    params=self.params,
-                    fixed_param_indices=self.fixed_param_indices,
-                    n_positional_or_default_args=self.n_positional_or_default_args,
-                ),
-                self.return_signatures[signature],
-            )
-        ]
+    def construct_wrapper_spec(self, signature):
+        if signature not in self._wrapper_specs:
+            self._wrapper_specs[signature] = self.build_wrapper_spec(signature)
+        return self._wrapper_specs[signature]
+
+    def construct_wrapper(self, signature):
+        wrapper_spec = self.construct_wrapper_spec(signature)
         self._pyc_extensions[signature] = PyCExtension(
-            name=name,
-            functions=procedures_infos,
+            name=wrapper_spec[0],
+            functions=[wrapper_spec],
             do_checks=self.do_checks,
         )
 
         return self._pyc_extensions[signature]
 
+    def get_pyc_extension(self, signature):
+        if signature in self._pyc_extensions:
+            return self._pyc_extensions[signature]
+
+        compiled_name = self._compiled_functions[signature].func_name
+        if self._library_pyc_extension is not None:
+            for name, _args_details, _return_specs in self._library_pyc_extension.functions:
+                if name == compiled_name:
+                    return self._library_pyc_extension
+
+        return self.construct_wrapper(signature)
+
     def compile(self, signature):
         if not self._compiled_functions[signature].compiled:
             self._compiled_functions[signature].compile()
 
-        if self._pyc_extensions[signature].lib_path is None:
-            self._pyc_extensions[signature].compile(
+        pyc_extension = self.get_pyc_extension(signature)
+        if pyc_extension.lib_path is None:
+            pyc_extension.compile(
                 core_lib_name=self._compiled_functions[signature].name,
                 core_lib_path=self._compiled_functions[signature].path,
                 directory=self.directory,
@@ -653,11 +715,12 @@ class NumetaFunction(BaseFunction):
     def load(self, signature):
         if signature not in self._compiled_functions:
             self.construct_compiled_target(signature)
-        if signature not in self._pyc_extensions:
-            self.construct_wrapper(signature)
-        if self._pyc_extensions[signature].lib_path is None:
+        self.construct_wrapper_spec(signature)
+        pyc_extension = self.get_pyc_extension(signature)
+        if pyc_extension.lib_path is None:
             self.compile(signature)
-        self._fast_call[signature] = self._pyc_extensions[signature].load(
+            pyc_extension = self.get_pyc_extension(signature)
+        self._fast_call[signature] = pyc_extension.load(
             self._compiled_functions[signature].func_name
         )
 

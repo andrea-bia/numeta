@@ -399,6 +399,89 @@ def test_library_load_can_extend_existing_function(tmp_path, backend):
     assert len(lib_loaded.add._compiled_functions) == 2
 
 
+def test_library_save_load_save_keeps_wrapper_specs_unique(tmp_path, backend):
+    name = f"unique_wrapper_specs_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    @nm.jit(backend=backend, library=lib)
+    def mul(a):
+        a[:] *= 2
+
+    vector = np.ones(4, dtype=np.int64)
+    lib.add(vector)
+    lib.mul(vector)
+    lib.save(tmp_path, "")
+
+    add.clear()
+    mul.clear()
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+
+    aggregate_extensions = [func._library_pyc_extension for func in lib_loaded]
+    assert all(extension is not None for extension in aggregate_extensions)
+    assert len({id(extension) for extension in aggregate_extensions}) == 1
+    assert all(func._pyc_extensions == {} for func in lib_loaded)
+
+    lib_loaded.save(tmp_path, "")
+
+    with open(Path(tmp_path) / f"{name}.pkl", "rb") as handle:
+        saved_functions = pickle.load(handle)
+
+    aggregate_extension = saved_functions[0]._library_pyc_extension
+    wrapper_names = [wrapper_spec[0] for wrapper_spec in aggregate_extension.functions]
+    assert len(wrapper_names) == len(set(wrapper_names))
+    assert len(wrapper_names) == 2
+
+
+def test_library_load_normalizes_legacy_duplicate_aggregate_wrappers(tmp_path, backend):
+    from numeta.numeta_function import NumetaFunction
+
+    name = f"legacy_duplicate_wrappers_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+    add.clear()
+
+    pickle_path = Path(tmp_path) / f"{name}.pkl"
+    with open(pickle_path, "rb") as handle:
+        saved_functions = pickle.load(handle)
+
+    extension = saved_functions[0]._library_pyc_extension
+    extension.functions = extension.functions + extension.functions
+    legacy_state = saved_functions[0].__dict__.copy()
+    legacy_state["_pyc_extensions"] = {
+        signature: extension for signature in legacy_state["_compiled_functions"]
+    }
+    legacy_state.pop("_library_pyc_extension")
+    legacy_state.pop("_wrapper_specs")
+
+    class LegacyNumetaFunction:
+        def __reduce__(self):
+            return (NumetaFunction.__new__, (NumetaFunction,), legacy_state)
+
+    with open(pickle_path, "wb") as handle:
+        pickle.dump([LegacyNumetaFunction()], handle)
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    wrapper_names = [
+        wrapper_spec[0] for wrapper_spec in lib_loaded.add._library_pyc_extension.functions
+    ]
+    assert len(wrapper_names) == len(set(wrapper_names)) == 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+
+
 def test_library_save_and_load_openmp_prange(tmp_path):
     lib = nm.NumetaLibrary("openmp_prange_cache")
 
