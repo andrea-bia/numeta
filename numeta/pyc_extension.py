@@ -3,6 +3,7 @@ import numpy as np
 NP_COMPLEX256 = getattr(np, "complex256", np.clongdouble)
 
 import importlib.util
+import platform
 import sys
 import sysconfig
 from string import Template
@@ -11,6 +12,10 @@ from pathlib import Path
 
 from .settings import settings
 from .compiler import Compiler
+
+
+WRAPPER_CACHE_FORMAT_VERSION = 1
+NUMETA_WRAPPER_ABI_VERSION = 1
 
 
 class PyCExtension:
@@ -26,9 +31,37 @@ class PyCExtension:
         self.functions = functions
         self.do_checks = do_checks
         self.lib_path = None
+        self.cache_info = None
 
     def set_lib_path(self, path):
         self.lib_path = path
+
+    def build_cache_info(self, compile_flags, backend=None):
+        if backend is None:
+            backend = settings.default_backend
+        return {
+            "format_version": WRAPPER_CACHE_FORMAT_VERSION,
+            "numeta_wrapper_abi_version": NUMETA_WRAPPER_ABI_VERSION,
+            "python_soabi": sysconfig.get_config_var("SOABI"),
+            "extension_suffix": sysconfig.get_config_var("EXT_SUFFIX"),
+            "python_version": [sys.version_info.major, sys.version_info.minor],
+            "numpy_version": np.__version__,
+            "platform": platform.system(),
+            "machine": platform.machine(),
+            "backend": backend,
+            "compile_flags": Compiler._normalize_flags(compile_flags),
+            "wrapper_name": self.name,
+            "do_checks": self.do_checks,
+        }
+
+    def set_cache_info(self, compile_flags, backend=None):
+        self.cache_info = self.build_cache_info(compile_flags, backend=backend)
+        return self.cache_info
+
+    def cache_matches(self, compile_flags, backend=None):
+        return getattr(self, "cache_info", None) == self.build_cache_info(
+            compile_flags, backend=backend
+        )
 
     def compile(self, core_lib_name, core_lib_path, directory, compile_flags, backend=None):
         if self.lib_path is not None:
@@ -36,6 +69,8 @@ class PyCExtension:
 
         if backend is None:
             backend = settings.default_backend
+
+        self.set_cache_info(compile_flags, backend=backend)
 
         wrapper_src = Path(directory) / f"{self.name}.c"
         self.write(wrapper_src)

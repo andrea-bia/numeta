@@ -44,7 +44,7 @@ def test_library_write_code(tmp_path, backend):
     compiled_names = []
     for nm_function in lib._entries.values():
         compiled_names.extend(
-            [compiled.name for compiled in nm_function._compiled_functions.values()]
+            [compiled.func_name for compiled in nm_function._compiled_functions.values()]
         )
 
     for name in compiled_names:
@@ -434,6 +434,133 @@ def test_library_save_load_save_keeps_wrapper_specs_unique(tmp_path, backend):
     wrapper_names = [wrapper_spec[0] for wrapper_spec in aggregate_extension.functions]
     assert len(wrapper_names) == len(set(wrapper_names))
     assert len(wrapper_names) == 2
+
+
+def test_library_save_loaded_library_keeps_all_core_objects(tmp_path, backend):
+    name = f"save_loaded_core_objects_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    @nm.jit(backend=backend, library=lib)
+    def mul(a):
+        a[:] *= 2
+
+    @nm.jit(backend=backend, library=lib)
+    def sub(a):
+        a[:] -= 3
+
+    vector = np.ones(4, dtype=np.int64)
+    lib.add(vector)
+    lib.mul(vector)
+    lib.sub(vector)
+    lib.save(tmp_path, "")
+
+    add.clear()
+    mul.clear()
+    sub.clear()
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    lib_loaded.save(tmp_path, "")
+
+    vector = np.ones(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    lib_loaded.mul(vector)
+    lib_loaded.sub(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+
+
+def test_library_save_persists_aggregate_wrapper_cache_info(tmp_path, backend):
+    name = f"wrapper_cache_info_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+
+    wrapper_path = Path(tmp_path) / f"lib{name}{PyCExtension.SUFFIX}.so"
+    assert wrapper_path.exists()
+
+    with open(Path(tmp_path) / f"{name}.pkl", "rb") as handle:
+        saved_functions = pickle.load(handle)
+
+    extension = saved_functions[0]._library_pyc_extension
+    assert extension.cache_info is not None
+    assert extension.cache_info["wrapper_name"] == f"{name}{PyCExtension.SUFFIX}"
+    assert extension.cache_info["backend"] == backend
+    assert "functions" not in extension.cache_info
+
+
+def test_library_load_reuses_compatible_aggregate_wrapper(tmp_path, backend, monkeypatch):
+    name = f"reuse_wrapper_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+    add.clear()
+
+    def fail_compile(*args, **kwargs):
+        raise AssertionError("wrapper should have been reused")
+
+    monkeypatch.setattr(PyCExtension, "compile", fail_compile)
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    assert lib_loaded.add._library_pyc_extension.lib_path == Path(tmp_path).absolute() / (
+        f"lib{name}{PyCExtension.SUFFIX}.so"
+    )
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+
+
+def test_library_load_recompiles_wrapper_on_cache_info_mismatch(tmp_path, backend, monkeypatch):
+    name = f"reuse_wrapper_mismatch_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+    add.clear()
+
+    original_build_cache_info = PyCExtension.build_cache_info
+    original_compile = PyCExtension.compile
+    calls = []
+
+    def mismatched_cache_info(self, *args, **kwargs):
+        cache_info = original_build_cache_info(self, *args, **kwargs)
+        cache_info["python_soabi"] = "different"
+        return cache_info
+
+    def record_compile(self, *args, **kwargs):
+        calls.append(self.name)
+        return original_compile(self, *args, **kwargs)
+
+    monkeypatch.setattr(PyCExtension, "build_cache_info", mismatched_cache_info)
+    monkeypatch.setattr(PyCExtension, "compile", record_compile)
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    assert lib_loaded.add._library_pyc_extension.lib_path is None
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+    assert calls == [f"{name}{PyCExtension.SUFFIX}"]
 
 
 def test_library_load_normalizes_legacy_duplicate_aggregate_wrappers(tmp_path, backend):

@@ -25,9 +25,10 @@ class NumetaCompiledFunction(ExternalLibrary):
 
     def __init__(
         self,
-        name,
+        func_name,
         symbolic_function,
         *,
+        library_name: str | None = None,
         path: None | str | Path = None,
         do_checks: bool | None = None,
         compile_flags: str | Iterable[str] | None = None,
@@ -36,11 +37,13 @@ class NumetaCompiledFunction(ExternalLibrary):
         """
         Has to be linked at runtime
         """
-        super().__init__(name, to_link=True)
+        if library_name is None:
+            library_name = func_name
+        super().__init__(library_name, to_link=True)
         self.symbolic_function = symbolic_function
         if path is None:
             path = tempfile.mkdtemp()
-        self.func_name = name
+        self.func_name = func_name
         self._path = Path(path).absolute()
         self._path.mkdir(exist_ok=True)
         self._rpath = self._path
@@ -54,6 +57,23 @@ class NumetaCompiledFunction(ExternalLibrary):
         resolved_flags = settings.default_compile_flags if compile_flags is None else compile_flags
         self.compile_flags = Compiler._normalize_flags(resolved_flags)
         self.compiled = False
+
+    @property
+    def library_name(self):
+        return self.name
+
+    @library_name.setter
+    def library_name(self, value):
+        self.name = value
+
+    def __setstate__(self, state):
+        # Older pickles store the link-library identity as ``name``. Keep that
+        # storage stable while exposing the clearer ``library_name`` property.
+        if "library_name" in state and "name" not in state:
+            state["name"] = state.pop("library_name")
+        else:
+            state.pop("library_name", None)
+        self.__dict__.update(state)
 
     @property
     def obj_files(self):
@@ -86,9 +106,10 @@ class NumetaCompiledFunction(ExternalLibrary):
         Compile source files using the selected backend and return the object file.
         """
         if self._obj_files is None:
+            obj_name = self.func_name
             if self.backend == "fortran":
                 compiler = Compiler("gfortran", self.compile_flags)
-                fortran_src = self._path / f"{self.name}_src.f90"
+                fortran_src = self._path / f"{obj_name}_src.f90"
                 from .ir import FortranEmitter, lower_procedure
                 from .ast.namespace import Namespace
 
@@ -113,7 +134,7 @@ class NumetaCompiledFunction(ExternalLibrary):
                 from .ast.namespace import Namespace
 
                 compiler = Compiler("gcc", self.compile_flags)
-                c_src = self._path / f"{self.name}_src.c"
+                c_src = self._path / f"{obj_name}_src.c"
                 emitter = CEmitter()
                 if isinstance(self.symbolic_function, Namespace):
                     c_code, requires_math = emitter.emit_namespace(self.symbolic_function)
@@ -147,7 +168,7 @@ class NumetaCompiledFunction(ExternalLibrary):
                         additional_flags.extend(list(lib.additional_flags))
 
             self._obj_files, self._include = compiler.compile_to_obj(
-                name=self.name,
+                name=obj_name,
                 directory=self._path,
                 sources=sources,
                 include_dirs=include_dirs,
@@ -189,7 +210,7 @@ class NumetaCompiledFunction(ExternalLibrary):
                         include_dirs.append(lib.include)
 
                 if lib.to_link:
-                    libraries.add(lib.name)
+                    libraries.add(getattr(lib, "library_name", lib.name))
                     if lib.path is not None:
                         libraries_dirs.add(str(lib.path))
                     if lib.rpath is not None:
@@ -203,7 +224,7 @@ class NumetaCompiledFunction(ExternalLibrary):
 
             compiler = Compiler("gcc", self.compile_flags)
             lib = compiler.compile_to_library(
-                self.name,
+                self.library_name,
                 self.obj_files,
                 self._path,
                 libraries=libraries,
@@ -705,7 +726,7 @@ class NumetaFunction(BaseFunction):
         pyc_extension = self.get_pyc_extension(signature)
         if pyc_extension.lib_path is None:
             pyc_extension.compile(
-                core_lib_name=self._compiled_functions[signature].name,
+                core_lib_name=self._compiled_functions[signature].library_name,
                 core_lib_path=self._compiled_functions[signature].path,
                 directory=self.directory,
                 compile_flags=self.compile_flags,
