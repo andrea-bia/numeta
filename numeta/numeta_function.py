@@ -25,9 +25,10 @@ class NumetaCompiledFunction(ExternalLibrary):
 
     def __init__(
         self,
-        name,
+        func_name,
         symbolic_function,
         *,
+        library_name: str | None = None,
         path: None | str | Path = None,
         do_checks: bool | None = None,
         compile_flags: str | Iterable[str] | None = None,
@@ -36,11 +37,13 @@ class NumetaCompiledFunction(ExternalLibrary):
         """
         Has to be linked at runtime
         """
-        super().__init__(name, to_link=True)
+        if library_name is None:
+            library_name = func_name
+        super().__init__(library_name, to_link=True)
         self.symbolic_function = symbolic_function
         if path is None:
             path = tempfile.mkdtemp()
-        self.func_name = name
+        self.func_name = func_name
         self._path = Path(path).absolute()
         self._path.mkdir(exist_ok=True)
         self._rpath = self._path
@@ -54,6 +57,23 @@ class NumetaCompiledFunction(ExternalLibrary):
         resolved_flags = settings.default_compile_flags if compile_flags is None else compile_flags
         self.compile_flags = Compiler._normalize_flags(resolved_flags)
         self.compiled = False
+
+    @property
+    def library_name(self):
+        return self.name
+
+    @library_name.setter
+    def library_name(self, value):
+        self.name = value
+
+    def __setstate__(self, state):
+        # Older pickles store the link-library identity as ``name``. Keep that
+        # storage stable while exposing the clearer ``library_name`` property.
+        if "library_name" in state and "name" not in state:
+            state["name"] = state.pop("library_name")
+        else:
+            state.pop("library_name", None)
+        self.__dict__.update(state)
 
     @property
     def obj_files(self):
@@ -86,9 +106,10 @@ class NumetaCompiledFunction(ExternalLibrary):
         Compile source files using the selected backend and return the object file.
         """
         if self._obj_files is None:
+            obj_name = self.func_name
             if self.backend == "fortran":
                 compiler = Compiler("gfortran", self.compile_flags)
-                fortran_src = self._path / f"{self.name}_src.f90"
+                fortran_src = self._path / f"{obj_name}_src.f90"
                 from .ir import FortranEmitter, lower_procedure
                 from .ast.namespace import Namespace
 
@@ -113,7 +134,7 @@ class NumetaCompiledFunction(ExternalLibrary):
                 from .ast.namespace import Namespace
 
                 compiler = Compiler("gcc", self.compile_flags)
-                c_src = self._path / f"{self.name}_src.c"
+                c_src = self._path / f"{obj_name}_src.c"
                 emitter = CEmitter()
                 if isinstance(self.symbolic_function, Namespace):
                     c_code, requires_math = emitter.emit_namespace(self.symbolic_function)
@@ -147,7 +168,7 @@ class NumetaCompiledFunction(ExternalLibrary):
                         additional_flags.extend(list(lib.additional_flags))
 
             self._obj_files, self._include = compiler.compile_to_obj(
-                name=self.name,
+                name=obj_name,
                 directory=self._path,
                 sources=sources,
                 include_dirs=include_dirs,
@@ -189,7 +210,7 @@ class NumetaCompiledFunction(ExternalLibrary):
                         include_dirs.append(lib.include)
 
                 if lib.to_link:
-                    libraries.add(lib.name)
+                    libraries.add(getattr(lib, "library_name", lib.name))
                     if lib.path is not None:
                         libraries_dirs.add(str(lib.path))
                     if lib.rpath is not None:
@@ -203,7 +224,7 @@ class NumetaCompiledFunction(ExternalLibrary):
 
             compiler = Compiler("gcc", self.compile_flags)
             lib = compiler.compile_to_library(
-                self.name,
+                self.library_name,
                 self.obj_files,
                 self._path,
                 libraries=libraries,
@@ -242,6 +263,21 @@ class NumetaFunction(BaseFunction):
     """
 
     used_compiled_names: set[str] = set()
+
+    @staticmethod
+    def _deduplicate_wrapper_specs(wrapper_specs):
+        wrapper_specs_by_name = {}
+        deduplicated = []
+        for wrapper_spec in wrapper_specs:
+            existing = wrapper_specs_by_name.get(wrapper_spec[0])
+            if existing is None:
+                wrapper_specs_by_name[wrapper_spec[0]] = wrapper_spec
+                deduplicated.append(wrapper_spec)
+            elif existing != wrapper_spec:
+                raise ValueError(
+                    f"Conflicting wrapper definition for compiled procedure {wrapper_spec[0]!r}"
+                )
+        return deduplicated
 
     @property
     def uses_c_dispatch(self):
@@ -287,7 +323,9 @@ class NumetaFunction(BaseFunction):
         # Variables to populate
         self.return_signatures = {}  # Only needed if i create symbolic and after compile
         self._compiled_functions = {}
+        self._wrapper_specs = {}
         self._pyc_extensions = {}
+        self._library_pyc_extension = None
         self._fast_call = {}
 
         self._use_c_dispatch_instance = settings.use_c_dispatch
@@ -319,7 +357,9 @@ class NumetaFunction(BaseFunction):
             NumetaFunction.used_compiled_names.remove(compiled.func_name)
         self.return_signatures = {}
         self._compiled_functions = {}
+        self._wrapper_specs = {}
         self._pyc_extensions = {}
+        self._library_pyc_extension = None
         self._fast_call = {}
         self._fast_call.clear()
 
@@ -437,6 +477,32 @@ class NumetaFunction(BaseFunction):
     def __setstate__(self, state):
         """Restore state from pickle."""
         self.__dict__.update(state)
+        if not hasattr(self, "_wrapper_specs"):
+            self._wrapper_specs = {}
+            for signature, compiled in self._compiled_functions.items():
+                wrapper = self._pyc_extensions.get(signature)
+                if wrapper is not None:
+                    for wrapper_spec in wrapper.functions:
+                        if wrapper_spec[0] == compiled.func_name:
+                            self._wrapper_specs[signature] = wrapper_spec
+                            break
+                if signature not in self._wrapper_specs:
+                    self._wrapper_specs[signature] = self.build_wrapper_spec(signature)
+
+        if not hasattr(self, "_library_pyc_extension"):
+            self._library_pyc_extension = None
+            wrappers = list(self._pyc_extensions.values())
+            if wrappers:
+                first_wrapper = wrappers[0]
+                if len(first_wrapper.functions) > 1 or all(
+                    wrapper is first_wrapper for wrapper in wrappers
+                ):
+                    first_wrapper.functions = self._deduplicate_wrapper_specs(
+                        first_wrapper.functions
+                    )
+                    self._library_pyc_extension = first_wrapper
+                    self._pyc_extensions = {}
+
         # Re-configure C dispatch from restored attributes
         # Note: _fast_call is cleared during pickle but that's fine
         self._configure_dispatch(
@@ -614,36 +680,53 @@ class NumetaFunction(BaseFunction):
 
         symbolic_fun.parent = self._compiled_functions[signature]
 
-    def construct_wrapper(self, signature):
-        name = self._compiled_functions[signature].name
+    def build_wrapper_spec(self, signature):
+        return (
+            self._compiled_functions[signature].func_name,
+            convert_signature_to_argument_specs(
+                signature,
+                params=self.params,
+                fixed_param_indices=self.fixed_param_indices,
+                n_positional_or_default_args=self.n_positional_or_default_args,
+            ),
+            self.return_signatures[signature],
+        )
 
-        procedures_infos = [
-            (
-                name,
-                convert_signature_to_argument_specs(
-                    signature,
-                    params=self.params,
-                    fixed_param_indices=self.fixed_param_indices,
-                    n_positional_or_default_args=self.n_positional_or_default_args,
-                ),
-                self.return_signatures[signature],
-            )
-        ]
+    def construct_wrapper_spec(self, signature):
+        if signature not in self._wrapper_specs:
+            self._wrapper_specs[signature] = self.build_wrapper_spec(signature)
+        return self._wrapper_specs[signature]
+
+    def construct_wrapper(self, signature):
+        wrapper_spec = self.construct_wrapper_spec(signature)
         self._pyc_extensions[signature] = PyCExtension(
-            name=name,
-            functions=procedures_infos,
+            name=wrapper_spec[0],
+            functions=[wrapper_spec],
             do_checks=self.do_checks,
         )
 
         return self._pyc_extensions[signature]
 
+    def get_pyc_extension(self, signature):
+        if signature in self._pyc_extensions:
+            return self._pyc_extensions[signature]
+
+        compiled_name = self._compiled_functions[signature].func_name
+        if self._library_pyc_extension is not None:
+            for name, _args_details, _return_specs in self._library_pyc_extension.functions:
+                if name == compiled_name:
+                    return self._library_pyc_extension
+
+        return self.construct_wrapper(signature)
+
     def compile(self, signature):
         if not self._compiled_functions[signature].compiled:
             self._compiled_functions[signature].compile()
 
-        if self._pyc_extensions[signature].lib_path is None:
-            self._pyc_extensions[signature].compile(
-                core_lib_name=self._compiled_functions[signature].name,
+        pyc_extension = self.get_pyc_extension(signature)
+        if pyc_extension.lib_path is None:
+            pyc_extension.compile(
+                core_lib_name=self._compiled_functions[signature].library_name,
                 core_lib_path=self._compiled_functions[signature].path,
                 directory=self.directory,
                 compile_flags=self.compile_flags,
@@ -653,11 +736,12 @@ class NumetaFunction(BaseFunction):
     def load(self, signature):
         if signature not in self._compiled_functions:
             self.construct_compiled_target(signature)
-        if signature not in self._pyc_extensions:
-            self.construct_wrapper(signature)
-        if self._pyc_extensions[signature].lib_path is None:
+        self.construct_wrapper_spec(signature)
+        pyc_extension = self.get_pyc_extension(signature)
+        if pyc_extension.lib_path is None:
             self.compile(signature)
-        self._fast_call[signature] = self._pyc_extensions[signature].load(
+            pyc_extension = self.get_pyc_extension(signature)
+        self._fast_call[signature] = pyc_extension.load(
             self._compiled_functions[signature].func_name
         )
 

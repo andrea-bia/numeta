@@ -1,67 +1,116 @@
 from numeta.ast import ExternalNamespace
+from numeta.ast import For, Comment
+from numeta.ast.function import Function
+from numeta.array_shape import SCALAR
 from numeta.settings import settings
 
 syntax_settings = settings.syntax
 
 
+class OmpComment(Comment):
+    """
+    Hack to handle OpenMP statements.
+    """
+
+    def __init__(self, comment, add_to_scope=False):
+        super().__init__(comment, add_to_scope=add_to_scope)
+        self.prefix = "!$omp "
+
+
+class OmpFor(For):
+    def __init__(
+        self,
+        *args,
+        default="private",
+        schedule="dynamic",
+        private=None,
+        shared=None,
+        **kwargs,
+    ):
+        from numeta.fortran.fortran_syntax import render_expr_blocks
+
+        omp_code = ["parallel do", " "]
+        omp_code += [f"default({default})", " "]
+        omp_code += [f"schedule({schedule})", " "]
+        if private is not None:
+            # TODO: Should we add automatically variables declared inside the loop?
+            omp_code += ["private("]
+            for var in private:
+                omp_code += render_expr_blocks(var)
+                omp_code += [", "]
+            omp_code[-1] = ")"
+        if shared is not None:
+            # TODO: Should we automatically array shapes if explicitly declared as variables?
+            omp_code += ["shared("]
+            for var in shared:
+                omp_code += render_expr_blocks(var)
+                omp_code += [", "]
+            omp_code[-1] = ")"
+        OmpComment(omp_code, add_to_scope=True)
+        super().__init__(*args, **kwargs)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        super().__exit__(exc_type, exc_value, traceback)
+        OmpComment("end parallel do", add_to_scope=True)
+
+
+class omp_get_thread_num(Function):
+    @property
+    def dtype(self):
+        from numeta.datatype import int64
+
+        return syntax_settings.DEFAULT_INT or int64
+
+    @property
+    def _shape(self):
+        return SCALAR
+
+
+class omp_get_max_threads(Function):
+    @property
+    def dtype(self):
+        from numeta.datatype import int64
+
+        return syntax_settings.DEFAULT_INT or int64
+
+    @property
+    def _shape(self):
+        return SCALAR
+
+
+class omp_get_wtime(Function):
+    @property
+    def dtype(self):
+        from numeta.datatype import float64
+
+        return syntax_settings.DEFAULT_FLOAT or float64
+
+    @property
+    def _shape(self):
+        return SCALAR
+
+
 class OmpNamespace(ExternalNamespace):
     def __init__(self):
         super().__init__("omp_lib", None)
-        from numeta.datatype import float64, int64
 
-        default_int = syntax_settings.DEFAULT_INT or int64
-        default_float = syntax_settings.DEFAULT_FLOAT or float64
-        self.add_method("omp_get_thread_num", arguments=[], result_=default_int)
-        self.add_method("omp_get_max_threads", arguments=[], result_=default_int)
-        self.add_method("omp_get_wtime", arguments=[], result_=default_float)
+        self.procedures["omp_get_thread_num"] = omp_get_thread_num(
+            "omp_get_thread_num",
+            [],
+            parent=self,
+        )
+        self.procedures["omp_get_max_threads"] = omp_get_max_threads(
+            "omp_get_max_threads",
+            [],
+            parent=self,
+        )
+        self.procedures["omp_get_wtime"] = omp_get_wtime(
+            "omp_get_wtime",
+            [],
+            parent=self,
+        )
 
     def parallel_for(self, *args, **kwargs):
-        from numeta.ast import For, Comment
-        from numeta.fortran.fortran_syntax import render_expr_blocks
-
-        class OmpComment(Comment):
-            """
-            Hack to handle OpenMP statements
-            """
-
-            def __init__(self, comment, add_to_scope=False):
-                super().__init__(comment, add_to_scope=add_to_scope)
-                self.prefix = "!$omp "
-
-        class OmpFor(For):
-            def __init__(
-                self,
-                *args,
-                default="private",
-                schedule="dynamic",
-                private=None,
-                shared=None,
-                **kwargs,
-            ):
-                omp_code = ["parallel do", " "]
-                omp_code += [f"default({default})", " "]
-                omp_code += [f"schedule({schedule})", " "]
-                if private is not None:
-                    # TODO: Should we add automatically variables declared inside the loop?
-                    omp_code += ["private("]
-                    for var in private:
-                        omp_code += render_expr_blocks(var)
-                        omp_code += [", "]
-                    omp_code[-1] = ")"
-                if shared is not None:
-                    # TODO: Should we automatically array shapes if explicitly declared as variables?
-                    omp_code += ["shared("]
-                    for var in shared:
-                        omp_code += render_expr_blocks(var)
-                        omp_code += [", "]
-                    omp_code[-1] = ")"
-                OmpComment(omp_code, add_to_scope=True)
-                super().__init__(*args, **kwargs)
-
-            def __exit__(self, exc_type, exc_value, traceback):
-                super().__exit__(exc_type, exc_value, traceback)
-                OmpComment("end parallel do", add_to_scope=True)
-
         return OmpFor(*args, **kwargs)
 
     def atomic_update_op(self, variable, to_assign, op):

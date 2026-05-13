@@ -1,4 +1,6 @@
 import numpy as np
+import os
+import subprocess
 import sys
 from pathlib import Path
 import pickle
@@ -42,7 +44,7 @@ def test_library_write_code(tmp_path, backend):
     compiled_names = []
     for nm_function in lib._entries.values():
         compiled_names.extend(
-            [compiled.name for compiled in nm_function._compiled_functions.values()]
+            [compiled.func_name for compiled in nm_function._compiled_functions.values()]
         )
 
     for name in compiled_names:
@@ -395,6 +397,283 @@ def test_library_load_can_extend_existing_function(tmp_path, backend):
     lib_loaded.add(matrix)
     np.testing.assert_array_equal(matrix, np.ones((2, 2), dtype=np.int64))
     assert len(lib_loaded.add._compiled_functions) == 2
+
+
+def test_library_save_load_save_keeps_wrapper_specs_unique(tmp_path, backend):
+    name = f"unique_wrapper_specs_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    @nm.jit(backend=backend, library=lib)
+    def mul(a):
+        a[:] *= 2
+
+    vector = np.ones(4, dtype=np.int64)
+    lib.add(vector)
+    lib.mul(vector)
+    lib.save(tmp_path, "")
+
+    add.clear()
+    mul.clear()
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+
+    aggregate_extensions = [func._library_pyc_extension for func in lib_loaded]
+    assert all(extension is not None for extension in aggregate_extensions)
+    assert len({id(extension) for extension in aggregate_extensions}) == 1
+    assert all(func._pyc_extensions == {} for func in lib_loaded)
+
+    lib_loaded.save(tmp_path, "")
+
+    with open(Path(tmp_path) / f"{name}.pkl", "rb") as handle:
+        saved_functions = pickle.load(handle)
+
+    aggregate_extension = saved_functions[0]._library_pyc_extension
+    wrapper_names = [wrapper_spec[0] for wrapper_spec in aggregate_extension.functions]
+    assert len(wrapper_names) == len(set(wrapper_names))
+    assert len(wrapper_names) == 2
+
+
+def test_library_save_loaded_library_keeps_all_core_objects(tmp_path, backend):
+    name = f"save_loaded_core_objects_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    @nm.jit(backend=backend, library=lib)
+    def mul(a):
+        a[:] *= 2
+
+    @nm.jit(backend=backend, library=lib)
+    def sub(a):
+        a[:] -= 3
+
+    vector = np.ones(4, dtype=np.int64)
+    lib.add(vector)
+    lib.mul(vector)
+    lib.sub(vector)
+    lib.save(tmp_path, "")
+
+    add.clear()
+    mul.clear()
+    sub.clear()
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    lib_loaded.save(tmp_path, "")
+
+    vector = np.ones(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    lib_loaded.mul(vector)
+    lib_loaded.sub(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+
+
+def test_library_save_persists_aggregate_wrapper_cache_info(tmp_path, backend):
+    name = f"wrapper_cache_info_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+
+    wrapper_path = Path(tmp_path) / f"lib{name}{PyCExtension.SUFFIX}.so"
+    assert wrapper_path.exists()
+
+    with open(Path(tmp_path) / f"{name}.pkl", "rb") as handle:
+        saved_functions = pickle.load(handle)
+
+    extension = saved_functions[0]._library_pyc_extension
+    assert extension.cache_info is not None
+    assert extension.cache_info["wrapper_name"] == f"{name}{PyCExtension.SUFFIX}"
+    assert extension.cache_info["backend"] == backend
+    assert "functions" not in extension.cache_info
+
+
+def test_library_load_reuses_compatible_aggregate_wrapper(tmp_path, backend, monkeypatch):
+    name = f"reuse_wrapper_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+    add.clear()
+
+    def fail_compile(*args, **kwargs):
+        raise AssertionError("wrapper should have been reused")
+
+    monkeypatch.setattr(PyCExtension, "compile", fail_compile)
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    assert lib_loaded.add._library_pyc_extension.lib_path == Path(tmp_path).absolute() / (
+        f"lib{name}{PyCExtension.SUFFIX}.so"
+    )
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+
+
+def test_library_load_recompiles_wrapper_on_cache_info_mismatch(tmp_path, backend, monkeypatch):
+    name = f"reuse_wrapper_mismatch_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+    add.clear()
+
+    original_build_cache_info = PyCExtension.build_cache_info
+    original_compile = PyCExtension.compile
+    calls = []
+
+    def mismatched_cache_info(self, *args, **kwargs):
+        cache_info = original_build_cache_info(self, *args, **kwargs)
+        cache_info["python_soabi"] = "different"
+        return cache_info
+
+    def record_compile(self, *args, **kwargs):
+        calls.append(self.name)
+        return original_compile(self, *args, **kwargs)
+
+    monkeypatch.setattr(PyCExtension, "build_cache_info", mismatched_cache_info)
+    monkeypatch.setattr(PyCExtension, "compile", record_compile)
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    assert lib_loaded.add._library_pyc_extension.lib_path is None
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+    assert calls == [f"{name}{PyCExtension.SUFFIX}"]
+
+
+def test_library_load_normalizes_legacy_duplicate_aggregate_wrappers(tmp_path, backend):
+    from numeta.numeta_function import NumetaFunction
+
+    name = f"legacy_duplicate_wrappers_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+    add.clear()
+
+    pickle_path = Path(tmp_path) / f"{name}.pkl"
+    with open(pickle_path, "rb") as handle:
+        saved_functions = pickle.load(handle)
+
+    extension = saved_functions[0]._library_pyc_extension
+    extension.functions = extension.functions + extension.functions
+    legacy_state = saved_functions[0].__dict__.copy()
+    legacy_state["_pyc_extensions"] = {
+        signature: extension for signature in legacy_state["_compiled_functions"]
+    }
+    legacy_state.pop("_library_pyc_extension")
+    legacy_state.pop("_wrapper_specs")
+
+    class LegacyNumetaFunction:
+        def __reduce__(self):
+            return (NumetaFunction.__new__, (NumetaFunction,), legacy_state)
+
+    with open(pickle_path, "wb") as handle:
+        pickle.dump([LegacyNumetaFunction()], handle)
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    wrapper_names = [
+        wrapper_spec[0] for wrapper_spec in lib_loaded.add._library_pyc_extension.functions
+    ]
+    assert len(wrapper_names) == len(set(wrapper_names)) == 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib_loaded.add(vector)
+    np.testing.assert_array_equal(vector, np.ones(4, dtype=np.int64))
+
+
+def test_library_save_and_load_openmp_prange(tmp_path):
+    lib = nm.NumetaLibrary("openmp_prange_cache")
+
+    @nm.jit(
+        backend="fortran",
+        library=lib,
+        compile_flags="-O3 -fopenmp",
+    )
+    def add_one(out, x):
+        for i in nm.prange(x.shape[0], shared=[out, x, x.shape[0].variable]):
+            out[i] = x[i] + 1.0
+
+    x = np.asfortranarray(np.array([1.0, 2.0, 3.0]))
+    out = np.zeros_like(x, order="F")
+    lib.add_one(out, x)
+    np.testing.assert_array_equal(out, np.array([2.0, 3.0, 4.0]))
+
+    lib.save(tmp_path, "-O3 -fopenmp")
+    add_one.clear()
+    lib_loaded = nm.NumetaLibrary.load("openmp_prange_cache", tmp_path)
+
+    out = np.zeros_like(x, order="F")
+    lib_loaded.add_one(out, x)
+    np.testing.assert_array_equal(out, np.array([2.0, 3.0, 4.0]))
+
+
+def test_library_load_openmp_prange_in_fresh_process(tmp_path):
+    lib = nm.NumetaLibrary("openmp_fresh_process_cache")
+
+    @nm.jit(
+        backend="fortran",
+        library=lib,
+        compile_flags="-O3 -fopenmp",
+    )
+    def add_one(out, x):
+        for i in nm.prange(x.shape[0], shared=[out, x, x.shape[0].variable]):
+            out[i] = x[i] + 1.0
+
+    x = np.asfortranarray(np.array([1.0, 2.0, 3.0]))
+    out = np.zeros_like(x, order="F")
+    lib.add_one(out, x)
+    lib.save(tmp_path, "-O3 -fopenmp")
+
+    script = f"""
+import numpy as np
+import numeta as nm
+lib = nm.NumetaLibrary.load('openmp_fresh_process_cache', {str(tmp_path)!r})
+x = np.asfortranarray(np.array([1.0, 2.0, 3.0]))
+out = np.zeros_like(x, order='F')
+lib.add_one(out, x)
+np.testing.assert_array_equal(out, np.array([2.0, 3.0, 4.0]))
+"""
+    env = os.environ.copy()
+    root = Path(__file__).resolve().parents[1]
+    env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_library_save_is_atomic_on_failure(tmp_path, backend, monkeypatch):

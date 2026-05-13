@@ -109,10 +109,10 @@ class NumetaLibrary:
     def _nm_add_global(self, global_target: NumetaCompiledFunction) -> None:
         if not isinstance(global_target, NumetaCompiledFunction):
             raise TypeError("global registration expects a NumetaCompiledFunction")
-        existing = self._global_entries.get(global_target.name)
+        existing = self._global_entries.get(global_target.library_name)
         if existing is not None and existing is not global_target:
-            raise ValueError(f"Global namespace '{global_target.name}' already registered")
-        self._global_entries[global_target.name] = global_target
+            raise ValueError(f"Global namespace '{global_target.library_name}' already registered")
+        self._global_entries[global_target.library_name] = global_target
 
     def _nm_get(self, name) -> NumetaFunction | None:
         return self._entries.get(name)
@@ -123,7 +123,7 @@ class NumetaLibrary:
         for nm_function in self._entries.values():
             for compiled_target in nm_function._compiled_functions.values():
                 if compiled_target.backend == "fortran":
-                    fortran_src = directory / f"{compiled_target.name}_src.f90"
+                    fortran_src = directory / f"{compiled_target.func_name}_src.f90"
                     from .ir import FortranEmitter, lower_procedure
 
                     ir_proc = lower_procedure(compiled_target.symbolic_function)
@@ -133,7 +133,7 @@ class NumetaLibrary:
                     from numeta.c.emitter import CEmitter
                     from .ir import lower_procedure
 
-                    c_src = directory / f"{compiled_target.name}_src.c"
+                    c_src = directory / f"{compiled_target.func_name}_src.c"
                     ir_proc = lower_procedure(compiled_target.symbolic_function)
                     emitter = CEmitter()
                     c_code, _requires_math = emitter.emit_procedure(ir_proc)
@@ -143,7 +143,7 @@ class NumetaLibrary:
 
         for global_target in self._global_entries.values():
             if global_target.backend == "fortran":
-                fortran_src = directory / f"{global_target.name}_src.f90"
+                fortran_src = directory / f"{global_target.func_name}_src.f90"
                 from .ast.namespace import Namespace
                 from .fortran.fortran_syntax import render_stmt_lines
 
@@ -157,7 +157,7 @@ class NumetaLibrary:
                 from .ast.namespace import Namespace
                 from numeta.c.emitter import CEmitter
 
-                c_src = directory / f"{global_target.name}_src.c"
+                c_src = directory / f"{global_target.func_name}_src.c"
                 if not isinstance(global_target.symbolic_function, Namespace):
                     raise ValueError("Global target must be backed by a namespace")
                 emitter = CEmitter()
@@ -184,8 +184,8 @@ class NumetaLibrary:
 
         procedures_infos = []
         for function in self._entries.values():
-            for wrapper in function._pyc_extensions.values():
-                procedures_infos.extend(wrapper.functions)
+            procedures_infos.extend(function._wrapper_specs.values())
+        procedures_infos = NumetaFunction._deduplicate_wrapper_specs(procedures_infos)
 
         pyc_extension = PyCExtension(
             name=self.name,
@@ -193,6 +193,16 @@ class NumetaLibrary:
         )
 
         resolved_flags = settings.default_compile_flags if compile_flags is None else compile_flags
+        wrapper_config_function = next(iter(self._entries.values()), None)
+        wrapper_compile_flags = (
+            wrapper_config_function.compile_flags
+            if wrapper_config_function is not None
+            else resolved_flags
+        )
+        wrapper_backend = (
+            wrapper_config_function.backend if wrapper_config_function is not None else None
+        )
+        pyc_extension.set_cache_info(wrapper_compile_flags, backend=wrapper_backend)
         compiler = Compiler("gcc", compile_flags=resolved_flags)
 
         obj_files: set[Path] = set()
@@ -227,13 +237,17 @@ class NumetaLibrary:
                 "catch_var_positional_name": obj.catch_var_positional_name,
                 "return_signatures": obj.return_signatures,
                 "_compiled_functions": obj._compiled_functions,
+                "_wrapper_specs": obj._wrapper_specs,
                 "_pyc_extensions": obj._pyc_extensions,
+                "_library_pyc_extension": obj._library_pyc_extension,
                 "_fast_call": {},
                 "_use_c_dispatch_instance": obj._use_c_dispatch_instance,
             }
 
         def build_compiled_function_state(obj: NumetaCompiledFunction) -> dict:
             return {
+                # Loaded functions link against the combined library but keep
+                # func_name as the exported procedure symbol.
                 "name": name,
                 "hidden": obj.hidden,
                 "external": obj.external,
@@ -264,7 +278,8 @@ class NumetaLibrary:
                 nonlocal obj_files
                 if isinstance(obj, NumetaFunction):
                     state = build_function_state(obj)
-                    state["_pyc_extensions"] = {sig: pyc_extension for sig in obj._pyc_extensions}
+                    state["_pyc_extensions"] = {}
+                    state["_library_pyc_extension"] = pyc_extension
                     return (NumetaFunction.__new__, (NumetaFunction,), state)
 
                 if isinstance(obj, NumetaCompiledFunction):
@@ -303,7 +318,7 @@ class NumetaLibrary:
                         include_dirs.add(lib.include)
 
                 if lib.to_link:
-                    libraries.add(lib.name)
+                    libraries.add(getattr(lib, "library_name", lib.name))
                     if lib.path is not None:
                         libraries_dirs.add(str(lib.path))
                     if lib.rpath is not None:
@@ -326,6 +341,15 @@ class NumetaLibrary:
                 additional_flags=additional_flags,
             )
 
+            if procedures_infos:
+                pyc_extension.compile(
+                    core_lib_name=name,
+                    core_lib_path=directory,
+                    directory=directory,
+                    compile_flags=wrapper_compile_flags,
+                    backend=wrapper_backend,
+                )
+
             os.replace(temp_pickle_path, pickle_path)
         except Exception:
             if temp_pickle_path is not None:
@@ -343,21 +367,37 @@ class NumetaLibrary:
         safe: bool = False,
     ) -> "NumetaLibrary":
         cls._nm_validate_name(name)
+        directory = Path(directory).absolute()
 
         result = NumetaLibrary(name)
 
         try:
-            with open(Path(directory) / f"{name}.pkl", "rb") as handle:
+            with open(directory / f"{name}.pkl", "rb") as handle:
                 for func in pickle.load(handle):
                     result._entries[func.name] = func
         except (EOFError, pickle.UnpicklingError) as exc:
             if not safe:
                 raise
             warnings.warn(
-                f"Failed to load NumetaLibrary '{name}' cache from {Path(directory) / f'{name}.pkl'}: {exc}. "
+                f"Failed to load NumetaLibrary '{name}' cache from {directory / f'{name}.pkl'}: {exc}. "
                 "Treating it as a cache miss.",
                 RuntimeWarning,
             )
+
+        restored_extensions = set()
+        for func in result._entries.values():
+            wrapper = getattr(func, "_library_pyc_extension", None)
+            if wrapper is None or id(wrapper) in restored_extensions:
+                continue
+            restored_extensions.add(id(wrapper))
+
+            wrapper_path = directory / f"lib{wrapper.name}.so"
+            if wrapper_path.exists() and wrapper.cache_matches(
+                func.compile_flags, backend=func.backend
+            ):
+                wrapper.set_lib_path(wrapper_path)
+            else:
+                wrapper.set_lib_path(None)
 
         #
         #   Check collisions with already compiled function
@@ -384,6 +424,7 @@ class NumetaLibrary:
                         signatures_to_drop.append(signature)
                 for signature in signatures_to_drop:
                     func._compiled_functions.pop(signature, None)
+                    func._wrapper_specs.pop(signature, None)
                     func._pyc_extensions.pop(signature, None)
                     func._fast_call.pop(signature, None)
 

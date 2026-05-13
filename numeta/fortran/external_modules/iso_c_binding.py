@@ -1,6 +1,20 @@
 from numeta.ast import Variable, ExternalNamespace
+from numeta.ast.function import Function
+from numeta.array_shape import SCALAR
 from numeta.fortran.fortran_type import FortranType
 from numeta.array_shape import UNKNOWN
+
+
+class c_loc(Function):
+    @property
+    def dtype(self):
+        from numeta.datatype import c_ptr
+
+        return c_ptr
+
+    @property
+    def _shape(self):
+        return SCALAR
 
 
 class IsoCBinding(ExternalNamespace):
@@ -73,12 +87,10 @@ class IsoCBinding(ExternalNamespace):
             bind_c=False,
         )
 
-        self.add_method(
+        self.procedures["c_loc"] = c_loc(
             "c_loc",
-            [
-                Variable("x", dtype=c_ptr),
-            ],
-            result_=c_ptr,
+            [Variable("x", dtype=c_ptr)],
+            parent=self,
             bind_c=False,
         )
 
