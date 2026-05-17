@@ -108,8 +108,6 @@ def test_library_save_and_load_with_dep(tmp_path, backend):
     lib.save(tmp_path, "")
     assert len(lib._entries) == 2
 
-    set_zero.clear()
-    add.clear()
     lib_loaded = nm.NumetaLibrary.load(f"save_and_load_with_dep_{backend}", tmp_path)
     assert len(lib_loaded._entries) == 2
 
@@ -136,8 +134,6 @@ def test_library_save_and_load_with_dep_2(tmp_path, backend):
     assert len(lib._entries) == 1
     lib.save(tmp_path, "")
 
-    set_zero.clear()
-    add.clear()
     lib_loaded = nm.NumetaLibrary.load(f"save_and_load_with_dep_2_{backend}", tmp_path)
     assert len(lib_loaded._entries) == 1
 
@@ -163,8 +159,6 @@ def test_library_save_and_load_use_dep(tmp_path, backend):
     assert all(array == 1)
     lib.save(tmp_path, "")
 
-    set_zero.clear()
-    add.clear()
     lib_loaded = nm.NumetaLibrary.load(f"save_and_load_use_dep_{backend}", tmp_path)
 
     @nm.jit(backend=backend)
@@ -195,7 +189,6 @@ def test_library_global_variable_dep(tmp_path, backend):
 
     lib.save(tmp_path, "")
 
-    set.clear()
     lib_loaded = nm.NumetaLibrary.load(f"global_variable_dep_{backend}", tmp_path)
 
     a = np.empty(2, dtype=np.float64)
@@ -221,8 +214,6 @@ def test_library_name_conflict(tmp_path, backend):
     assert all(array == 1)
     lib.save(tmp_path, "")
 
-    set_zero.clear()
-    add.clear()
     lib_loaded_1 = nm.NumetaLibrary.load(f"name_conflict_{backend}", tmp_path)
     try:
         lib_loaded_2 = nm.NumetaLibrary.load(f"name_conflict_{backend}", tmp_path)
@@ -293,7 +284,6 @@ def test_library_external_dep(tmp_path, backend):
     np.testing.assert_allclose(c, np.dot(a, b))
     lib.save(tmp_path)
 
-    matmul.clear()
     lib_loaded = nm.NumetaLibrary.load(f"external_dep_{backend}", tmp_path)
 
     lib_loaded.matmul(a, b, c)
@@ -330,34 +320,20 @@ def test_library_register_rejects_reserved_name(backend):
             a[:] += 1
 
 
-def test_library_load_collision_warns(tmp_path, backend):
-    from numeta.numeta_function import NumetaFunction
+def test_library_load_with_existing_reserved_name(tmp_path, backend):
+    lib = nm.NumetaLibrary(f"reserved_name_lib_{backend}")
 
-    original_names = NumetaFunction.used_compiled_names.copy()
-    NumetaFunction.used_compiled_names.clear()
-    try:
-        lib_dir = tmp_path / f"collision_lib_{backend}"
-        lib_dir.mkdir()
-        lib = nm.NumetaLibrary(f"collision_lib_{backend}")
+    @nm.jit(backend=backend, library=lib)
+    def add(a):
+        a[:] += 1
 
-        @nm.jit(backend=backend, library=lib)
-        def add(a):
-            a[:] += 1
+    array = np.zeros(4, dtype=np.int64)
+    lib.add(array)
+    lib.save(tmp_path, "")
 
-        array = np.zeros(4, dtype=np.int64)
-        lib.add(array)
-        compiled_name = next(iter(add._compiled_functions.values())).func_name
-        lib.save(lib_dir)
-
-        NumetaFunction.used_compiled_names.clear()
-        NumetaFunction.used_compiled_names.add(compiled_name)
-
-        with pytest.warns(RuntimeWarning, match="collision"):
-            lib_loaded = nm.NumetaLibrary.load(f"collision_lib_{backend}", lib_dir)
-
-    finally:
-        NumetaFunction.used_compiled_names.clear()
-        NumetaFunction.used_compiled_names.update(original_names)
+    lib_loaded = nm.NumetaLibrary.load(f"reserved_name_lib_{backend}", tmp_path)
+    lib_loaded.add(array)
+    assert all(array == 2)
 
 
 def test_library_load_can_extend_existing_function(tmp_path, backend):
@@ -371,7 +347,6 @@ def test_library_load_can_extend_existing_function(tmp_path, backend):
     lib.add(vector)
     lib.save(tmp_path, "")
 
-    add.clear()
     lib_loaded = nm.NumetaLibrary.load(f"extend_existing_{backend}", tmp_path)
 
     with pytest.raises(ValueError, match="reattach=True"):
@@ -411,8 +386,6 @@ def test_library_save_load_save_keeps_wrapper_specs_unique(tmp_path, backend):
     lib.mul(vector)
     lib.save(tmp_path, "")
 
-    add.clear()
-    mul.clear()
     lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
 
     aggregate_extensions = [func._library_pyc_extension for func in lib_loaded]
@@ -452,10 +425,6 @@ def test_library_save_loaded_library_keeps_all_core_objects(tmp_path, backend):
     lib.mul(vector)
     lib.sub(vector)
     lib.save(tmp_path, "")
-
-    add.clear()
-    mul.clear()
-    sub.clear()
 
     lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
     lib_loaded.save(tmp_path, "")
@@ -503,7 +472,6 @@ def test_library_load_reuses_compatible_aggregate_wrapper(tmp_path, backend, mon
     vector = np.zeros(4, dtype=np.int64)
     lib.add(vector)
     lib.save(tmp_path, "")
-    add.clear()
 
     def fail_compile(*args, **kwargs):
         raise AssertionError("wrapper should have been reused")
@@ -531,7 +499,6 @@ def test_library_load_recompiles_wrapper_on_cache_info_mismatch(tmp_path, backen
     vector = np.zeros(4, dtype=np.int64)
     lib.add(vector)
     lib.save(tmp_path, "")
-    add.clear()
 
     original_build_cache_info = PyCExtension.build_cache_info
     original_compile = PyCExtension.compile
@@ -571,7 +538,6 @@ def test_library_load_normalizes_legacy_duplicate_aggregate_wrappers(tmp_path, b
     vector = np.zeros(4, dtype=np.int64)
     lib.add(vector)
     lib.save(tmp_path, "")
-    add.clear()
 
     pickle_path = Path(tmp_path) / f"{name}.pkl"
     with open(pickle_path, "rb") as handle:
@@ -622,7 +588,6 @@ def test_library_save_and_load_openmp_prange(tmp_path):
     np.testing.assert_array_equal(out, np.array([2.0, 3.0, 4.0]))
 
     lib.save(tmp_path, "-O3 -fopenmp")
-    add_one.clear()
     lib_loaded = nm.NumetaLibrary.load("openmp_prange_cache", tmp_path)
 
     out = np.zeros_like(x, order="F")
@@ -709,7 +674,6 @@ def test_library_save_skips_extra_runtime_attributes(tmp_path, backend):
     vector = np.zeros(4, dtype=np.int64)
     lib.add(vector)
     lib.save(tmp_path, "")
-    add.clear()
 
     lib_loaded = nm.NumetaLibrary.load(f"stable_state_{backend}", tmp_path)
     assert not hasattr(lib_loaded.add, "extra_runtime_state")

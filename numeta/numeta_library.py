@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import shutil
 import sys
 import tempfile
 
@@ -16,6 +17,114 @@ from .compiler import Compiler
 from .settings import settings
 
 
+def _artifact_dir_for_compiled(directory: Path, compiled: NumetaCompiledFunction) -> Path:
+    return directory / "artifacts" / "compiled" / compiled.func_name
+
+
+def _source_suffix_for(compiled: NumetaCompiledFunction) -> str:
+    if compiled.backend == "fortran":
+        return "_src.f90"
+    if compiled.backend == "c":
+        return "_src.c"
+    raise ValueError(f"Unsupported backend: {compiled.backend}")
+
+
+def _source_path_for(compiled: NumetaCompiledFunction) -> Path:
+    return Path(compiled._path) / f"{compiled.func_name}{_source_suffix_for(compiled)}"
+
+
+def _copy_if_different(source: Path, target: Path) -> None:
+    if source.absolute() == target.absolute():
+        return
+    shutil.copy2(source, target)
+
+
+def _persist_compiled_artifacts(
+    compiled: NumetaCompiledFunction,
+    directory: Path,
+) -> tuple[Path, Path | None, Path]:
+    old_obj_file = compiled.obj_files[0]
+
+    target_dir = _artifact_dir_for_compiled(directory, compiled)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_obj_file = target_dir / old_obj_file.name
+    _copy_if_different(old_obj_file, saved_obj_file)
+
+    saved_src_file = None
+    source_paths = []
+    for source_file in getattr(compiled, "_source_files", ()):
+        source_path = Path(source_file)
+        if source_path.exists():
+            source_paths.append(source_path)
+
+    generated_source = _source_path_for(compiled)
+    if generated_source.exists() and generated_source not in source_paths:
+        source_paths.append(generated_source)
+
+    for source_path in source_paths:
+        target_source = target_dir / source_path.name
+        _copy_if_different(source_path, target_source)
+        if saved_src_file is None and source_path.name.endswith(_source_suffix_for(compiled)):
+            saved_src_file = target_source
+
+    for side_product in Path(compiled._path).glob("*.mod"):
+        _copy_if_different(side_product, target_dir / side_product.name)
+
+    return saved_obj_file, saved_src_file, target_dir
+
+
+def _validate_function_level_compatibility(
+    old_func: NumetaFunction,
+    new_func: NumetaFunction,
+) -> None:
+    if old_func.backend != new_func.backend:
+        raise ValueError("Cannot replace function with different backend")
+
+    if tuple(old_func.compile_flags) != tuple(new_func.compile_flags):
+        raise ValueError(
+            "Cannot replace function with different compile_flags in minimal incremental mode"
+        )
+
+    if old_func.do_checks != new_func.do_checks:
+        raise ValueError(
+            "Cannot replace function with different do_checks in minimal incremental mode"
+        )
+
+    if old_func.inline or new_func.inline:
+        raise ValueError("replace() does not support inline functions yet")
+
+
+def _validate_specialization_compatibility(
+    old_func: NumetaFunction,
+    new_func: NumetaFunction,
+    signature,
+) -> None:
+    old_spec = old_func._wrapper_specs.get(signature)
+    if old_spec is None:
+        old_spec = old_func.build_wrapper_spec(signature)
+
+    new_spec = new_func._wrapper_specs.get(signature)
+    if new_spec is None:
+        new_spec = new_func.build_wrapper_spec(signature)
+
+    old_name, old_args, old_returns = old_spec
+    new_name, new_args, new_returns = new_spec
+
+    if old_name != new_name:
+        raise AssertionError("replacement did not preserve compiled symbol name")
+
+    if old_args != new_args:
+        raise ValueError(
+            f"Replacement for {old_func.name!r} changed argument ABI for signature {signature!r}"
+        )
+
+    if old_returns != new_returns:
+        raise ValueError(
+            f"Replacement for {old_func.name!r} changed return ABI for signature {signature!r}"
+        )
+
+
 class NumetaLibrary:
     __slots__ = "name", "_entries", "_global_entries"
     loaded = set()
@@ -25,6 +134,7 @@ class NumetaLibrary:
         "loaded",
         "register",
         "remove",
+        "replace",
         "list_functions",
         "save",
         "load",
@@ -51,7 +161,7 @@ class NumetaLibrary:
             )
         if name in cls.loaded:
             raise ValueError(f"Already using a library called {name}")
-        if native_name_registry.is_active(name):
+        if native_name_registry.is_reserved(name):
             raise ValueError(
                 f"Library name '{name}' conflicts with a compiled function library name."
             )
@@ -76,6 +186,109 @@ class NumetaLibrary:
 
     def remove(self, name: str) -> NumetaFunction:
         return self._entries.pop(name)
+
+    def replace(
+        self,
+        name_or_function: str | NumetaFunction,
+        function: NumetaFunction | None = None,
+        *,
+        compile_now: bool = True,
+        require_existing_specializations: bool = True,
+    ) -> NumetaFunction:
+        if function is None:
+            if not isinstance(name_or_function, NumetaFunction):
+                raise TypeError("replace(function) expects a NumetaFunction")
+            name = name_or_function.name
+            new_func = name_or_function
+        else:
+            if not isinstance(name_or_function, str):
+                raise TypeError("replace(name, function) expects name to be a string")
+            name = name_or_function
+            new_func = function
+
+        if not isinstance(new_func, NumetaFunction):
+            raise TypeError("replacement must be a NumetaFunction")
+
+        if name not in self._entries:
+            raise KeyError(f"Cannot replace unknown function {name!r}")
+
+        old_func = self._entries[name]
+        if require_existing_specializations and not old_func._compiled_functions:
+            raise ValueError(
+                f"Function {name!r} has no compiled specializations to replace. "
+                "Register the new function normally or call replace(..., "
+                "require_existing_specializations=False)."
+            )
+
+        if new_func is old_func:
+            raise ValueError(
+                f"replace() requires a distinct replacement function, "
+                f"not the same object as the library entry"
+            )
+
+        if new_func._compiled_functions:
+            raise ValueError(
+                "Replacement function already has compiled specializations. "
+                "Call replacement.clear() before lib.replace(...)."
+            )
+
+        _validate_function_level_compatibility(old_func, new_func)
+
+        original_state = {
+            "name": new_func.name,
+            "return_signatures": new_func.return_signatures.copy(),
+            "_compiled_functions": new_func._compiled_functions.copy(),
+            "_wrapper_specs": new_func._wrapper_specs.copy(),
+            "_pyc_extensions": new_func._pyc_extensions.copy(),
+            "_library_pyc_extension": new_func._library_pyc_extension,
+            "_fast_call": new_func._fast_call.copy(),
+        }
+        names_added_by_replace = []
+
+        try:
+            for signature, old_compiled in old_func._compiled_functions.items():
+                old_symbol = old_compiled.func_name
+                if not native_name_registry.is_reserved(old_symbol):
+                    names_added_by_replace.append(old_symbol)
+
+                new_func._wrapper_specs.pop(signature, None)
+                new_func._pyc_extensions.pop(signature, None)
+                new_func._fast_call.pop(signature, None)
+                new_func.construct_compiled_target(
+                    signature,
+                    forced_name=old_symbol,
+                    allow_existing_name=True,
+                )
+                new_func.construct_wrapper_spec(signature)
+                _validate_specialization_compatibility(old_func, new_func, signature)
+
+                if compile_now:
+                    new_func._compiled_functions[signature].compile_obj()
+
+        except Exception:
+            new_func.name = original_state["name"]
+            new_func.return_signatures = original_state["return_signatures"]
+            new_func._compiled_functions = original_state["_compiled_functions"]
+            new_func._wrapper_specs = original_state["_wrapper_specs"]
+            new_func._pyc_extensions = original_state["_pyc_extensions"]
+            new_func._library_pyc_extension = original_state["_library_pyc_extension"]
+            new_func._fast_call = original_state["_fast_call"]
+            raise
+
+        new_func.name = name
+        new_func._library_pyc_extension = None
+        new_func._fast_call.clear()
+        self._entries[name] = new_func
+
+        if self.name in NumetaLibrary.loaded:
+            warnings.warn(
+                "Incremental replacement relinks the library on disk. Already-loaded function "
+                "pointers may still point to the old shared object. Reload in a fresh process "
+                "for guaranteed behavior.",
+                RuntimeWarning,
+            )
+
+        return new_func
 
     def list_functions(self) -> list[str]:
         return list(self._entries)
@@ -246,6 +459,7 @@ class NumetaLibrary:
             }
 
         def build_compiled_function_state(obj: NumetaCompiledFunction) -> dict:
+            saved_obj, saved_src, saved_include = _persist_compiled_artifacts(obj, directory)
             return {
                 # Loaded functions link against the combined library but keep
                 # func_name as the exported procedure symbol.
@@ -255,7 +469,8 @@ class NumetaLibrary:
                 "_path": directory,
                 "_rpath": directory,
                 "_include": directory,
-                "_obj_files": None,
+                "_obj_files": saved_obj,
+                "_source_files": [saved_src] if saved_src is not None else [],
                 "additional_flags": obj.additional_flags,
                 "to_link": obj.to_link,
                 "namespaces": obj.namespaces,
@@ -285,7 +500,7 @@ class NumetaLibrary:
 
                 if isinstance(obj, NumetaCompiledFunction):
                     state = build_compiled_function_state(obj)
-                    obj_files.update([obj for obj in obj.obj_files])
+                    obj_files.add(Path(state["_obj_files"]))
                     dependencies |= obj.symbolic_function.get_dependencies()
                     return (NumetaCompiledFunction.__new__, (NumetaCompiledFunction,), state)
                 return NotImplemented
@@ -400,36 +615,7 @@ class NumetaLibrary:
             else:
                 wrapper.set_lib_path(None)
 
-        #
-        #   Check collisions with already compiled function
-        #
-
         loaded_names: set[str] = set()
-        for func in result._entries.values():
-            for compiled in func._compiled_functions.values():
-                loaded_names.add(compiled.func_name)
-
-        collisions = loaded_names & native_name_registry.active_names
-        if collisions:
-            colliding_list = ", ".join(sorted(collisions))
-            warnings.warn(
-                f"Compiled function name collision while loading library '{name}'. "
-                f"Existing names: {colliding_list}. "
-                "Conflicting compiled entries will be dropped and rebuilt on demand.",
-                RuntimeWarning,
-            )
-            for func in result._entries.values():
-                signatures_to_drop = []
-                for signature, compiled in func._compiled_functions.items():
-                    if compiled.func_name in collisions:
-                        signatures_to_drop.append(signature)
-                for signature in signatures_to_drop:
-                    func._compiled_functions.pop(signature, None)
-                    func._wrapper_specs.pop(signature, None)
-                    func._pyc_extensions.pop(signature, None)
-                    func._fast_call.pop(signature, None)
-
-        loaded_names = set()
         for func in result._entries.values():
             for compiled in func._compiled_functions.values():
                 loaded_names.add(compiled.func_name)

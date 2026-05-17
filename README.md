@@ -212,6 +212,24 @@ lib_loaded.add(array)
 lib_loaded["add"](array)
 ```
 
+Loaded libraries can also incrementally replace already-compiled specializations.
+The replacement keeps the old exported symbol names, recompiles only the live
+specializations for that function, and relinks the saved library on disk:
+
+```python
+lib = nm.NumetaLibrary.load("demo", "./build")
+
+@nm.jit
+def add(a):
+    a[:] += 2
+
+lib.replace(add)
+lib.save("./build")
+```
+
+Reload in a fresh process when you need guaranteed use of the relinked shared
+library.
+
 ## Examples
 
 ### First For Loop

@@ -277,7 +277,7 @@ class NumetaFunction(BaseFunction):
     Representation of a JIT-compiled function.
     """
 
-    used_compiled_names: set[str] = native_name_registry.active_names
+    used_compiled_names: set[str] = native_name_registry.reserved_names
 
     @staticmethod
     def _deduplicate_wrapper_specs(wrapper_specs):
@@ -366,17 +366,6 @@ class NumetaFunction(BaseFunction):
             result = compile_custom_signature_parser(self.name, self.params, self.directory)
             if result:
                 self._set_custom_parser(*result)
-
-    def clear(self):
-        for compiled in self._compiled_functions.values():
-            native_name_registry.release_active(compiled.func_name)
-        self._compiled_functions = {}
-        self.return_signatures = {}
-        self._wrapper_specs = {}
-        self._pyc_extensions = {}
-        self._library_pyc_extension = None
-        self._fast_call = {}
-        self._fast_call.clear()
 
     def get_symbolic_functions(self):
         return [v.symbolic_function for v in self._compiled_functions.values()]
@@ -657,24 +646,27 @@ class NumetaFunction(BaseFunction):
 
         if forced_name is not None:
             name = forced_name
-            if native_name_registry.is_active(name) and not allow_existing_name:
+            if native_name_registry.is_reserved(name) and not allow_existing_name:
                 raise ValueError(
                     f"Compiled function name '{name}' already exists. "
                     "Pass allow_existing_name=True only when intentionally replacing an old specialization."
                 )
         elif self.namer is None:
-            first_candidate = f"{self.name}_{len(NumetaFunction.used_compiled_names)}"
-            name, active_collision = native_name_registry.default_candidate(self.name)
-            if active_collision:
+            suffix = len(native_name_registry.reserved_names)
+            name = f"{self.name}_{suffix}"
+            if native_name_registry.is_reserved(name):
                 warnings.warn(
-                    f"Compiled function name collision: '{first_candidate}' is already registered. "
+                    f"Compiled function name collision: '{name}' is already registered. "
                     "Picking a new name automatically; consider providing a custom namer "
                     "if you need stable names.",
                     RuntimeWarning,
                 )
+                while native_name_registry.is_reserved(name):
+                    suffix += 1
+                    name = f"{self.name}_{suffix}"
         else:
             name = self.namer(*signature)
-            if native_name_registry.is_active(name):
+            if native_name_registry.is_reserved(name):
                 raise ValueError(
                     f"Custom namer produced duplicate compiled name '{name}'. "
                     "This can happen when different functions resolve to the same name; "

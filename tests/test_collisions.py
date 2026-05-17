@@ -26,31 +26,22 @@ def test_compiled_name_collision_warns(backend):
 
 
 def test_default_compiled_name_not_reused_after_registry_clear(backend):
-    original_names = NumetaFunction.used_compiled_names.copy()
-    try:
+    @nm.jit(backend=backend)
+    def bump(a):
+        a[:] += 1
 
-        @nm.jit(backend=backend)
-        def bump(a):
-            a[:] += 1
+    array = np.zeros(4, dtype=np.int64)
+    bump(array)
+    first_name = bump.get_symbolic_functions()[0].name
 
-        array = np.zeros(4, dtype=np.int64)
-        bump(array)
-        first_name = bump.get_symbolic_functions()[0].name
+    @nm.jit(backend=backend)
+    def bump(a):
+        a[:] += 1
 
-        bump.clear()
-        NumetaFunction.used_compiled_names.clear()
+    bump(array)
+    second_name = bump.get_symbolic_functions()[0].name
 
-        @nm.jit(backend=backend)
-        def bump(a):
-            a[:] += 1
-
-        bump(array)
-        second_name = bump.get_symbolic_functions()[0].name
-
-        assert second_name != first_name
-    finally:
-        NumetaFunction.used_compiled_names.clear()
-        NumetaFunction.used_compiled_names.update(original_names)
+    assert second_name != first_name
 
 
 def test_custom_namer_collision_raises(backend):
