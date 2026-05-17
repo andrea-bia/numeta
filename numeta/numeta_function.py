@@ -19,6 +19,7 @@ from .signature import (
     get_signature_and_runtime_args,
     parse_function_parameters,
 )
+from .native_name_registry import native_name_registry
 
 
 class NumetaCompiledFunction(ExternalLibrary):
@@ -57,6 +58,7 @@ class NumetaCompiledFunction(ExternalLibrary):
         resolved_flags = settings.default_compile_flags if compile_flags is None else compile_flags
         self.compile_flags = Compiler._normalize_flags(resolved_flags)
         self.compiled = False
+        self._source_files = []
 
     @property
     def library_name(self):
@@ -77,6 +79,17 @@ class NumetaCompiledFunction(ExternalLibrary):
 
     @property
     def obj_files(self):
+        if self._obj_files is not None:
+            obj_file = Path(self._obj_files)
+            if obj_file.exists():
+                return [obj_file]
+
+            warnings.warn(
+                f"Cached object file {obj_file} is missing; rebuilding {self.func_name}.",
+                RuntimeWarning,
+            )
+            self._obj_files = None
+
         if self._obj_files is None:
             self._obj_files, self._include = self.compile_obj()
         assert self._obj_files is not None
@@ -152,6 +165,8 @@ class NumetaCompiledFunction(ExternalLibrary):
                 obj_suffix = "_c.o"
             else:
                 raise ValueError(f"Unsupported backend: {self.backend}")
+
+            self._source_files = list(sources)
 
             for lib in self.symbolic_function.get_dependencies().values():
 
@@ -262,7 +277,7 @@ class NumetaFunction(BaseFunction):
     Representation of a JIT-compiled function.
     """
 
-    used_compiled_names: set[str] = set()
+    used_compiled_names: set[str] = native_name_registry.active_names
 
     @staticmethod
     def _deduplicate_wrapper_specs(wrapper_specs):
@@ -354,9 +369,9 @@ class NumetaFunction(BaseFunction):
 
     def clear(self):
         for compiled in self._compiled_functions.values():
-            NumetaFunction.used_compiled_names.remove(compiled.func_name)
-        self.return_signatures = {}
+            native_name_registry.release_active(compiled.func_name)
         self._compiled_functions = {}
+        self.return_signatures = {}
         self._wrapper_specs = {}
         self._pyc_extensions = {}
         self._library_pyc_extension = None
@@ -632,24 +647,34 @@ class NumetaFunction(BaseFunction):
         self.return_signatures[signature] = return_signature
         return sub
 
-    def construct_compiled_target(self, signature):
+    def construct_compiled_target(
+        self,
+        signature,
+        *,
+        forced_name: str | None = None,
+        allow_existing_name: bool = False,
+    ):
 
-        if self.namer is None:
-            suffix = len(NumetaFunction.used_compiled_names)
-            name = f"{self.name}_{suffix}"
-            if name in NumetaFunction.used_compiled_names:
+        if forced_name is not None:
+            name = forced_name
+            if native_name_registry.is_active(name) and not allow_existing_name:
+                raise ValueError(
+                    f"Compiled function name '{name}' already exists. "
+                    "Pass allow_existing_name=True only when intentionally replacing an old specialization."
+                )
+        elif self.namer is None:
+            first_candidate = f"{self.name}_{len(NumetaFunction.used_compiled_names)}"
+            name, active_collision = native_name_registry.default_candidate(self.name)
+            if active_collision:
                 warnings.warn(
-                    f"Compiled function name collision: '{name}' is already registered. "
+                    f"Compiled function name collision: '{first_candidate}' is already registered. "
                     "Picking a new name automatically; consider providing a custom namer "
                     "if you need stable names.",
                     RuntimeWarning,
                 )
-                while name in NumetaFunction.used_compiled_names:
-                    suffix += 1
-                    name = f"{self.name}_{suffix}"
         else:
             name = self.namer(*signature)
-            if name in NumetaFunction.used_compiled_names:
+            if native_name_registry.is_active(name):
                 raise ValueError(
                     f"Custom namer produced duplicate compiled name '{name}'. "
                     "This can happen when different functions resolve to the same name; "
@@ -665,7 +690,7 @@ class NumetaFunction(BaseFunction):
             raise ValueError(
                 f"Compiled function name '{name}' conflicts with a loaded NumetaLibrary."
             )
-        NumetaFunction.used_compiled_names.add(name)
+        native_name_registry.reserve(name)
 
         symbolic_fun = self.get_symbolic_function(name, signature)
 

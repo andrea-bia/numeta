@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Iterable
 
 from .numeta_function import NumetaFunction, NumetaCompiledFunction
+from .native_name_registry import native_name_registry
 from .pyc_extension import PyCExtension
 from .compiler import Compiler
 from .settings import settings
@@ -50,7 +51,7 @@ class NumetaLibrary:
             )
         if name in cls.loaded:
             raise ValueError(f"Already using a library called {name}")
-        if name in NumetaFunction.used_compiled_names:
+        if native_name_registry.is_active(name):
             raise ValueError(
                 f"Library name '{name}' conflicts with a compiled function library name."
             )
@@ -408,7 +409,7 @@ class NumetaLibrary:
             for compiled in func._compiled_functions.values():
                 loaded_names.add(compiled.func_name)
 
-        collisions = loaded_names & NumetaFunction.used_compiled_names
+        collisions = loaded_names & native_name_registry.active_names
         if collisions:
             colliding_list = ", ".join(sorted(collisions))
             warnings.warn(
@@ -434,7 +435,7 @@ class NumetaLibrary:
                 loaded_names.add(compiled.func_name)
 
         if loaded_names:
-            NumetaFunction.used_compiled_names.update(loaded_names)
+            native_name_registry.reserve_many(loaded_names)
         NumetaLibrary.loaded.add(name)
 
         return result

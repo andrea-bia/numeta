@@ -199,7 +199,7 @@ def test_library_global_variable_dep(tmp_path, backend):
     lib_loaded = nm.NumetaLibrary.load(f"global_variable_dep_{backend}", tmp_path)
 
     a = np.empty(2, dtype=np.float64)
-    lib.set(a)
+    lib_loaded.set(a)
     np.testing.assert_allclose(a, np.array([2.0, -1.0]))
 
 
@@ -346,16 +346,11 @@ def test_library_load_collision_warns(tmp_path, backend):
 
         array = np.zeros(4, dtype=np.int64)
         lib.add(array)
+        compiled_name = next(iter(add._compiled_functions.values())).func_name
         lib.save(lib_dir)
 
         NumetaFunction.used_compiled_names.clear()
-
-        @nm.jit(backend=backend)
-        def add(a):
-            a[:] += 1
-
-        array = np.zeros(4, dtype=np.int64)
-        add(array)
+        NumetaFunction.used_compiled_names.add(compiled_name)
 
         with pytest.warns(RuntimeWarning, match="collision"):
             lib_loaded = nm.NumetaLibrary.load(f"collision_lib_{backend}", lib_dir)
