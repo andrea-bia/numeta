@@ -107,6 +107,8 @@ def jit(
                             "and allow compiling new signatures."
                         )
                     nm_func._func = f
+                    if namer is not None:
+                        nm_func.namer = namer
                 if nm_func.do_checks != do_checks:
                     warnings.warn(
                         f"function {name} has been loaded with different do_checks value: {nm_func.do_checks}",

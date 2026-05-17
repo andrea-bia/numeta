@@ -15,6 +15,37 @@ from .native_name_registry import native_name_registry
 from .pyc_extension import PyCExtension
 from .compiler import Compiler
 from .settings import settings
+from .datatype import DataTypeMeta, make_struct_type
+
+
+def _pickleable_or_none(value, *, description: str):
+    if value is None:
+        return None
+    try:
+        pickle.dumps(value)
+    except Exception:
+        warnings.warn(
+            f"{description} is not pickleable; pass it again with reattach=True "
+            "before compiling new signatures from the loaded library.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return None
+    return value
+
+
+def _rebuild_struct_type(np_dtype, members, name):
+    members = list(members)
+
+    existing = DataTypeMeta._np_dtype.get(np_dtype)
+    if existing is not None:
+        return existing
+
+    existing = DataTypeMeta._np_dtype.get(tuple(members))
+    if existing is not None:
+        return existing
+
+    return make_struct_type(np_dtype, members, name=name)
 
 
 def _artifact_dir_for_compiled(directory: Path, compiled: NumetaCompiledFunction) -> Path:
@@ -442,7 +473,7 @@ class NumetaLibrary:
                 "do_checks": obj.do_checks,
                 "compile_flags": obj.compile_flags,
                 "backend": obj.backend,
-                "namer": obj.namer,
+                "namer": _pickleable_or_none(obj.namer, description=f"namer for {obj.name!r}"),
                 "inline": obj.inline,
                 "_func": None,
                 "params": obj.params,
@@ -476,8 +507,8 @@ class NumetaLibrary:
                 "namespaces": obj.namespaces,
                 "procedures": obj.procedures,
                 "variables": obj.variables,
-                "symbolic_function": obj.symbolic_function,
                 "func_name": obj.func_name,
+                "symbolic_function": obj.symbolic_function,
                 "do_checks": obj.do_checks,
                 "compile_flags": obj.compile_flags,
                 "backend": obj.backend,
@@ -492,6 +523,12 @@ class NumetaLibrary:
             def reducer_override(self, obj):  # type: ignore[override]
                 nonlocal dependencies
                 nonlocal obj_files
+                if isinstance(obj, DataTypeMeta) and getattr(obj, "_is_struct", False):
+                    return (
+                        _rebuild_struct_type,
+                        (obj._np_type, tuple(obj._members), obj._name),
+                    )
+
                 if isinstance(obj, NumetaFunction):
                     state = build_function_state(obj)
                     state["_pyc_extensions"] = {}
@@ -503,6 +540,7 @@ class NumetaLibrary:
                     obj_files.add(Path(state["_obj_files"]))
                     dependencies |= obj.symbolic_function.get_dependencies()
                     return (NumetaCompiledFunction.__new__, (NumetaCompiledFunction,), state)
+
                 return NotImplemented
 
         try:
@@ -514,7 +552,12 @@ class NumetaLibrary:
                 delete=False,
             ) as f:
                 temp_pickle_path = Path(f.name)
-                RewritingPickler(f).dump(list(self._entries.values()))
+                payload = {
+                    "version": 2,
+                    "entries": list(self._entries.values()),
+                    "global_entries": dict(self._global_entries),
+                }
+                RewritingPickler(f).dump(payload)
 
             libraries = set()
             libraries_dirs = set()
@@ -522,10 +565,30 @@ class NumetaLibrary:
             include_dirs = set()
             additional_flags = set()
 
-            for lib in dependencies.values():
+            processed_compiled = set()
+            processed_external = set()
+            pending_dependencies = list(dependencies.values())
+
+            while pending_dependencies:
+                lib = pending_dependencies.pop()
 
                 if isinstance(lib, NumetaCompiledFunction):
+                    marker = id(lib)
+                    if marker in processed_compiled:
+                        continue
+                    processed_compiled.add(marker)
+
+                    saved_obj, _saved_src, _saved_include = _persist_compiled_artifacts(
+                        lib, directory
+                    )
+                    obj_files.add(saved_obj)
+                    pending_dependencies.extend(lib.symbolic_function.get_dependencies().values())
                     continue
+
+                marker = id(lib)
+                if marker in processed_external:
+                    continue
+                processed_external.add(marker)
 
                 if lib.include is not None:
                     if isinstance(lib.include, (list, tuple, set)):
@@ -589,8 +652,26 @@ class NumetaLibrary:
 
         try:
             with open(directory / f"{name}.pkl", "rb") as handle:
-                for func in pickle.load(handle):
+                payload = pickle.load(handle)
+
+            if isinstance(payload, dict) and "entries" in payload:
+                entries = payload["entries"]
+                global_entries = payload.get("global_entries", {})
+            else:
+                entries = payload
+                global_entries = {}
+
+            for func in entries:
+                if isinstance(func, NumetaFunction):
                     result._entries[func.name] = func
+                elif isinstance(func, NumetaCompiledFunction):
+                    result._global_entries[func.func_name] = func
+
+            if isinstance(global_entries, dict):
+                result._global_entries.update(global_entries)
+            else:
+                for func in global_entries:
+                    result._global_entries[func.func_name] = func
         except (EOFError, pickle.UnpicklingError) as exc:
             if not safe:
                 raise
@@ -619,6 +700,9 @@ class NumetaLibrary:
         for func in result._entries.values():
             for compiled in func._compiled_functions.values():
                 loaded_names.add(compiled.func_name)
+
+        for compiled in result._global_entries.values():
+            loaded_names.add(compiled.func_name)
 
         if loaded_names:
             native_name_registry.reserve_many(loaded_names)

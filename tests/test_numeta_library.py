@@ -4,12 +4,25 @@ import subprocess
 import sys
 from pathlib import Path
 import pickle
+from functools import partial
 
 import pytest
 import numeta as nm
 
 from numeta.compiler import Compiler
 from numeta.pyc_extension import PyCExtension
+
+
+def _rank_namer(prefix, *signature):
+    return f"{prefix}_{signature[0][2]}"
+
+
+def _load_saved_entries(pickle_path):
+    with open(pickle_path, "rb") as handle:
+        payload = pickle.load(handle)
+    if isinstance(payload, dict):
+        return payload["entries"]
+    return payload
 
 
 def test_library_save_and_load(tmp_path, backend):
@@ -88,6 +101,32 @@ def test_library_write_code_with_global_constant(tmp_path, backend):
     assert src.exists()
     code = src.read_text().lower()
     assert global_name in code
+
+
+def test_library_save_load_write_code_with_struct_dtype(tmp_path, backend):
+    name = f"struct_symbolic_cache_{backend}"
+    lib = nm.NumetaLibrary(name)
+    dtype = np.dtype([("x", np.int32), ("y", np.float64, (2,))], align=True)
+
+    @nm.jit(backend=backend, library=lib)
+    def fill_struct(a):
+        a[0]["x"] = 5
+        a[0]["y"][1] = -2.0
+
+    array = np.zeros(1, dtype=dtype)
+    lib.fill_struct(array)
+    lib.save(tmp_path, "")
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    compiled = next(iter(lib_loaded.fill_struct._compiled_functions.values()))
+    assert hasattr(compiled, "symbolic_function")
+
+    code_dir = tmp_path / "struct_code"
+    lib_loaded.write_code(code_dir)
+    suffix = "_src.f90" if backend == "fortran" else "_src.c"
+    assert (code_dir / f"{compiled.func_name}{suffix}").exists()
+
+    lib_loaded.save(tmp_path, "")
 
 
 def test_library_save_and_load_with_dep(tmp_path, backend):
@@ -194,6 +233,43 @@ def test_library_global_variable_dep(tmp_path, backend):
     a = np.empty(2, dtype=np.float64)
     lib_loaded.set(a)
     np.testing.assert_allclose(a, np.array([2.0, -1.0]))
+
+
+def test_library_save_load_preserves_multiple_global_entries(tmp_path, backend):
+    name = f"multiple_global_entries_{backend}"
+    lib = nm.NumetaLibrary(name)
+    first_name = f"{name}_first"
+    second_name = f"{name}_second"
+
+    nm.declare_global_constant(
+        (1,),
+        np.float64,
+        value=np.array([1.0]),
+        name=first_name,
+        backend=backend,
+        library=lib,
+    )
+    nm.declare_global_constant(
+        (1,),
+        np.float64,
+        value=np.array([2.0]),
+        name=second_name,
+        backend=backend,
+        library=lib,
+    )
+
+    expected_keys = {f"{first_name}_namespace", f"{second_name}_namespace"}
+    assert set(lib._global_entries) == expected_keys
+
+    lib.save(tmp_path, "")
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+    assert set(lib_loaded._global_entries) == expected_keys
+
+    code_dir = tmp_path / "global_code"
+    lib_loaded.write_code(code_dir)
+    suffix = "_src.f90" if backend == "fortran" else "_src.c"
+    for key in expected_keys:
+        assert (code_dir / f"{key}{suffix}").exists()
 
 
 def test_library_name_conflict(tmp_path, backend):
@@ -369,6 +445,66 @@ def test_library_load_can_extend_existing_function(tmp_path, backend):
     assert len(lib_loaded.add._compiled_functions) == 2
 
 
+def test_library_load_preserves_picklable_namer_for_new_signatures(tmp_path, backend):
+    name = f"picklable_namer_{backend}"
+    prefix = f"saved_picklable_namer_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    @nm.jit(backend=backend, library=lib, namer=partial(_rank_namer, prefix))
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    lib.save(tmp_path, "")
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+
+    @nm.jit(backend=backend, library=lib_loaded, reattach=True)
+    def add(a):
+        a[:] += 1
+
+    matrix = np.zeros((2, 2), dtype=np.int64)
+    lib_loaded.add(matrix)
+
+    compiled_names = {
+        compiled.func_name for compiled in lib_loaded.add._compiled_functions.values()
+    }
+    assert f"{prefix}_2" in compiled_names
+
+
+def test_library_reattach_can_restore_unpickleable_namer(tmp_path, backend):
+    name = f"unpickleable_namer_{backend}"
+    prefix = f"saved_lambda_namer_{backend}"
+    lib = nm.NumetaLibrary(name)
+
+    def namer(*signature):
+        return f"{prefix}_{signature[0][2]}"
+
+    @nm.jit(backend=backend, library=lib, namer=namer)
+    def add(a):
+        a[:] += 1
+
+    vector = np.zeros(4, dtype=np.int64)
+    lib.add(vector)
+    with pytest.warns(RuntimeWarning, match="not pickleable"):
+        lib.save(tmp_path, "")
+
+    lib_loaded = nm.NumetaLibrary.load(name, tmp_path)
+
+    @nm.jit(backend=backend, library=lib_loaded, reattach=True, namer=namer)
+    def add(a):
+        a[:] += 1
+
+    matrix = np.zeros((2, 2), dtype=np.int64)
+    lib_loaded.add(matrix)
+
+    compiled_names = {
+        compiled.func_name for compiled in lib_loaded.add._compiled_functions.values()
+    }
+    assert f"{prefix}_2" in compiled_names
+
+
 def test_library_save_load_save_keeps_wrapper_specs_unique(tmp_path, backend):
     name = f"unique_wrapper_specs_{backend}"
     lib = nm.NumetaLibrary(name)
@@ -395,8 +531,7 @@ def test_library_save_load_save_keeps_wrapper_specs_unique(tmp_path, backend):
 
     lib_loaded.save(tmp_path, "")
 
-    with open(Path(tmp_path) / f"{name}.pkl", "rb") as handle:
-        saved_functions = pickle.load(handle)
+    saved_functions = _load_saved_entries(Path(tmp_path) / f"{name}.pkl")
 
     aggregate_extension = saved_functions[0]._library_pyc_extension
     wrapper_names = [wrapper_spec[0] for wrapper_spec in aggregate_extension.functions]
@@ -451,8 +586,7 @@ def test_library_save_persists_aggregate_wrapper_cache_info(tmp_path, backend):
     wrapper_path = Path(tmp_path) / f"lib{name}{PyCExtension.SUFFIX}.so"
     assert wrapper_path.exists()
 
-    with open(Path(tmp_path) / f"{name}.pkl", "rb") as handle:
-        saved_functions = pickle.load(handle)
+    saved_functions = _load_saved_entries(Path(tmp_path) / f"{name}.pkl")
 
     extension = saved_functions[0]._library_pyc_extension
     assert extension.cache_info is not None
@@ -540,8 +674,7 @@ def test_library_load_normalizes_legacy_duplicate_aggregate_wrappers(tmp_path, b
     lib.save(tmp_path, "")
 
     pickle_path = Path(tmp_path) / f"{name}.pkl"
-    with open(pickle_path, "rb") as handle:
-        saved_functions = pickle.load(handle)
+    saved_functions = _load_saved_entries(pickle_path)
 
     extension = saved_functions[0]._library_pyc_extension
     extension.functions = extension.functions + extension.functions
